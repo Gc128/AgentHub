@@ -1,0 +1,72 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.coverage
+coverage.xml
+htmlcov/
+
+# Python packaging and virtual environments
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+ENV/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# FastAPI / local runtime
+*.log
+logs/
+tmp/
+temp/
+.uvicorn/
+
+# SQLite and local data
+*.db
+*.sqlite
+*.sqlite3
+
+# Frontend dependencies and build outputs
+node_modules/
+.next/
+out/
+coverage/
+.turbo/
+.vite/
+vite.config.*.timestamp-*
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# AgentHub local workspaces and generated previews
+workspace_samples/*/.agenthub-cache/
+workspaces/
+previews/
+artifacts/
