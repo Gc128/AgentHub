@@ -1,4 +1,5 @@
 import type { Agent, Conversation, Message } from '../../types/api'
+import { MessageComposer } from './MessageComposer'
 
 /** 聊天主面板组件的入参。 */
 type ChatPanelProps = {
@@ -10,6 +11,8 @@ type ChatPanelProps = {
   messages: Message[]
   /** 消息和 preview 加载状态。 */
   loading: boolean
+  /** 用户发送消息时调用，父组件负责创建 Message 并刷新状态。 */
+  onSendMessage: (content: string) => Promise<void>
 }
 
 /**
@@ -39,6 +42,7 @@ export function ChatPanel({
   conversation,
   messages,
   loading,
+  onSendMessage,
 }: ChatPanelProps) {
   // 没有选中会话时不展示旧消息，避免用户误以为仍在上一个会话。
   if (!conversation) {
@@ -93,14 +97,8 @@ export function ChatPanel({
       </div>
 
       <footer className="composer-shell">
-        {/* @Agent 快捷提示；第二天会替换为真正的 MentionMenu。 */}
-        <div className="mention-bar">
-          @Orchestrator @CodeAgent @ReviewAgent @PreviewAgent
-        </div>
-        {/* 输入框占位；第二天会接入 MessageComposer 和发送消息流程。 */}
-        <div className="composer-placeholder">
-          输入开发需求，第二天任务会接入发送与 @Agent 菜单
-        </div>
+        {/* 第二天接入真实输入组件；第三天会在此基础上增加 @Agent 菜单和 Agent 回复。 */}
+        <MessageComposer disabled={!conversation} onSendMessage={onSendMessage} />
       </footer>
     </section>
   )

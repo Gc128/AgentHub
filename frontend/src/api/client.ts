@@ -4,6 +4,7 @@ import type {
   AgentRunResult,
   Conversation,
   CreateConversationInput,
+  CreateMessageInput,
   Message,
   WorkspacePreview,
 } from '../types/api'
@@ -76,6 +77,26 @@ export const apiClient = {
     }
     return requestJson<Message[]>(
       `/api/conversations/${conversationId}/messages`,
+    )
+  },
+
+  /**
+   * 在指定会话中创建一条消息。
+   * 后端请求体尚未定稿，当前前端只传 sender_id/content，mock 会补齐 Message 结构。
+   */
+  createMessage(
+    conversationId: string,
+    input: CreateMessageInput,
+  ): Promise<Message> {
+    if (useMock) {
+      return mockApi.createMessage(conversationId, input)
+    }
+    return requestJson<Message>(
+      `/api/conversations/${conversationId}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
     )
   },
 

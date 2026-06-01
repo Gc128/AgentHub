@@ -4,6 +4,7 @@ import type {
   AgentRunResult,
   Conversation,
   CreateConversationInput,
+  CreateMessageInput,
   Message,
   WorkspacePreview,
 } from '../types/api'
@@ -29,6 +30,10 @@ const previewByWorkspaceId: Record<string, WorkspacePreview> = structuredClone(
 
 /** 生成 ISO 时间字符串，保持和后端 created_at/updated_at 字段格式一致。 */
 const nowIso = () => new Date().toISOString()
+
+/** 生成 mock 自增 ID，保持 Demo 数据可读。 */
+const nextId = (prefix: string, count: number) =>
+  `${prefix}_${String(count + 1).padStart(3, '0')}`
 
 /**
  * 模拟网络延迟。
@@ -63,13 +68,13 @@ export const mockApi = {
   ): Promise<Conversation> {
     await delay()
     const timestamp = nowIso()
-    const id = `conv_${String(conversations.length + 1).padStart(3, '0')}`
+    const id = nextId('conv', conversations.length)
     const conversation: Conversation = {
       id,
       title: input.title,
       mode: input.mode,
       agent_ids: input.agent_ids,
-      workspace_id: `ws_${String(conversations.length + 1).padStart(3, '0')}`,
+      workspace_id: nextId('ws', conversations.length),
       created_at: timestamp,
       updated_at: timestamp,
     }
@@ -86,6 +91,37 @@ export const mockApi = {
   async listMessages(conversationId: string): Promise<Message[]> {
     await delay()
     return messagesByConversationId[conversationId] ?? []
+  },
+
+  /**
+   * Mock POST /api/conversations/{conversation_id}/messages。
+   * 第二天只做用户本地发送：创建 Message、追加到当前会话，并刷新会话 updated_at。
+   */
+  async createMessage(
+    conversationId: string,
+    input: CreateMessageInput,
+  ): Promise<Message> {
+    await delay()
+    const timestamp = nowIso()
+    const existingMessages = messagesByConversationId[conversationId] ?? []
+    const message: Message = {
+      id: nextId('msg', Object.values(messagesByConversationId).flat().length),
+      conversation_id: conversationId,
+      role: input.sender_id === 'user' ? 'user' : 'agent',
+      sender_id: input.sender_id,
+      content: input.content,
+      artifacts: [],
+      created_at: timestamp,
+    }
+
+    messagesByConversationId[conversationId] = [...existingMessages, message]
+
+    const conversation = conversations.find((item) => item.id === conversationId)
+    if (conversation) {
+      conversation.updated_at = timestamp
+    }
+
+    return message
   },
 
   /** Mock Agent 联系人列表；真实接口文档未明确，先供前端 @Agent 和联系人列表使用。 */

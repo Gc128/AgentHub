@@ -173,3 +173,15 @@ export type CreateConversationInput = {
   /** 初始参与的 Agent ID 列表。 */
   agent_ids: string[]
 }
+
+/**
+ * 新建消息的前端输入。
+ * 后端文档尚未明确 POST /api/conversations/{conversation_id}/messages 请求体，
+ * 这里先采用最小必要字段：谁发送了什么内容。
+ */
+export type CreateMessageInput = {
+  /** 消息发送者 ID；用户消息固定传 user，Agent 消息后续会传 agent.id。 */
+  sender_id: string
+  /** 消息正文，来自聊天输入框。 */
+  content: string
+}
