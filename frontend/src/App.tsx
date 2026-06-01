@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiClient } from './api/client'
 import { AgentList } from './components/agents/AgentList'
-import { ArtifactPanel } from './components/artifacts/ArtifactPanel'
+import { ArtifactPanel } from './components/artifactCards/ArtifactPanel'
 import { ChatPanel } from './components/chat/ChatPanel'
 import { ConversationList } from './components/conversations/ConversationList'
 import { NewConversationModal } from './components/conversations/NewConversationModal'

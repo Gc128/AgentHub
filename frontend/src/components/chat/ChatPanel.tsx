@@ -1,4 +1,5 @@
 import type { Agent, Conversation, Message } from '../../types/api'
+import { ArtifactRenderer } from '../artifactCards/ArtifactRenderer'
 import { MessageComposer } from './MessageComposer'
 
 /** 聊天主面板组件的入参。 */
@@ -85,12 +86,10 @@ export function ChatPanel({
               </div>
               <p>{message.content}</p>
               {message.artifacts.length > 0 ? (
-                <div className="message-artifact-strip">
-                  {/* 聊天气泡内只放 Artifact 摘要，详细内容由右侧 ArtifactPanel 聚合展示。 */}
+                <div className="message-artifact-list">
+                  {/* 聊天内联直接展示详细 Artifact 卡片，让协作过程和产物保持在同一条消息中。 */}
                   {message.artifacts.map((artifact) => (
-                    <span className="artifact-chip" key={artifact.id}>
-                      {artifact.type} / {artifact.title}
-                    </span>
+                    <ArtifactRenderer artifact={artifact} key={artifact.id} />
                   ))}
                 </div>
               ) : null}
