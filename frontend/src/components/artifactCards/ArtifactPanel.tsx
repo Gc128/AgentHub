@@ -9,6 +9,12 @@ type ArtifactPanelProps = {
   artifacts: Artifact[]
   /** 当前 workspace 的预览状态。 */
   preview: WorkspacePreview | null
+  /** 已经成功应用的 diff artifact ID 集合。 */
+  appliedDiffIds: ReadonlySet<string>
+  /** 当前正在应用的 diff artifact ID。 */
+  applyingDiffId: string | null
+  /** 点击 Apply Diff 时调用，父组件负责请求 API 和刷新 Preview。 */
+  onApplyDiff: (artifact: Artifact, diff: string) => Promise<void>
 }
 
 /**
@@ -19,6 +25,9 @@ export function ArtifactPanel({
   conversation,
   artifacts,
   preview,
+  appliedDiffIds,
+  applyingDiffId,
+  onApplyDiff,
 }: ArtifactPanelProps) {
   return (
     <section className="artifact-panel">
@@ -47,7 +56,13 @@ export function ArtifactPanel({
         ) : (
           artifacts.map((artifact) => (
             // 每个 artifact 复用统一渲染器，保证右侧面板和聊天内联展示一致。
-            <ArtifactRenderer artifact={artifact} key={artifact.id} />
+            <ArtifactRenderer
+              appliedDiffIds={appliedDiffIds}
+              applyingDiffId={applyingDiffId}
+              artifact={artifact}
+              key={artifact.id}
+              onApplyDiff={onApplyDiff}
+            />
           ))
         )}
       </div>

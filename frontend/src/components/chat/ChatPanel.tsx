@@ -1,4 +1,4 @@
-import type { Agent, Conversation, Message } from '../../types/api'
+import type { Agent, Artifact, Conversation, Message } from '../../types/api'
 import { ArtifactRenderer } from '../artifactCards/ArtifactRenderer'
 import { MessageComposer } from './MessageComposer'
 
@@ -14,6 +14,12 @@ type ChatPanelProps = {
   loading: boolean
   /** mock Agent 是否正在生成回复。 */
   agentRunning: boolean
+  /** 已经成功应用的 diff artifact ID 集合。 */
+  appliedDiffIds: ReadonlySet<string>
+  /** 当前正在应用的 diff artifact ID。 */
+  applyingDiffId: string | null
+  /** 点击 Apply Diff 时调用，父组件负责请求 API 和刷新 Preview。 */
+  onApplyDiff: (artifact: Artifact, diff: string) => Promise<void>
   /** 用户发送消息时调用，父组件负责创建 Message 并刷新状态。 */
   onSendMessage: (content: string) => Promise<void>
 }
@@ -46,6 +52,9 @@ export function ChatPanel({
   messages,
   loading,
   agentRunning,
+  appliedDiffIds,
+  applyingDiffId,
+  onApplyDiff,
   onSendMessage,
 }: ChatPanelProps) {
   // 没有选中会话时不展示旧消息，避免用户误以为仍在上一个会话。
@@ -89,7 +98,13 @@ export function ChatPanel({
                 <div className="message-artifact-list">
                   {/* 聊天内联直接展示详细 Artifact 卡片，让协作过程和产物保持在同一条消息中。 */}
                   {message.artifacts.map((artifact) => (
-                    <ArtifactRenderer artifact={artifact} key={artifact.id} />
+                    <ArtifactRenderer
+                      appliedDiffIds={appliedDiffIds}
+                      applyingDiffId={applyingDiffId}
+                      artifact={artifact}
+                      key={artifact.id}
+                      onApplyDiff={onApplyDiff}
+                    />
                   ))}
                 </div>
               ) : null}

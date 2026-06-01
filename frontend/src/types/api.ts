@@ -190,3 +190,30 @@ export type CreateMessageInput = {
    */
   artifacts?: Artifact[]
 }
+
+/**
+ * Apply Diff 的前端请求体。
+ * 后端文档只声明 POST /api/workspaces/{workspace_id}/apply-diff，未明确请求体；
+ * 当前前端 mock 使用 artifact_id 定位按钮状态，使用 diff 字符串模拟应用内容。
+ */
+export type ApplyDiffInput = {
+  /** 被应用的 diff artifact ID，用于让同一张 Diff 卡片展示 applied 状态。 */
+  artifact_id: string
+  /** unified diff 字符串，来自 diff artifact 的 data.diff。 */
+  diff: string
+}
+
+/**
+ * Apply Diff 的前端响应体。
+ * 后端文档未明确返回结构，当前 mock 返回 workspace 状态和应用时间，方便刷新 Preview。
+ */
+export type ApplyDiffResult = {
+  /** 本次应用变更所属 workspace。 */
+  workspace_id: string
+  /** 应用后的预览状态；mock 中成功应用后会变为 ready。 */
+  status: WorkspacePreview['status']
+  /** 成功应用的 diff artifact ID。 */
+  applied_artifact_id: string
+  /** 应用时间，使用 ISO 字符串。 */
+  applied_at: string
+}

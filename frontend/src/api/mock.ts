@@ -2,6 +2,8 @@ import type {
   Agent,
   AgentRunInput,
   AgentRunResult,
+  ApplyDiffInput,
+  ApplyDiffResult,
   Conversation,
   CreateConversationInput,
   CreateMessageInput,
@@ -27,6 +29,8 @@ const messagesByConversationId: Record<string, Message[]> = structuredClone(
 const previewByWorkspaceId: Record<string, WorkspacePreview> = structuredClone(
   mockPreviewByWorkspaceId,
 )
+// 记录已应用的 diff artifact，方便 mock 具备“重复点击不会重复应用”的基本行为。
+const appliedDiffIds = new Set<string>()
 
 /** 生成 ISO 时间字符串，保持和后端 created_at/updated_at 字段格式一致。 */
 const nowIso = () => new Date().toISOString()
@@ -326,5 +330,33 @@ export const mockApi = {
         status: 'not_started',
       }
     )
+  },
+
+  /**
+   * Mock POST /api/workspaces/{workspace_id}/apply-diff。
+   * 应用成功后把 workspace preview 标记为 ready，并记录 artifact_id 防止重复应用。
+   */
+  async applyDiff(
+    workspaceId: string,
+    input: ApplyDiffInput,
+  ): Promise<ApplyDiffResult> {
+    await delay()
+
+    if (!input.diff.trim()) {
+      throw new Error('Diff 内容为空，无法应用')
+    }
+
+    appliedDiffIds.add(input.artifact_id)
+    previewByWorkspaceId[workspaceId] = {
+      workspace_id: workspaceId,
+      status: 'ready',
+    }
+
+    return {
+      workspace_id: workspaceId,
+      status: 'ready',
+      applied_artifact_id: input.artifact_id,
+      applied_at: nowIso(),
+    }
   },
 }

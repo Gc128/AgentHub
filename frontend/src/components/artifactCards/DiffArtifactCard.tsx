@@ -1,9 +1,16 @@
+import { useState } from 'react'
 import type { Artifact } from '../../types/api'
 import { getArtifactString } from './artifactData'
 
 type DiffArtifactCardProps = {
   /** diff 类型的 Artifact，data 中应包含 filename/diff。 */
   artifact: Artifact
+  /** 当前 diff 是否已经应用；父组件用 artifact.id 统一管理状态。 */
+  applied: boolean
+  /** 当前 diff 是否正在应用；用于禁用按钮和展示进行中状态。 */
+  applying: boolean
+  /** 点击 Apply Diff 时调用，父组件负责请求 mock API 并刷新 Preview。 */
+  onApplyDiff?: (artifact: Artifact, diff: string) => Promise<void>
 }
 
 type DiffLine = {
@@ -45,10 +52,35 @@ const parseDiffLines = (diff: string): DiffLine[] =>
  * Diff 产物卡片。
  * 负责把 unified diff 按新增/删除/上下文分色展示，方便 Demo 时解释代码变更。
  */
-export function DiffArtifactCard({ artifact }: DiffArtifactCardProps) {
+export function DiffArtifactCard({
+  artifact,
+  applied,
+  applying,
+  onApplyDiff,
+}: DiffArtifactCardProps) {
+  // applyError 是卡片局部错误，只用于告诉用户这一次点击为什么失败。
+  const [applyError, setApplyError] = useState<string | null>(null)
   const filename = getArtifactString(artifact, 'filename', '未命名文件')
   const diff = getArtifactString(artifact, 'diff', '')
   const diffLines = parseDiffLines(diff)
+  const canApply = Boolean(onApplyDiff) && !applied && !applying
+
+  /** 点击应用 Diff；成功后状态由父组件 appliedDiffIds 统一刷新。 */
+  const handleApplyDiff = async () => {
+    if (!onApplyDiff) {
+      return
+    }
+
+    setApplyError(null)
+
+    try {
+      await onApplyDiff(artifact, diff)
+    } catch (caughtError) {
+      setApplyError(
+        caughtError instanceof Error ? caughtError.message : '应用 Diff 失败',
+      )
+    }
+  }
 
   return (
     <article className="artifact-card artifact-card-diff">
@@ -57,7 +89,17 @@ export function DiffArtifactCard({ artifact }: DiffArtifactCardProps) {
           <span className="artifact-type">{artifact.type}</span>
           <h3>{artifact.title}</h3>
         </div>
-        <span className="artifact-file-name">{filename}</span>
+        <div className="artifact-actions">
+          <span className="artifact-file-name">{filename}</span>
+          <button
+            className={applied ? 'artifact-action is-applied' : 'artifact-action'}
+            disabled={!canApply}
+            onClick={handleApplyDiff}
+            type="button"
+          >
+            {applied ? '已应用' : applying ? '应用中...' : 'Apply Diff'}
+          </button>
+        </div>
       </header>
       <div className="diff-viewer" aria-label={`${filename} diff`}>
         {diffLines.map((line, index) => (
@@ -69,6 +111,7 @@ export function DiffArtifactCard({ artifact }: DiffArtifactCardProps) {
           </pre>
         ))}
       </div>
+      {applyError ? <div className="form-error">{applyError}</div> : null}
     </article>
   )
 }

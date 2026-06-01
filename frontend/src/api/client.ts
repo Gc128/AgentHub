@@ -2,6 +2,8 @@ import type {
   Agent,
   AgentRunInput,
   AgentRunResult,
+  ApplyDiffInput,
+  ApplyDiffResult,
   Conversation,
   CreateConversationInput,
   CreateMessageInput,
@@ -135,6 +137,26 @@ export const apiClient = {
     }
     return requestJson<WorkspacePreview>(
       `/api/workspaces/${workspaceId}/preview`,
+    )
+  },
+
+  /**
+   * 应用 workspace 中的 Diff。
+   * 后端请求体未定稿，当前前端按 ApplyDiffInput 发送，mock 会同步刷新 preview 状态。
+   */
+  applyDiff(
+    workspaceId: string,
+    input: ApplyDiffInput,
+  ): Promise<ApplyDiffResult> {
+    if (useMock) {
+      return mockApi.applyDiff(workspaceId, input)
+    }
+    return requestJson<ApplyDiffResult>(
+      `/api/workspaces/${workspaceId}/apply-diff`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
     )
   },
 }

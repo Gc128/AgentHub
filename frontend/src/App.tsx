@@ -9,6 +9,7 @@ import { AppLayout } from './components/layout/AppLayout'
 import type {
   Agent,
   AgentRunResult,
+  Artifact,
   Conversation,
   CreateConversationInput,
   Message,
@@ -56,6 +57,12 @@ function App() {
   const [newConversationOpen, setNewConversationOpen] = useState(false)
   // mock Agent 回复生成状态；生成中禁用输入框并展示一条系统态消息。
   const [agentRunning, setAgentRunning] = useState(false)
+  // 已成功应用的 diff artifact ID；聊天流和右侧产物栏共享这份状态。
+  const [appliedDiffIds, setAppliedDiffIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+  // 当前正在应用的 diff artifact ID；用于让同一张卡片展示“应用中”。
+  const [applyingDiffId, setApplyingDiffId] = useState<string | null>(null)
   // 页面级错误提示；首日先集中展示，后续可以拆成更细的错误状态。
   const [error, setError] = useState<string | null>(null)
 
@@ -221,6 +228,43 @@ function App() {
   }
 
   /**
+   * 应用某个 Diff Artifact。
+   * 这是第五天的关键闭环：Diff 卡片按钮 → mock apply-diff → workspace preview 刷新。
+   */
+  const handleApplyDiff = async (artifact: Artifact, diff: string) => {
+    if (!selectedConversation) {
+      throw new Error('请先选择一个会话')
+    }
+
+    setApplyingDiffId(artifact.id)
+
+    try {
+      const result = await apiClient.applyDiff(selectedConversation.workspace_id, {
+        artifact_id: artifact.id,
+        diff,
+      })
+      setAppliedDiffIds((currentDiffIds) => {
+        const nextDiffIds = new Set(currentDiffIds)
+        nextDiffIds.add(result.applied_artifact_id)
+        return nextDiffIds
+      })
+
+      const nextPreview = await apiClient.getWorkspacePreview(
+        selectedConversation.workspace_id,
+      )
+      setPreview(nextPreview)
+      setError(null)
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : '应用 Diff 失败'
+      setError(message)
+      throw new Error(message)
+    } finally {
+      setApplyingDiffId(null)
+    }
+  }
+
+  /**
    * 在当前会话中发送用户消息。
    * 第三天在保存用户消息后，会根据 @Agent 或关键词触发 mock Agent 回复。
    */
@@ -318,8 +362,11 @@ function App() {
               agents={agents}
               conversation={selectedConversation}
               agentRunning={agentRunning}
+              appliedDiffIds={appliedDiffIds}
+              applyingDiffId={applyingDiffId}
               loading={loadingMessages}
               messages={messages}
+              onApplyDiff={handleApplyDiff}
               onSendMessage={handleSendMessage}
             />
           </>
@@ -327,8 +374,11 @@ function App() {
         aside={
           /* 右侧产物区：聚合当前会话所有 artifacts，并展示 workspace preview 状态。 */
           <ArtifactPanel
+            appliedDiffIds={appliedDiffIds}
+            applyingDiffId={applyingDiffId}
             artifacts={artifacts}
             conversation={selectedConversation}
+            onApplyDiff={handleApplyDiff}
             preview={preview}
           />
         }

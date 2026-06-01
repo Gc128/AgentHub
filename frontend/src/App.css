@@ -619,9 +619,28 @@
   font-weight: 700;
 }
 
+.artifact-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .artifact-action:hover {
   border-color: #b8cbc5;
   background: #eef5f1;
+}
+
+.artifact-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+
+.artifact-action.is-applied {
+  border-color: #b6d3b5;
+  background: #e4f4e4;
+  color: #236137;
 }
 
 .artifact-file-name {
