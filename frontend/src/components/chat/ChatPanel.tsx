@@ -11,6 +11,8 @@ type ChatPanelProps = {
   messages: Message[]
   /** 消息和 preview 加载状态。 */
   loading: boolean
+  /** mock Agent 是否正在生成回复。 */
+  agentRunning: boolean
   /** 用户发送消息时调用，父组件负责创建 Message 并刷新状态。 */
   onSendMessage: (content: string) => Promise<void>
 }
@@ -42,6 +44,7 @@ export function ChatPanel({
   conversation,
   messages,
   loading,
+  agentRunning,
   onSendMessage,
 }: ChatPanelProps) {
   // 没有选中会话时不展示旧消息，避免用户误以为仍在上一个会话。
@@ -94,11 +97,24 @@ export function ChatPanel({
             </article>
           ))
         )}
+        {agentRunning ? (
+          <article className="message-bubble message-system">
+            <div className="message-meta">
+              <span>AgentHub</span>
+              <span>生成中</span>
+            </div>
+            <p>Mock Agent 正在根据 @Agent 路由生成回复...</p>
+          </article>
+        ) : null}
       </div>
 
       <footer className="composer-shell">
         {/* 第二天接入真实输入组件；第三天会在此基础上增加 @Agent 菜单和 Agent 回复。 */}
-        <MessageComposer disabled={!conversation} onSendMessage={onSendMessage} />
+        <MessageComposer
+          agents={agents}
+          disabled={!conversation || agentRunning}
+          onSendMessage={onSendMessage}
+        />
       </footer>
     </section>
   )

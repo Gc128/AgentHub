@@ -35,13 +35,20 @@ const nowIso = () => new Date().toISOString()
 const nextId = (prefix: string, count: number) =>
   `${prefix}_${String(count + 1).padStart(3, '0')}`
 
+/** 生成随机整数，用于让 mock 延迟、文案和产物内容看起来更接近真实 Agent。 */
+const randomInt = (min: number, max: number) =>
+  Math.floor(Math.random() * (max - min + 1)) + min
+
+/** 从候选数组中随机选择一项，避免每次 mock 回复完全一样。 */
+const randomPick = <T>(items: T[]) => items[randomInt(0, items.length - 1)]
+
 /**
  * 模拟网络延迟。
  * 这样 UI 能暴露 loading 状态，后续接真实后端时交互不会突然变样。
  */
 const delay = async () => {
   await new Promise((resolve) => {
-    window.setTimeout(resolve, 160)
+    window.setTimeout(resolve, randomInt(180, 620))
   })
 }
 
@@ -51,6 +58,163 @@ const sortByUpdatedAt = (items: Conversation[]) =>
     (left, right) =>
       new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
   )
+
+/** 生成随机 Artifact ID，避免连续调用 Agent 时产物 key 冲突。 */
+const nextArtifactId = (type: string) =>
+  `artifact_${type}_${Date.now()}_${randomInt(100, 999)}`
+
+/** 从用户消息中提取一个可读的任务标题，用于 mock 回复和 artifact 标题。 */
+const getTaskTitle = (message: string) =>
+  message
+    .replace(/@(?:Orchestrator|CodeAgent|ReviewAgent|PreviewAgent)/g, '')
+    .trim()
+    .slice(0, 28) || '开发任务'
+
+/**
+ * 生成 Code Agent 的随机代码和 Diff。
+ * 内容仍然围绕 Todo Demo，但按钮文案、初始任务、强调色会随机变化。
+ */
+const createCodeAgentResult = (input: AgentRunInput): AgentRunResult => {
+  const timestamp = nowIso()
+  const accentColor = randomPick(['#235b54', '#3f6c8f', '#7a5c22', '#6a5acd'])
+  const buttonText = randomPick(['Add task', 'Create todo', 'Save item'])
+  const todoItems = randomPick([
+    ['梳理需求', '生成代码', '检查 Diff'],
+    ['设计页面', '接入 Mock', '准备预览'],
+    ['创建会话', '发送消息', '查看产物'],
+  ])
+  const taskTitle = getTaskTitle(input.user_message)
+  const todoRows = todoItems
+    .map((item) => `    { id: crypto.randomUUID(), title: '${item}' },`)
+    .join('\n')
+  const content = `const initialTodos = [\n${todoRows}\n]\n\nexport default function App() {\n  return (\n    <main className="todo-app" style={{ '--accent': '${accentColor}' }}>\n      <h1>${taskTitle}</h1>\n      <button>${buttonText}</button>\n    </main>\n  )\n}\n`
+  const diff = `--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+${content
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => `+${line}`)
+    .join('\n')}\n`
+
+  return {
+    agent_id: 'code-agent',
+    content: randomPick([
+      `我先补了一版可演示的 Todo 页面，包含 ${todoItems.length} 条初始任务和一个主要操作按钮。`,
+      `已生成 Todo 页面骨架，并把强调色设置为 ${accentColor}，方便后续预览和调整。`,
+      `代码已准备好，当前版本重点保证 Demo 链路清晰：列表、标题和主按钮都能直接展示。`,
+    ]),
+    artifacts: [
+      {
+        id: nextArtifactId('code'),
+        type: 'code',
+        title: 'Todo App Component',
+        data: {
+          filename: 'src/App.tsx',
+          language: 'tsx',
+          content,
+        },
+        created_at: timestamp,
+      },
+      {
+        id: nextArtifactId('diff'),
+        type: 'diff',
+        title: 'Todo App Diff',
+        data: {
+          filename: 'src/App.tsx',
+          diff,
+        },
+        created_at: timestamp,
+      },
+    ],
+    next_actions: ['review', 'preview'],
+  }
+}
+
+/** 生成 Review Agent 的随机检查建议，让每次 Demo 有细节差异。 */
+const createReviewAgentResult = (): AgentRunResult => {
+  const findings = randomPick([
+    ['按钮需要 disabled 状态', '空列表要有提示', '移动端标题需要换行保护'],
+    ['Diff 应用失败要提示', '输入框需要 trim', '预览未就绪时不要展示空 iframe'],
+    ['Artifact 卡片要可滚动', 'Agent 回复要保留时间线', '长文件名需要省略显示'],
+  ])
+
+  return {
+    agent_id: 'review-agent',
+    content: `我完成了一轮轻量 review，建议优先处理：${findings.join('、')}。`,
+    artifacts: [
+      {
+        id: nextArtifactId('file'),
+        type: 'file',
+        title: 'Review Notes',
+        data: {
+          findings,
+          risk_level: randomPick(['low', 'medium']),
+        },
+        created_at: nowIso(),
+      },
+    ],
+    next_actions: ['preview'],
+  }
+}
+
+/** 生成 Preview Agent 的预览结果，并同步更新 workspace preview 状态。 */
+const createPreviewAgentResult = (input: AgentRunInput): AgentRunResult => {
+  const status = randomPick<WorkspacePreview['status']>(['ready', 'ready', 'running'])
+  previewByWorkspaceId[input.workspace_id] = {
+    workspace_id: input.workspace_id,
+    status,
+  }
+
+  return {
+    agent_id: 'preview-agent',
+    content:
+      status === 'ready'
+        ? '预览环境已就绪，可以在右侧查看 workspace 状态，下一步可应用 Diff 后刷新页面。'
+        : '预览服务正在启动，当前 workspace 已进入 running 状态，稍后可再次刷新预览。',
+    artifacts: [
+      {
+        id: nextArtifactId('preview'),
+        type: 'preview',
+        title: 'Workspace Preview',
+        data: {
+          workspace_id: input.workspace_id,
+          status,
+          checked_at: nowIso(),
+        },
+        created_at: nowIso(),
+      },
+    ],
+    next_actions: [],
+  }
+}
+
+/** 生成 Orchestrator 的任务拆解结果。 */
+const createOrchestratorResult = (input: AgentRunInput): AgentRunResult => {
+  const taskTitle = getTaskTitle(input.user_message)
+  const steps = randomPick([
+    ['Code Agent 生成页面代码', 'Review Agent 检查实现风险', 'Preview Agent 准备预览状态'],
+    ['先生成 Todo 页面', '再检查交互和空状态', '最后返回 workspace 预览'],
+    ['拆分 UI 实现', '检查代码质量', '确认 Demo 预览路径'],
+  ])
+
+  return {
+    agent_id: 'orchestrator',
+    content: `我已围绕“${taskTitle}”拆解任务：${steps.join(' → ')}。接下来会按顺序调用子 Agent。`,
+    artifacts: [
+      {
+        id: nextArtifactId('file'),
+        type: 'file',
+        title: 'Task Breakdown',
+        data: {
+          summary: 'Rule-based MVP plan',
+          task_title: taskTitle,
+          steps,
+          estimated_minutes: randomInt(6, 14),
+        },
+        created_at: nowIso(),
+      },
+    ],
+    next_actions: ['code', 'review', 'preview'],
+  }
+}
 
 export const mockApi = {
   /** Mock GET /api/conversations。 */
@@ -110,7 +274,7 @@ export const mockApi = {
       role: input.sender_id === 'user' ? 'user' : 'agent',
       sender_id: input.sender_id,
       content: input.content,
-      artifacts: [],
+      artifacts: input.artifacts ?? [],
       created_at: timestamp,
     }
 
@@ -132,17 +296,25 @@ export const mockApi = {
 
   /**
    * Mock POST /api/agents/run。
-   * 第一阶段只提供统一返回壳，第三天任务会在这里扩展 Orchestrator 多 Agent 回复链路。
+   * 根据 context.agent_id 分发到不同 mock Agent，并随机生成更真实的回复细节。
    */
   async runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     await delay()
     const agentId = input.context.agent_id ?? 'orchestrator'
-    return {
-      agent_id: agentId,
-      content: `${agentId} received: ${input.user_message}`,
-      artifacts: [],
-      next_actions: ['review', 'preview'],
+
+    if (agentId === 'code-agent') {
+      return createCodeAgentResult(input)
     }
+
+    if (agentId === 'review-agent') {
+      return createReviewAgentResult()
+    }
+
+    if (agentId === 'preview-agent') {
+      return createPreviewAgentResult(input)
+    }
+
+    return createOrchestratorResult(input)
   },
 
   /** Mock GET /api/workspaces/{workspace_id}/preview。 */

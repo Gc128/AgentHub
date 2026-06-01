@@ -8,11 +8,13 @@ import { NewConversationModal } from './components/conversations/NewConversation
 import { AppLayout } from './components/layout/AppLayout'
 import type {
   Agent,
+  AgentRunResult,
   Conversation,
   CreateConversationInput,
   Message,
   WorkspacePreview,
 } from './types/api'
+import { resolveAgentRunOrder } from './utils/agentRouting'
 import './App.css'
 
 /** 会话按最近更新时间倒序排序，保持 IM 左侧列表的常见体验。 */
@@ -21,6 +23,13 @@ const sortConversationsByUpdatedAt = (items: Conversation[]) =>
     (left, right) =>
       new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
   )
+
+/**
+ * 判断 Agent 返回结果是否携带 preview artifact。
+ * 如果有，前端会重新拉取 workspace preview，保持右侧状态和聊天产物一致。
+ */
+const hasPreviewArtifact = (result: AgentRunResult) =>
+  result.artifacts.some((artifact) => artifact.type === 'preview')
 
 /**
  * AgentHub 前端根组件。
@@ -45,6 +54,8 @@ function App() {
   const [conversationSearchTerm, setConversationSearchTerm] = useState('')
   // 控制新建会话弹窗是否打开。
   const [newConversationOpen, setNewConversationOpen] = useState(false)
+  // mock Agent 回复生成状态；生成中禁用输入框并展示一条系统态消息。
+  const [agentRunning, setAgentRunning] = useState(false)
   // 页面级错误提示；首日先集中展示，后续可以拆成更细的错误状态。
   const [error, setError] = useState<string | null>(null)
 
@@ -192,29 +203,84 @@ function App() {
   }
 
   /**
+   * 把 AgentRunResult 保存为聊天消息。
+   * 这里仍走 createMessage，让 mock 内存消息表和前端状态保持一致。
+   */
+  const appendAgentResult = async (
+    conversationId: string,
+    result: AgentRunResult,
+  ) => {
+    const message = await apiClient.createMessage(conversationId, {
+      sender_id: result.agent_id,
+      content: result.content,
+      artifacts: result.artifacts,
+    })
+
+    setMessages((currentMessages) => [...currentMessages, message])
+    return message
+  }
+
+  /**
    * 在当前会话中发送用户消息。
-   * 第二天只保存用户消息，不触发 Agent 回复；第三天会在这里接 @Agent 调度。
+   * 第三天在保存用户消息后，会根据 @Agent 或关键词触发 mock Agent 回复。
    */
   const handleSendMessage = async (content: string) => {
     if (!selectedConversation) {
       throw new Error('请先选择一个会话')
     }
 
-    const message = await apiClient.createMessage(selectedConversation.id, {
-      sender_id: 'user',
-      content,
-    })
+    setAgentRunning(true)
 
-    setMessages((currentMessages) => [...currentMessages, message])
-    setConversations((currentConversations) =>
-      sortConversationsByUpdatedAt(
-        currentConversations.map((conversation) =>
-          conversation.id === selectedConversation.id
-            ? { ...conversation, updated_at: message.created_at }
-            : conversation,
+    try {
+      const message = await apiClient.createMessage(selectedConversation.id, {
+        sender_id: 'user',
+        content,
+      })
+
+      setMessages((currentMessages) => [...currentMessages, message])
+      setConversations((currentConversations) =>
+        sortConversationsByUpdatedAt(
+          currentConversations.map((conversation) =>
+            conversation.id === selectedConversation.id
+              ? { ...conversation, updated_at: message.created_at }
+              : conversation,
+          ),
         ),
-      ),
-    )
+      )
+
+      const agentRunOrder = resolveAgentRunOrder(content, agents)
+      let hasPreviewUpdate = false
+
+      for (const agentId of agentRunOrder) {
+        const result = await apiClient.runAgent({
+          conversation_id: selectedConversation.id,
+          workspace_id: selectedConversation.workspace_id,
+          user_message: content,
+          history: [...messages, message],
+          context: {
+            agent_id: agentId,
+          },
+        })
+
+        await appendAgentResult(selectedConversation.id, result)
+        hasPreviewUpdate = hasPreviewUpdate || hasPreviewArtifact(result)
+      }
+
+      if (hasPreviewUpdate) {
+        const nextPreview = await apiClient.getWorkspacePreview(
+          selectedConversation.workspace_id,
+        )
+        setPreview(nextPreview)
+      }
+
+      setError(null)
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : 'Agent 回复失败',
+      )
+    } finally {
+      setAgentRunning(false)
+    }
   }
 
   return (
@@ -251,6 +317,7 @@ function App() {
             <ChatPanel
               agents={agents}
               conversation={selectedConversation}
+              agentRunning={agentRunning}
               loading={loadingMessages}
               messages={messages}
               onSendMessage={handleSendMessage}

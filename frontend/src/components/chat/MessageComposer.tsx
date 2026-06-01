@@ -1,6 +1,15 @@
 import { useState, type FormEvent } from 'react'
+import type { Agent } from '../../types/api'
+import {
+  getActiveMentionQuery,
+  getAgentMentionLabel,
+  insertAgentMention,
+} from '../../utils/agentRouting'
+import { MentionMenu } from './MentionMenu'
 
 type MessageComposerProps = {
+  /** 可 @ 的 Agent 列表，用于快捷标签和 MentionMenu。 */
+  agents: Agent[]
   /** 当前是否有可发送的会话；没有会话时输入框禁用。 */
   disabled: boolean
   /** 消息提交回调，父组件负责调用 apiClient.createMessage。 */
@@ -9,9 +18,10 @@ type MessageComposerProps = {
 
 /**
  * 聊天输入组件。
- * 第二天只负责本地发送用户消息；@Agent 菜单和 Agent 回复会在第三天接入。
+ * 第三天增加 @Agent 菜单；发送后父组件会根据 @ 触发 mock Agent 回复。
  */
 export function MessageComposer({
+  agents,
   disabled,
   onSendMessage,
 }: MessageComposerProps) {
@@ -21,6 +31,17 @@ export function MessageComposer({
   const [sending, setSending] = useState(false)
   // 输入校验或发送失败提示。
   const [composerError, setComposerError] = useState<string | null>(null)
+
+  /** 当前正在输入的 @ 查询；为 null 时不显示 MentionMenu。 */
+  const mentionQuery = getActiveMentionQuery(content)
+
+  /** 把用户选择的 Agent 以 @ 标签形式插入输入框。 */
+  const handleSelectAgent = (agent: Agent) => {
+    setContent((currentContent) =>
+      insertAgentMention(currentContent, getAgentMentionLabel(agent)),
+    )
+    setComposerError(null)
+  }
 
   /** 提交用户消息；空白内容不会发送到 mock API。 */
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -49,21 +70,47 @@ export function MessageComposer({
 
   return (
     <form className="message-composer" onSubmit={handleSubmit}>
-      {/* @Agent 快捷提示；第三天会升级为真正的 MentionMenu。 */}
-      <div className="mention-bar">
-        @Orchestrator @CodeAgent @ReviewAgent @PreviewAgent
+      {/* 快捷 @ 标签：适合 Demo 时不用键盘输入也能快速指定 Agent。 */}
+      <div className="mention-bar" aria-label="Agent 快捷提及">
+        {agents.map((agent) => (
+          <button
+            className="mention-chip"
+            disabled={disabled || sending}
+            key={agent.id}
+            onClick={() => handleSelectAgent(agent)}
+            type="button"
+          >
+            {getAgentMentionLabel(agent)}
+          </button>
+        ))}
       </div>
-      <textarea
-        className="composer-input"
-        disabled={disabled || sending}
-        onChange={(event) => setContent(event.target.value)}
-        placeholder="输入开发需求，例如：@Orchestrator 帮我做一个简洁的 Todo List 网页"
-        rows={3}
-        value={content}
-      />
+      <div className="composer-input-wrap">
+        <MentionMenu
+          agents={agents}
+          query={mentionQuery}
+          onSelectAgent={handleSelectAgent}
+        />
+        <textarea
+          className="composer-input"
+          disabled={disabled || sending}
+          onChange={(event) => {
+            setContent(event.target.value)
+            setComposerError(null)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+            }
+          }}
+          placeholder="输入开发需求，例如：@Orchestrator 帮我做一个简洁的 Todo List 网页"
+          rows={3}
+          value={content}
+        />
+      </div>
       <div className="composer-footer">
         <span className="composer-hint">
-          当前阶段先保存用户消息，Agent 回复将在下一步接入
+          输入 @ 可选择 Agent；@Orchestrator 会触发多 Agent 模拟协作
         </span>
         <button
           className="primary-button"

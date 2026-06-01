@@ -184,4 +184,9 @@ export type CreateMessageInput = {
   sender_id: string
   /** 消息正文，来自聊天输入框。 */
   content: string
+  /**
+   * 可选结构化产物。
+   * 后端请求体尚未明确，当前只在前端 mock 中用于保存 Agent 回复生成的 artifacts。
+   */
+  artifacts?: Artifact[]
 }
