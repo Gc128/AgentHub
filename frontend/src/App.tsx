@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Alert, ConfigProvider, theme } from 'antd'
 import { apiClient } from './api/client'
 import { AgentList } from './components/agents/AgentList'
 import { ArtifactPanel } from './components/artifactCards/ArtifactPanel'
@@ -328,7 +329,18 @@ function App() {
   }
 
   return (
-    <>
+    <ConfigProvider
+      theme={{
+        algorithm: theme.defaultAlgorithm,
+        token: {
+          borderRadius: 8,
+          colorPrimary: '#235b54',
+          colorInfo: '#235b54',
+          fontFamily:
+            'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        },
+      }}
+    >
       <AppLayout
         sidebar={
           <>
@@ -357,17 +369,14 @@ function App() {
           <>
             {/* 页面级错误兜底，避免接口失败时静默空白。 */}
             {error ? (
-              <div className="error-banner">
-                <span>{error}</span>
-                <button
-                  className="error-dismiss"
-                  onClick={() => setError(null)}
-                  type="button"
-                  aria-label="关闭错误提示"
-                >
-                  ×
-                </button>
-              </div>
+              <Alert
+                className="error-banner"
+                closable
+                message={error}
+                onClose={() => setError(null)}
+                showIcon
+                type="error"
+              />
             ) : null}
             {/* 中间主区域：当前会话的消息流和消息输入。 */}
             <ChatPanel
@@ -401,7 +410,7 @@ function App() {
         onClose={() => setNewConversationOpen(false)}
         onCreateConversation={handleCreateConversation}
       />
-    </>
+    </ConfigProvider>
   )
 }
 

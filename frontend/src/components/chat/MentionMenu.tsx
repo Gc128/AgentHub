@@ -1,3 +1,4 @@
+import { Empty } from 'antd'
 import type { Agent } from '../../types/api'
 import { getAgentMentionLabel } from '../../utils/agentRouting'
 
@@ -36,7 +37,11 @@ export function MentionMenu({ agents, query, onSelectAgent }: MentionMenuProps) 
   if (visibleAgents.length === 0) {
     return (
       <div className="mention-menu">
-        <div className="mention-empty">没有匹配的 Agent</div>
+        <Empty
+          className="mention-empty"
+          description="没有匹配的 Agent"
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+        />
       </div>
     )
   }

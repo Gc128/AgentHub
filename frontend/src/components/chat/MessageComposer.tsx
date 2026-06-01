@@ -1,3 +1,5 @@
+import { ThunderboltOutlined, SendOutlined } from '@ant-design/icons'
+import { Alert, Button, Input, Tag } from 'antd'
 import { useState, type FormEvent } from 'react'
 import type { Agent } from '../../types/api'
 import {
@@ -40,6 +42,10 @@ export function MessageComposer({
 
   /** 把用户选择的 Agent 以 @ 标签形式插入输入框。 */
   const handleSelectAgent = (agent: Agent) => {
+    if (disabled || sending) {
+      return
+    }
+
     setContent((currentContent) =>
       insertAgentMention(currentContent, getAgentMentionLabel(agent)),
     )
@@ -82,15 +88,13 @@ export function MessageComposer({
       {/* 快捷 @ 标签：适合 Demo 时不用键盘输入也能快速指定 Agent。 */}
       <div className="mention-bar" aria-label="Agent 快捷提及">
         {agents.map((agent) => (
-          <button
+          <Tag
             className="mention-chip"
-            disabled={disabled || sending}
             key={agent.id}
             onClick={() => handleSelectAgent(agent)}
-            type="button"
           >
             {getAgentMentionLabel(agent)}
-          </button>
+          </Tag>
         ))}
       </div>
       <div className="composer-input-wrap">
@@ -99,7 +103,7 @@ export function MessageComposer({
           query={mentionQuery}
           onSelectAgent={handleSelectAgent}
         />
-        <textarea
+        <Input.TextArea
           className="composer-input"
           disabled={disabled || sending}
           onChange={(event) => {
@@ -121,23 +125,33 @@ export function MessageComposer({
         <span className="composer-hint">
           输入 @ 可选择 Agent；@Orchestrator 会触发多 Agent 模拟协作
         </span>
-        <button
+        <Button
           className="secondary-button demo-prompt-button"
           disabled={disabled || sending}
+          icon={<ThunderboltOutlined />}
           onClick={handleUseDemoPrompt}
-          type="button"
         >
           使用 Demo Prompt
-        </button>
-        <button
+        </Button>
+        <Button
           className="primary-button"
           disabled={disabled || sending}
-          type="submit"
+          htmlType="submit"
+          icon={<SendOutlined />}
+          loading={sending}
+          type="primary"
         >
           {sending ? '发送中...' : '发送'}
-        </button>
+        </Button>
       </div>
-      {composerError ? <div className="form-error">{composerError}</div> : null}
+      {composerError ? (
+        <Alert
+          className="form-error"
+          message={composerError}
+          showIcon
+          type="error"
+        />
+      ) : null}
     </form>
   )
 }

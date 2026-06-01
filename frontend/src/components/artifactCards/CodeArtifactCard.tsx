@@ -1,3 +1,9 @@
+import {
+  CheckOutlined,
+  CloseCircleOutlined,
+  CopyOutlined,
+} from '@ant-design/icons'
+import { Button, Tag } from 'antd'
 import { useState } from 'react'
 import type { Artifact } from '../../types/api'
 import { getArtifactString } from './artifactData'
@@ -36,20 +42,30 @@ export function CodeArtifactCard({ artifact }: CodeArtifactCardProps) {
     <article className="artifact-card artifact-card-code">
       <header className="artifact-card-top">
         <div>
-          <span className="artifact-type">{artifact.type}</span>
+          {/* 产物类型使用 Tag 展示，视觉上和 Agent 能力标签保持一致。 */}
+          <Tag className="artifact-type">{artifact.type}</Tag>
           <h3>{artifact.title}</h3>
         </div>
-        <button
+        <Button
           className="artifact-action"
+          icon={
+            copyState === 'copied' ? (
+              <CheckOutlined />
+            ) : copyState === 'failed' ? (
+              <CloseCircleOutlined />
+            ) : (
+              <CopyOutlined />
+            )
+          }
           onClick={handleCopyCode}
-          type="button"
+          size="small"
         >
           {copyState === 'copied'
             ? '已复制'
             : copyState === 'failed'
               ? '复制失败'
               : '复制代码'}
-        </button>
+        </Button>
       </header>
       <div className="artifact-meta-row">
         <span>{filename}</span>

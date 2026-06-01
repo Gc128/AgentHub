@@ -1,3 +1,9 @@
+import {
+  CheckCircleOutlined,
+  CloudUploadOutlined,
+  LoadingOutlined,
+} from '@ant-design/icons'
+import { Alert, Button, Tag } from 'antd'
 import { useState } from 'react'
 import type { Artifact } from '../../types/api'
 import { getArtifactString } from './artifactData'
@@ -86,19 +92,30 @@ export function DiffArtifactCard({
     <article className="artifact-card artifact-card-diff">
       <header className="artifact-card-top">
         <div>
-          <span className="artifact-type">{artifact.type}</span>
+          {/* diff 类型继续来自后端 Artifact.type，不新增前端私有字段。 */}
+          <Tag className="artifact-type">{artifact.type}</Tag>
           <h3>{artifact.title}</h3>
         </div>
         <div className="artifact-actions">
           <span className="artifact-file-name">{filename}</span>
-          <button
+          <Button
             className={applied ? 'artifact-action is-applied' : 'artifact-action'}
             disabled={!canApply}
+            icon={
+              applied ? (
+                <CheckCircleOutlined />
+              ) : applying ? (
+                <LoadingOutlined />
+              ) : (
+                <CloudUploadOutlined />
+              )
+            }
+            loading={applying}
             onClick={handleApplyDiff}
-            type="button"
+            size="small"
           >
             {applied ? '已应用' : applying ? '应用中...' : 'Apply Diff'}
-          </button>
+          </Button>
         </div>
       </header>
       <div className="diff-viewer" aria-label={`${filename} diff`}>
@@ -111,7 +128,14 @@ export function DiffArtifactCard({
           </pre>
         ))}
       </div>
-      {applyError ? <div className="form-error">{applyError}</div> : null}
+      {applyError ? (
+        <Alert
+          className="form-error"
+          message={applyError}
+          showIcon
+          type="error"
+        />
+      ) : null}
     </article>
   )
 }

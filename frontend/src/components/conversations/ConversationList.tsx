@@ -1,3 +1,5 @@
+import { MessageOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { Badge, Button, Empty, Input } from 'antd'
 import type { Conversation } from '../../types/api'
 
 /** 会话列表组件的入参。 */
@@ -40,27 +42,32 @@ export function ConversationList({
       <div className="section-heading">
         <span>会话</span>
         {/* 新建会话入口，点击后由 App 打开 NewConversationModal。 */}
-        <button
+        <Button
           className="icon-button"
+          icon={<PlusOutlined />}
           onClick={onOpenNewConversation}
-          type="button"
+          type="text"
           aria-label="新建会话"
-        >
-          +
-        </button>
+        />
       </div>
 
       {/* 搜索接口文档未明确，先在前端按标题做本地过滤。 */}
-      <input
+      <Input
         className="search-box"
         onChange={(event) => onSearchTermChange(event.target.value)}
         placeholder="搜索会话"
+        prefix={<SearchOutlined />}
+        allowClear
         value={searchTerm}
       />
 
       <div className="conversation-list">
         {conversations.length === 0 ? (
-          <div className="conversation-empty">没有匹配的会话</div>
+          <Empty
+            className="conversation-empty"
+            description="没有匹配的会话"
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
         ) : (
           conversations.map((conversation) => (
             <button
@@ -77,7 +84,13 @@ export function ConversationList({
               <span className="conversation-title">{conversation.title}</span>
               <span className="conversation-meta">
                 {/* mode 字段来自后端 schema，前端只做文案映射。 */}
-                {conversation.mode === 'group' ? '群聊协作' : '单聊'}
+                <Badge
+                  color={conversation.mode === 'group' ? '#235b54' : '#7a5c22'}
+                  text={
+                    conversation.mode === 'group' ? '群聊协作' : '单聊'
+                  }
+                />
+                <MessageOutlined />
                 <span>{formatTime(conversation.updated_at)}</span>
               </span>
             </button>

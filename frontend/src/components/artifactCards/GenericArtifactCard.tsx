@@ -1,3 +1,5 @@
+import { ClockCircleOutlined } from '@ant-design/icons'
+import { Tag } from 'antd'
 import type { Artifact } from '../../types/api'
 import { getArtifactNumber, getArtifactStringList } from './artifactData'
 
@@ -20,11 +22,14 @@ export function GenericArtifactCard({ artifact }: GenericArtifactCardProps) {
     <article className="artifact-card artifact-card-generic">
       <header className="artifact-card-top">
         <div>
-          <span className="artifact-type">{artifact.type}</span>
+          {/* file/deploy 等非 P0 专用产物用通用 Tag 标出类型。 */}
+          <Tag className="artifact-type">{artifact.type}</Tag>
           <h3>{artifact.title}</h3>
         </div>
         {estimatedMinutes ? (
-          <span className="artifact-file-name">{estimatedMinutes} min</span>
+          <Tag className="artifact-file-name" icon={<ClockCircleOutlined />}>
+            {estimatedMinutes} min
+          </Tag>
         ) : null}
       </header>
       {listItems.length > 0 ? (

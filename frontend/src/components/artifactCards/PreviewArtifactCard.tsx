@@ -1,9 +1,29 @@
+import { Badge, Tag } from 'antd'
 import type { Artifact } from '../../types/api'
 import { getArtifactString } from './artifactData'
 
 type PreviewArtifactCardProps = {
   /** preview 类型的 Artifact，data 中应包含 workspace_id/status，可选 preview_url。 */
   artifact: Artifact
+}
+
+/** 把后端 preview status 映射为 Ant Design Badge 支持的视觉状态。 */
+const getPreviewBadgeStatus = (
+  status: string,
+): 'success' | 'processing' | 'default' | 'error' | 'warning' => {
+  if (status === 'ready') {
+    return 'success'
+  }
+
+  if (status === 'running') {
+    return 'processing'
+  }
+
+  if (status === 'error') {
+    return 'error'
+  }
+
+  return 'default'
 }
 
 /**
@@ -20,10 +40,15 @@ export function PreviewArtifactCard({ artifact }: PreviewArtifactCardProps) {
     <article className="artifact-card artifact-card-preview">
       <header className="artifact-card-top">
         <div>
-          <span className="artifact-type">{artifact.type}</span>
+          {/* preview 仍使用标准 Artifact.type，方便未来真实后端直接接入。 */}
+          <Tag className="artifact-type">{artifact.type}</Tag>
           <h3>{artifact.title}</h3>
         </div>
-        <span className={`status-pill status-${status}`}>{status}</span>
+        <Badge
+          className={`status-pill status-${status}`}
+          status={getPreviewBadgeStatus(status)}
+          text={status}
+        />
       </header>
       <div className="preview-detail-grid">
         <div>

@@ -118,6 +118,13 @@
   line-height: 1;
 }
 
+.ant-btn.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
 .search-box,
 .mention-bar {
   border: 1px solid #ddd8cd;
@@ -131,6 +138,11 @@
   padding: 9px 10px;
   outline: none;
   font-size: 13px;
+}
+
+.ant-input-affix-wrapper.search-box {
+  display: flex;
+  align-items: center;
 }
 
 .search-box:focus,
@@ -185,6 +197,11 @@
 }
 
 .conversation-meta {
+  color: #71766d;
+  font-size: 12px;
+}
+
+.conversation-meta .ant-badge-status-text {
   color: #71766d;
   font-size: 12px;
 }
@@ -252,6 +269,18 @@
   background: #f2eee6;
   color: #5d635b;
   padding: 5px 7px;
+}
+
+.ant-tag.agent-role,
+.ant-tag.capability-pill,
+.ant-tag.artifact-type,
+.ant-tag.artifact-file-name,
+.ant-tag.mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-end: 0;
+  border: 0;
 }
 
 .chat-panel {
@@ -334,6 +363,13 @@
   font-weight: 800;
 }
 
+.ant-avatar.message-avatar,
+.ant-avatar.agent-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .message-meta {
   color: #6d746c;
   font-size: 12px;
@@ -408,6 +444,7 @@
   border-radius: 999px;
   background: #ffffff;
   color: #235b54;
+  cursor: pointer;
   padding: 6px 9px;
   font-size: 12px;
   font-weight: 700;
@@ -483,6 +520,11 @@
   outline: none;
 }
 
+.ant-input.composer-input,
+.ant-input.text-input {
+  box-shadow: none;
+}
+
 .composer-input {
   min-height: 48px;
   resize: vertical;
@@ -515,6 +557,14 @@
   border-radius: 8px;
   padding: 0 14px;
   font-weight: 700;
+}
+
+.ant-btn.primary-button,
+.ant-btn.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
 }
 
 .primary-button {
@@ -582,6 +632,12 @@
 
 .status-pill {
   padding: 7px 9px;
+}
+
+.status-pill .ant-badge-status-text {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .status-not_started {
@@ -675,6 +731,13 @@
   font-weight: 700;
 }
 
+.ant-btn.artifact-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+}
+
 .artifact-actions {
   display: flex;
   flex: 0 0 auto;
@@ -710,6 +773,12 @@
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ant-tag.artifact-file-name {
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
 }
 
 .code-block,
@@ -805,6 +874,18 @@
   padding: 14px;
 }
 
+.ant-empty.conversation-empty,
+.ant-empty.empty-artifacts,
+.ant-empty.empty-chat-state {
+  margin: 0;
+}
+
+.ant-spin.loading-state {
+  display: grid;
+  min-height: 110px;
+  place-items: center;
+}
+
 .empty-panel {
   display: grid;
   place-items: center;
@@ -868,6 +949,25 @@
 .modal-header h2 {
   margin: 0;
   font-size: 20px;
+}
+
+.ant-modal .ant-modal-content {
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #fbfaf7;
+  box-shadow: 0 22px 70px rgb(33 30 24 / 28%);
+}
+
+.modal-form {
+  display: grid;
+  gap: 0;
+}
+
+.modal-subtitle {
+  margin: 0 0 4px;
+  color: #686e67;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .field-label {

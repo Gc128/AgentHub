@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { Avatar, Empty, Spin } from 'antd'
 import type { Agent, Artifact, Conversation, Message } from '../../types/api'
 import { ArtifactRenderer } from '../artifactCards/ArtifactRenderer'
 import { MessageComposer } from './MessageComposer'
@@ -76,7 +77,7 @@ export function ChatPanel({
   if (!conversation) {
     return (
       <section className="chat-panel empty-panel">
-        <p>暂无会话</p>
+        <Empty description="暂无会话" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       </section>
     )
   }
@@ -94,12 +95,13 @@ export function ChatPanel({
 
       <div className="message-list" ref={messageListRef}>
         {loading ? (
-          <div className="loading-state">加载消息中...</div>
+          <Spin className="loading-state" tip="加载消息中..." />
         ) : messages.length === 0 ? (
-          <div className="empty-chat-state">
-            <strong>这个会话还没有消息</strong>
-            <span>使用下方 Demo Prompt 或输入 @Agent 开始协作。</span>
-          </div>
+          <Empty
+            className="empty-chat-state"
+            description="使用下方 Demo Prompt 或输入 @Agent 开始协作。"
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
         ) : (
           messages.map((message) => (
             <article
@@ -107,9 +109,9 @@ export function ChatPanel({
               className={`message-bubble message-${message.role}`}
               key={message.id}
             >
-              <div className="message-avatar" aria-hidden="true">
+              <Avatar className="message-avatar" shape="square">
                 {getSenderInitial(message.sender_id, agents)}
-              </div>
+              </Avatar>
               <div className="message-meta">
                 <span>{getSenderName(message.sender_id, agents)}</span>
                 <time dateTime={message.created_at}>
@@ -136,9 +138,9 @@ export function ChatPanel({
         )}
         {agentRunning ? (
           <article className="message-bubble message-system">
-            <div className="message-avatar" aria-hidden="true">
+            <Avatar className="message-avatar" shape="square">
               A
-            </div>
+            </Avatar>
             <div className="message-meta">
               <span>AgentHub</span>
               <span>生成中</span>

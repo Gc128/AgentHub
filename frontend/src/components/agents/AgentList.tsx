@@ -1,3 +1,4 @@
+import { Avatar, Tag } from 'antd'
 import type { Agent } from '../../types/api'
 
 /** Agent 联系人列表组件的入参。 */
@@ -29,23 +30,25 @@ export function AgentList({ agents }: AgentListProps) {
       <div className="agent-list">
         {agents.map((agent) => (
           <article className="agent-item" key={agent.id}>
-            {/* 头像先用名称首字母，避免引入图片资源；后续可替换为真实头像字段。 */}
-            <div className="agent-avatar" aria-hidden="true">
+            {/* 使用 Ant Design Avatar 提升联系人识别度；数据仍来自原 Agent.name。 */}
+            <Avatar className="agent-avatar" shape="square">
               {agent.name.slice(0, 1)}
-            </div>
+            </Avatar>
             <div className="agent-copy">
               <div className="agent-row">
                 <span className="agent-name">{agent.name}</span>
                 {/* role 是结构化字段，显示时映射成短中文标签。 */}
-                <span className="agent-role">{roleLabels[agent.role]}</span>
+                <Tag className="agent-role" color="gold">
+                  {roleLabels[agent.role]}
+                </Tag>
               </div>
               <p>{agent.description}</p>
               <div className="capability-row">
                 {/* 能力标签可能很多，列表卡片里只展示前三个以保持密度。 */}
                 {agent.capabilities.slice(0, 3).map((capability) => (
-                  <span className="capability-pill" key={capability}>
+                  <Tag className="capability-pill" key={capability}>
                     {capability}
-                  </span>
+                  </Tag>
                 ))}
               </div>
             </div>

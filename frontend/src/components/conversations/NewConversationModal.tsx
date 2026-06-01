@@ -1,5 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import type { Agent, ConversationMode, CreateConversationInput } from '../../types/api'
+import { Alert, Button, Checkbox, Input, Modal } from 'antd'
+import type {
+  Agent,
+  ConversationMode,
+  CreateConversationInput,
+} from '../../types/api'
 
 type NewConversationModalProps = {
   /** 是否显示新建会话弹窗。 */
@@ -91,28 +96,24 @@ export function NewConversationModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <form className="modal-card" onSubmit={handleSubmit}>
-        <header className="modal-header">
-          <div>
-            <p className="eyebrow">New Conversation</p>
-            <h2>新建会话</h2>
-          </div>
-          <button
-            className="icon-button"
-            onClick={onClose}
-            type="button"
-            aria-label="关闭新建会话弹窗"
-          >
-            ×
-          </button>
-        </header>
+    <Modal
+      centered
+      footer={null}
+      onCancel={onClose}
+      open={open}
+      title="新建会话"
+    >
+      <form className="modal-form" onSubmit={handleSubmit}>
+        <p className="modal-subtitle">
+          创建一个绑定 workspace 的 AgentHub 会话，后续消息和产物都会保存在这里。
+        </p>
 
         <label className="field-label">
           会话标题
-          <input
+          <Input
             className="text-input"
             onChange={(event) => setTitle(event.target.value)}
+            placeholder="例如：Todo App Development"
             value={title}
           />
         </label>
@@ -122,10 +123,9 @@ export function NewConversationModal({
           <div className="agent-checkbox-list">
             {agents.map((agent) => (
               <label className="agent-checkbox" key={agent.id}>
-                <input
+                <Checkbox
                   checked={selectedAgentIds.includes(agent.id)}
                   onChange={() => toggleAgent(agent.id)}
-                  type="checkbox"
                 />
                 <span>
                   <strong>{agent.name}</strong>
@@ -136,17 +136,29 @@ export function NewConversationModal({
           </div>
         </div>
 
-        {formError ? <div className="form-error">{formError}</div> : null}
+        {formError ? (
+          <Alert
+            className="form-error"
+            message={formError}
+            showIcon
+            type="error"
+          />
+        ) : null}
 
         <footer className="modal-actions">
-          <button className="secondary-button" onClick={onClose} type="button">
+          <Button className="secondary-button" onClick={onClose}>
             取消
-          </button>
-          <button className="primary-button" disabled={submitting} type="submit">
+          </Button>
+          <Button
+            className="primary-button"
+            htmlType="submit"
+            loading={submitting}
+            type="primary"
+          >
             {submitting ? '创建中...' : '创建会话'}
-          </button>
+          </Button>
         </footer>
       </form>
-    </div>
+    </Modal>
   )
 }

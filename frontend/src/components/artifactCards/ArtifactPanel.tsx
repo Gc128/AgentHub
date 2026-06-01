@@ -1,3 +1,4 @@
+import { Badge, Empty } from 'antd'
 import type { Artifact, Conversation, WorkspacePreview } from '../../types/api'
 import { ArtifactRenderer } from './ArtifactRenderer'
 
@@ -15,6 +16,25 @@ type ArtifactPanelProps = {
   applyingDiffId: string | null
   /** 点击 Apply Diff 时调用，父组件负责请求 API 和刷新 Preview。 */
   onApplyDiff: (artifact: Artifact, diff: string) => Promise<void>
+}
+
+/** 把 workspace preview 状态转换为 Ant Design Badge 可识别的状态枚举。 */
+const getPreviewBadgeStatus = (
+  status: WorkspacePreview['status'] | undefined,
+): 'success' | 'processing' | 'default' | 'error' | 'warning' => {
+  if (status === 'ready') {
+    return 'success'
+  }
+
+  if (status === 'running') {
+    return 'processing'
+  }
+
+  if (status === 'error') {
+    return 'error'
+  }
+
+  return 'default'
 }
 
 /**
@@ -43,16 +63,20 @@ export function ArtifactPanel({
           <span className="preview-label">Workspace</span>
           <strong>{conversation?.workspace_id ?? '未选择'}</strong>
         </div>
-        <span
+        <Badge
           className={`status-pill status-${preview?.status ?? 'not_started'}`}
-        >
-          {preview?.status ?? 'not_started'}
-        </span>
+          status={getPreviewBadgeStatus(preview?.status)}
+          text={preview?.status ?? 'not_started'}
+        />
       </div>
 
       <div className="artifact-list">
         {artifacts.length === 0 ? (
-          <div className="empty-artifacts">当前会话还没有结构化产物。</div>
+          <Empty
+            className="empty-artifacts"
+            description="当前会话还没有结构化产物。"
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
         ) : (
           artifacts.map((artifact) => (
             // 每个 artifact 复用统一渲染器，保证右侧面板和聊天内联展示一致。
