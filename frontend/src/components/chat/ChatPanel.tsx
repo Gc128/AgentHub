@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { Agent, Artifact, Conversation, Message } from '../../types/api'
 import { ArtifactRenderer } from '../artifactCards/ArtifactRenderer'
 import { MessageComposer } from './MessageComposer'
@@ -35,6 +36,10 @@ const getSenderName = (senderId: string, agents: Agent[]) => {
   return agents.find((agent) => agent.id === senderId)?.name ?? senderId
 }
 
+/** 生成消息头像首字母；用户固定 Y，Agent 使用名称首字母。 */
+const getSenderInitial = (senderId: string, agents: Agent[]) =>
+  getSenderName(senderId, agents).slice(0, 1).toUpperCase()
+
 /** 把 ISO 时间格式化为聊天气泡中的时分。 */
 const formatTime = (value: string) =>
   new Intl.DateTimeFormat('zh-CN', {
@@ -44,7 +49,7 @@ const formatTime = (value: string) =>
 
 /**
  * 中间聊天主界面。
- * 首日负责展示会话头、消息列表、Artifact 摘要和输入区占位；发送逻辑在后续任务接入。
+ * 负责展示会话头、消息流、Artifact 内联卡片、生成中状态和消息输入。
  */
 export function ChatPanel({
   agents,
@@ -57,6 +62,16 @@ export function ChatPanel({
   onApplyDiff,
   onSendMessage,
 }: ChatPanelProps) {
+  // messageListRef 用于第六天的演示体验：新消息和 Agent 生成状态出现时自动滚动到底部。
+  const messageListRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    messageListRef.current?.scrollTo({
+      top: messageListRef.current.scrollHeight,
+      behavior: 'smooth',
+    })
+  }, [messages, agentRunning, loading])
+
   // 没有选中会话时不展示旧消息，避免用户误以为仍在上一个会话。
   if (!conversation) {
     return (
@@ -77,9 +92,14 @@ export function ChatPanel({
         <span className="workspace-badge">{conversation.workspace_id}</span>
       </header>
 
-      <div className="message-list">
+      <div className="message-list" ref={messageListRef}>
         {loading ? (
           <div className="loading-state">加载消息中...</div>
+        ) : messages.length === 0 ? (
+          <div className="empty-chat-state">
+            <strong>这个会话还没有消息</strong>
+            <span>使用下方 Demo Prompt 或输入 @Agent 开始协作。</span>
+          </div>
         ) : (
           messages.map((message) => (
             <article
@@ -87,6 +107,9 @@ export function ChatPanel({
               className={`message-bubble message-${message.role}`}
               key={message.id}
             >
+              <div className="message-avatar" aria-hidden="true">
+                {getSenderInitial(message.sender_id, agents)}
+              </div>
               <div className="message-meta">
                 <span>{getSenderName(message.sender_id, agents)}</span>
                 <time dateTime={message.created_at}>
@@ -113,11 +136,19 @@ export function ChatPanel({
         )}
         {agentRunning ? (
           <article className="message-bubble message-system">
+            <div className="message-avatar" aria-hidden="true">
+              A
+            </div>
             <div className="message-meta">
               <span>AgentHub</span>
               <span>生成中</span>
             </div>
-            <p>Mock Agent 正在根据 @Agent 路由生成回复...</p>
+            <p>
+              Mock Agent 正在根据 @Agent 路由生成回复
+              <span className="typing-dots" aria-hidden="true">
+                ...
+              </span>
+            </p>
           </article>
         ) : null}
       </div>

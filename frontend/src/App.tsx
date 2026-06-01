@@ -356,7 +356,19 @@ function App() {
         main={
           <>
             {/* 页面级错误兜底，避免接口失败时静默空白。 */}
-            {error ? <div className="error-banner">{error}</div> : null}
+            {error ? (
+              <div className="error-banner">
+                <span>{error}</span>
+                <button
+                  className="error-dismiss"
+                  onClick={() => setError(null)}
+                  type="button"
+                  aria-label="关闭错误提示"
+                >
+                  ×
+                </button>
+              </div>
+            ) : null}
             {/* 中间主区域：当前会话的消息流和消息输入。 */}
             <ChatPanel
               agents={agents}

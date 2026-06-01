@@ -360,3 +360,129 @@ export const mockApi = {
     }
   },
 }
+
+/** mockFetch 支持的 HTTP 方法类型。 */
+type MockHttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
+
+/** mock transport 拦截到的请求上下文。 */
+type MockRequestContext = {
+  /** 请求方法，来自 RequestInit.method，默认 GET。 */
+  method: MockHttpMethod
+  /** URL pathname，例如 /api/conversations。 */
+  pathname: string
+  /** 已解析的 JSON 请求体；GET 请求通常为 null。 */
+  body: unknown
+}
+
+/** 把 mock 返回值包装成浏览器 fetch 兼容的 JSON Response。 */
+const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+
+/** 读取 RequestInit.body 中的 JSON，请求体为空时返回 null。 */
+const readJsonBody = (body: BodyInit | null | undefined): unknown => {
+  if (!body) {
+    return null
+  }
+
+  if (typeof body === 'string') {
+    return JSON.parse(body)
+  }
+
+  throw new Error('Mock transport only supports JSON string request bodies')
+}
+
+/** 根据 fetch 入参生成 mock 请求上下文，保持和真实 fetch 调用形态一致。 */
+const createMockRequestContext = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): MockRequestContext => {
+  const rawUrl =
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url
+  const url = new URL(rawUrl, window.location.origin)
+  const method = (init?.method ?? 'GET').toUpperCase() as MockHttpMethod
+
+  return {
+    method,
+    pathname: url.pathname,
+    body: readJsonBody(init?.body),
+  }
+}
+
+/**
+ * mock 请求路由。
+ * apiClient 会先发起标准 method/path/body 请求，mockFetch 在这里按后端 API 形状拦截并返回模拟值。
+ */
+const handleMockRequest = async ({
+  method,
+  pathname,
+  body,
+}: MockRequestContext) => {
+  if (method === 'GET' && pathname === '/api/conversations') {
+    return mockApi.listConversations()
+  }
+
+  if (method === 'POST' && pathname === '/api/conversations') {
+    return mockApi.createConversation(body as CreateConversationInput)
+  }
+
+  const messagesMatch = pathname.match(
+    /^\/api\/conversations\/([^/]+)\/messages$/,
+  )
+  if (messagesMatch && method === 'GET') {
+    return mockApi.listMessages(messagesMatch[1])
+  }
+  if (messagesMatch && method === 'POST') {
+    return mockApi.createMessage(messagesMatch[1], body as CreateMessageInput)
+  }
+
+  if (method === 'GET' && pathname === '/api/agents') {
+    return mockApi.listAgents()
+  }
+
+  if (method === 'POST' && pathname === '/api/agents/run') {
+    return mockApi.runAgent(body as AgentRunInput)
+  }
+
+  const previewMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/preview$/)
+  if (previewMatch && method === 'GET') {
+    return mockApi.getWorkspacePreview(previewMatch[1])
+  }
+
+  const applyDiffMatch = pathname.match(
+    /^\/api\/workspaces\/([^/]+)\/apply-diff$/,
+  )
+  if (applyDiffMatch && method === 'POST') {
+    return mockApi.applyDiff(applyDiffMatch[1], body as ApplyDiffInput)
+  }
+
+  throw new Error(`No mock handler for ${method} ${pathname}`)
+}
+
+/**
+ * fetch 兼容的 mock 拦截器。
+ * 这不是直接调用 mock 数据，而是模拟“发起请求 → 拦截请求 → 返回 Response”的流程。
+ */
+export const mockFetch: typeof fetch = async (input, init) => {
+  try {
+    const requestContext = createMockRequestContext(input, init)
+    const body = await handleMockRequest(requestContext)
+    return jsonResponse(body)
+  } catch (caughtError) {
+    return jsonResponse(
+      {
+        detail:
+          caughtError instanceof Error ? caughtError.message : 'Mock request failed',
+      },
+      400,
+    )
+  }
+}

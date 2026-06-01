@@ -7,6 +7,9 @@ import {
 } from '../../utils/agentRouting'
 import { MentionMenu } from './MentionMenu'
 
+/** 稳定演示用的默认 Prompt，和 docs/demo-script.md 的主线保持一致。 */
+const DEMO_PROMPT = '@Orchestrator 帮我做一个简洁的 Todo List 网页'
+
 type MessageComposerProps = {
   /** 可 @ 的 Agent 列表，用于快捷标签和 MentionMenu。 */
   agents: Agent[]
@@ -40,6 +43,12 @@ export function MessageComposer({
     setContent((currentContent) =>
       insertAgentMention(currentContent, getAgentMentionLabel(agent)),
     )
+    setComposerError(null)
+  }
+
+  /** 一键填入 Demo Prompt，减少现场演示输入成本。 */
+  const handleUseDemoPrompt = () => {
+    setContent(DEMO_PROMPT)
     setComposerError(null)
   }
 
@@ -112,6 +121,14 @@ export function MessageComposer({
         <span className="composer-hint">
           输入 @ 可选择 Agent；@Orchestrator 会触发多 Agent 模拟协作
         </span>
+        <button
+          className="secondary-button demo-prompt-button"
+          disabled={disabled || sending}
+          onClick={handleUseDemoPrompt}
+          type="button"
+        >
+          使用 Demo Prompt
+        </button>
         <button
           className="primary-button"
           disabled={disabled || sending}

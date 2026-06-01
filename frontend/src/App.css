@@ -299,11 +299,12 @@
 }
 
 .message-bubble {
+  position: relative;
   width: min(760px, 100%);
   border: 1px solid #ddd8cd;
   border-radius: 8px;
   background: #ffffff;
-  padding: 14px;
+  padding: 14px 14px 14px 56px;
   box-shadow: 0 12px 26px rgb(68 58 42 / 7%);
 }
 
@@ -316,6 +317,21 @@
 .message-system {
   align-self: center;
   background: #fff7dd;
+}
+
+.message-avatar {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 8px;
+  background: #235b54;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .message-meta {
@@ -333,6 +349,41 @@
   display: grid;
   gap: 10px;
   margin-top: 12px;
+}
+
+.empty-chat-state {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  gap: 6px;
+  width: min(520px, 100%);
+  border: 1px dashed #cfc8bc;
+  border-radius: 8px;
+  background: #fbfaf7;
+  color: #686e67;
+  padding: 24px;
+  text-align: center;
+}
+
+.empty-chat-state strong {
+  color: #202322;
+}
+
+.typing-dots {
+  display: inline-block;
+  overflow: hidden;
+  width: 16px;
+  vertical-align: bottom;
+  animation: typing-pulse 1.2s steps(4, end) infinite;
+}
+
+@keyframes typing-pulse {
+  from {
+    width: 0;
+  }
+  to {
+    width: 16px;
+  }
 }
 
 .composer-shell {
@@ -447,11 +498,12 @@
 .modal-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
 }
 
 .composer-hint {
+  margin-right: auto;
   color: #71766d;
   font-size: 12px;
 }
@@ -488,6 +540,10 @@
 .secondary-button:hover {
   border-color: #b8cbc5;
   background: #eef5f1;
+}
+
+.demo-prompt-button {
+  white-space: nowrap;
 }
 
 .artifact-panel {
@@ -755,10 +811,31 @@
 }
 
 .error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin: 12px 22px 0;
   border-color: #e2ad9f;
   background: #fff1ed;
   color: #7d2d1b;
+}
+
+.error-dismiss {
+  display: grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid #e2ad9f;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #7d2d1b;
+  font-weight: 800;
+}
+
+.error-dismiss:hover {
+  background: #ffe5dd;
 }
 
 .modal-backdrop {
@@ -884,6 +961,10 @@
   .modal-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .composer-hint {
+    margin-right: 0;
   }
 
   .primary-button,
