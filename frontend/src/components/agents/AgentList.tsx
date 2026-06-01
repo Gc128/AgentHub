@@ -22,7 +22,7 @@ const roleLabels: Record<Agent['role'], string> = {
  */
 export function AgentList({ agents }: AgentListProps) {
   return (
-    <section className="sidebar-section">
+    <section className="sidebar-section agent-section">
       <div className="section-heading">
         <span>Agents</span>
       </div>

@@ -1,18 +1,24 @@
 #root {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 .app-shell {
   display: grid;
   grid-template-columns: minmax(248px, 280px) minmax(0, 1fr) minmax(280px, 340px);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background: #f5f3ee;
   color: #202322;
 }
 
 .sidebar,
 .artifact-area {
+  height: 100vh;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: #fbfaf7;
 }
 
@@ -31,12 +37,16 @@
 
 .chat-area {
   display: flex;
+  height: 100vh;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .brand-block {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 10px;
   padding: 4px 2px 8px;
@@ -82,8 +92,17 @@
 .sidebar-section {
   display: flex;
   min-height: 0;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 10px;
+}
+
+.conversation-section {
+  flex: 0 1 280px;
+}
+
+.agent-section {
+  flex: 1 1 0;
 }
 
 .section-heading,
@@ -158,27 +177,43 @@
 .message-list {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .conversation-list,
 .agent-list,
 .artifact-list {
   gap: 8px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .conversation-item {
   display: flex;
   width: 100%;
   min-height: 70px;
-  flex-direction: column;
+  flex: 0 0 auto;
   align-items: stretch;
-  justify-content: center;
+  justify-content: space-between;
   gap: 8px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  padding: 10px;
+  padding: 8px;
   color: inherit;
+  text-align: left;
+}
+
+.conversation-main {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
   text-align: left;
 }
 
@@ -190,15 +225,40 @@
 
 .conversation-title,
 .agent-name {
+  min-width: 0;
   overflow: hidden;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.conversation-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.conversation-pin-tag {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+  color: #235b54;
+}
+
 .conversation-meta {
   color: #71766d;
   font-size: 12px;
+}
+
+.conversation-actions {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.conversation-action-button {
+  color: #5e6861;
 }
 
 .conversation-meta .ant-badge-status-text {
@@ -285,8 +345,10 @@
 
 .chat-panel {
   display: grid;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .chat-header {
@@ -323,7 +385,9 @@
 
 .message-list {
   gap: 14px;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px 22px;
 }
 
@@ -602,6 +666,7 @@
   min-height: 0;
   flex-direction: column;
   gap: 14px;
+  overflow: hidden;
 }
 
 .panel-header {
@@ -663,7 +728,9 @@
 .artifact-list {
   display: grid;
   gap: 10px;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .artifact-card {
@@ -1039,15 +1106,22 @@
 @media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 34vh) minmax(0, 1fr);
   }
 
   .sidebar {
+    height: auto;
     border-right: 0;
     border-bottom: 1px solid #ddd8cd;
   }
 
+  .chat-area {
+    height: auto;
+  }
+
   .chat-panel {
-    min-height: 72vh;
+    height: 100%;
+    min-height: 0;
   }
 
   .chat-header,
@@ -1072,7 +1146,12 @@
     width: 100%;
   }
 
+  .agent-section,
   .agent-list {
     display: none;
+  }
+
+  .conversation-section {
+    flex: 1 1 auto;
   }
 }

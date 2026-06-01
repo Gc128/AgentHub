@@ -7,7 +7,9 @@ import type {
   Conversation,
   CreateConversationInput,
   CreateMessageInput,
+  DeleteConversationResult,
   Message,
+  UpdateConversationInput,
   WorkspacePreview,
 } from '../types/api'
 import { mockFetch } from './mock'
@@ -73,6 +75,33 @@ export const apiClient = {
       method: 'POST',
       body: JSON.stringify(input),
     })
+  },
+
+  /**
+   * 更新会话信息。
+   * 当前 UI 只使用 is_pinned 做置顶/取消置顶；仍采用 PATCH，方便真实后端按部分字段更新。
+   */
+  updateConversation(
+    conversationId: string,
+    input: UpdateConversationInput,
+  ): Promise<Conversation> {
+    return requestJson<Conversation>(`/api/conversations/${conversationId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    })
+  },
+
+  /**
+   * 删除会话。
+   * 始终发起 DELETE /api/conversations/{id}，mock 拦截后会同步清理消息和预览状态。
+   */
+  deleteConversation(conversationId: string): Promise<DeleteConversationResult> {
+    return requestJson<DeleteConversationResult>(
+      `/api/conversations/${conversationId}`,
+      {
+        method: 'DELETE',
+      },
+    )
   },
 
   /**

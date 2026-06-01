@@ -22,8 +22,16 @@ import './App.css'
 /** 会话按最近更新时间倒序排序，保持 IM 左侧列表的常见体验。 */
 const sortConversationsByUpdatedAt = (items: Conversation[]) =>
   [...items].sort(
-    (left, right) =>
-      new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
+    (left, right) => {
+      if (left.is_pinned !== right.is_pinned) {
+        return left.is_pinned ? -1 : 1
+      }
+
+      return (
+        new Date(right.updated_at).getTime() -
+        new Date(left.updated_at).getTime()
+      )
+    },
   )
 
 /**
@@ -211,6 +219,66 @@ function App() {
   }
 
   /**
+   * 置顶或取消置顶会话。
+   * 这里只 PATCH is_pinned 字段，不改 updated_at，避免置顶操作污染“最近消息时间”。
+   */
+  const handleTogglePinConversation = async (
+    conversationId: string,
+    nextPinned: boolean,
+  ) => {
+    try {
+      const updatedConversation = await apiClient.updateConversation(
+        conversationId,
+        {
+          is_pinned: nextPinned,
+        },
+      )
+
+      setConversations((currentConversations) =>
+        sortConversationsByUpdatedAt(
+          currentConversations.map((conversation) =>
+            conversation.id === conversationId
+              ? updatedConversation
+              : conversation,
+          ),
+        ),
+      )
+      setError(null)
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : '更新会话失败',
+      )
+    }
+  }
+
+  /**
+   * 删除会话。
+   * 如果删除的是当前会话，自动切到排序后的第一条会话；没有会话时进入空状态。
+   */
+  const handleDeleteConversation = async (conversationId: string) => {
+    try {
+      await apiClient.deleteConversation(conversationId)
+
+      const nextConversations = sortConversationsByUpdatedAt(
+        conversations.filter(
+          (conversation) => conversation.id !== conversationId,
+        ),
+      )
+      setConversations(nextConversations)
+
+      if (selectedConversationId === conversationId) {
+        setSelectedConversationId(nextConversations[0]?.id ?? null)
+      }
+
+      setError(null)
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : '删除会话失败',
+      )
+    }
+  }
+
+  /**
    * 把 AgentRunResult 保存为聊天消息。
    * 这里仍走 createMessage，让 mock 内存消息表和前端状态保持一致。
    */
@@ -358,8 +426,10 @@ function App() {
               selectedConversationId={selectedConversationId}
               searchTerm={conversationSearchTerm}
               onOpenNewConversation={() => setNewConversationOpen(true)}
+              onDeleteConversation={handleDeleteConversation}
               onSearchTermChange={setConversationSearchTerm}
               onSelectConversation={setSelectedConversationId}
+              onTogglePinConversation={handleTogglePinConversation}
             />
             {/* 左侧下半区：可用 Agent 联系人和能力标签。 */}
             <AgentList agents={agents} />

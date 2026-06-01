@@ -16,13 +16,16 @@
 
 html {
   min-width: 320px;
+  height: 100%;
   background: #f5f3ee;
+  overflow: hidden;
 }
 
 body {
   min-width: 320px;
-  min-height: 100vh;
+  height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
 button,

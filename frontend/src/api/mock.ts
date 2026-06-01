@@ -7,7 +7,9 @@ import type {
   Conversation,
   CreateConversationInput,
   CreateMessageInput,
+  DeleteConversationResult,
   Message,
+  UpdateConversationInput,
   WorkspacePreview,
 } from '../types/api'
 import {
@@ -56,11 +58,19 @@ const delay = async () => {
   })
 }
 
-/** 会话列表按 updated_at 倒序展示，符合 IM 最近活跃优先的体验。 */
+/** 会话列表先展示置顶会话，再按 updated_at 倒序展示，符合 IM 工具的常见排序。 */
 const sortByUpdatedAt = (items: Conversation[]) =>
   [...items].sort(
-    (left, right) =>
-      new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
+    (left, right) => {
+      if (left.is_pinned !== right.is_pinned) {
+        return left.is_pinned ? -1 : 1
+      }
+
+      return (
+        new Date(right.updated_at).getTime() -
+        new Date(left.updated_at).getTime()
+      )
+    },
   )
 
 /** 生成随机 Artifact ID，避免连续调用 Agent 时产物 key 冲突。 */
@@ -242,6 +252,7 @@ export const mockApi = {
       title: input.title,
       mode: input.mode,
       agent_ids: input.agent_ids,
+      is_pinned: input.is_pinned ?? false,
       workspace_id: nextId('ws', conversations.length),
       created_at: timestamp,
       updated_at: timestamp,
@@ -253,6 +264,69 @@ export const mockApi = {
       status: 'not_started',
     }
     return conversation
+  },
+
+  /**
+   * Mock PATCH /api/conversations/{conversation_id}。
+   * 当前主要用于置顶/取消置顶；其他字段保留给后续编辑会话复用。
+   */
+  async updateConversation(
+    conversationId: string,
+    input: UpdateConversationInput,
+  ): Promise<Conversation> {
+    await delay()
+    const conversation = conversations.find((item) => item.id === conversationId)
+
+    if (!conversation) {
+      throw new Error('会话不存在，无法更新')
+    }
+
+    if (input.title !== undefined) {
+      conversation.title = input.title
+      conversation.updated_at = nowIso()
+    }
+
+    if (input.mode !== undefined) {
+      conversation.mode = input.mode
+      conversation.updated_at = nowIso()
+    }
+
+    if (input.agent_ids !== undefined) {
+      conversation.agent_ids = input.agent_ids
+      conversation.updated_at = nowIso()
+    }
+
+    if (input.is_pinned !== undefined) {
+      conversation.is_pinned = input.is_pinned
+    }
+
+    return conversation
+  },
+
+  /**
+   * Mock DELETE /api/conversations/{conversation_id}。
+   * 删除会话时同步清理消息和 preview，模拟后端释放会话相关资源。
+   */
+  async deleteConversation(
+    conversationId: string,
+  ): Promise<DeleteConversationResult> {
+    await delay()
+    const conversationIndex = conversations.findIndex(
+      (item) => item.id === conversationId,
+    )
+
+    if (conversationIndex === -1) {
+      throw new Error('会话不存在，无法删除')
+    }
+
+    const [deletedConversation] = conversations.splice(conversationIndex, 1)
+    delete messagesByConversationId[conversationId]
+    delete previewByWorkspaceId[deletedConversation.workspace_id]
+
+    return {
+      id: conversationId,
+      deleted: true,
+    }
   },
 
   /** Mock GET /api/conversations/{conversation_id}/messages。 */
@@ -432,6 +506,17 @@ const handleMockRequest = async ({
 
   if (method === 'POST' && pathname === '/api/conversations') {
     return mockApi.createConversation(body as CreateConversationInput)
+  }
+
+  const conversationMatch = pathname.match(/^\/api\/conversations\/([^/]+)$/)
+  if (conversationMatch && method === 'PATCH') {
+    return mockApi.updateConversation(
+      conversationMatch[1],
+      body as UpdateConversationInput,
+    )
+  }
+  if (conversationMatch && method === 'DELETE') {
+    return mockApi.deleteConversation(conversationMatch[1])
   }
 
   const messagesMatch = pathname.match(

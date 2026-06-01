@@ -51,6 +51,11 @@ export type Conversation = {
   mode: ConversationMode
   /** 当前会话参与的 Agent ID 列表。 */
   agent_ids: string[]
+  /**
+   * 是否置顶。
+   * 这是本轮为会话列表操作补充的字段，后端 schema 需同步持久化；置顶会话在列表中优先展示。
+   */
+  is_pinned: boolean
   /** 会话绑定的 workspace ID，用于文件、Diff 和预览接口。 */
   workspace_id: string
   /** 创建时间，使用 ISO 字符串，便于前端格式化。 */
@@ -172,6 +177,37 @@ export type CreateConversationInput = {
   mode: ConversationMode
   /** 初始参与的 Agent ID 列表。 */
   agent_ids: string[]
+  /**
+   * 是否创建后直接置顶。
+   * 该字段可选，当前 UI 新建会话默认不置顶，mock 会兜底为 false。
+   */
+  is_pinned?: boolean
+}
+
+/**
+ * 更新会话的前端请求体。
+ * 当前只开放置顶状态，保留 title/mode/agent_ids 是为了后续编辑会话时复用 PATCH 接口。
+ */
+export type UpdateConversationInput = {
+  /** 可选新标题；未传时不修改。 */
+  title?: string
+  /** 可选会话模式；未传时不修改。 */
+  mode?: ConversationMode
+  /** 可选 Agent ID 列表；未传时不修改。 */
+  agent_ids?: string[]
+  /** 可选置顶状态；未传时不修改。 */
+  is_pinned?: boolean
+}
+
+/**
+ * 删除会话的响应体。
+ * 后端当前未明确 DELETE 返回结构，前端 mock 使用最小可读结果。
+ */
+export type DeleteConversationResult = {
+  /** 被删除的会话 ID。 */
+  id: string
+  /** 是否删除成功。 */
+  deleted: boolean
 }
 
 /**
