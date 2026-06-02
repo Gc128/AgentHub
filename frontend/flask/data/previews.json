@@ -10,5 +10,9 @@
   {
     "workspace_id": "ws_1e14a1a9",
     "status": "running"
+  },
+  {
+    "workspace_id": "ws_8b85cd00",
+    "status": "not_started"
   }
 ]

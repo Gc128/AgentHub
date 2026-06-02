@@ -10,7 +10,7 @@
 - `CODEX_REVIEW_CHECKLIST.md`
 - `AI_COLLABORATION_RULES.md`
 
-使用 Codex 前，请先让 Codex 阅读 `AGENTS.md` 和 `PYTHON_PROJECT_GUIDE.md`。
+使用 Codex 前，请先让 Codex 阅读 `AGENTS.md` 和 `PYTHON_PROJECT_GUIDE.md`,不准阅读`PLAN.md`
 
 推荐提示：
 

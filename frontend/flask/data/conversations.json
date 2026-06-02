@@ -20,12 +20,13 @@
     "mode": "group",
     "agent_ids": [
       "review-agent",
-      "code-agent"
+      "code-agent",
+      "orchestrator"
     ],
     "is_pinned": false,
     "workspace_id": "ws_002",
     "created_at": "2026-06-01T09:30:00Z",
-    "updated_at": "2026-06-02T15:20:15.746656Z"
+    "updated_at": "2026-06-02T17:08:33.857039Z"
   },
   {
     "id": "conv_81531863",
@@ -41,5 +42,17 @@
     "workspace_id": "ws_1e14a1a9",
     "created_at": "2026-06-02T09:33:50.945814Z",
     "updated_at": "2026-06-02T16:05:46.152045Z"
+  },
+  {
+    "id": "conv_0c276bbb",
+    "title": "Todo App Development",
+    "mode": "single",
+    "agent_ids": [
+      "orchestrator"
+    ],
+    "is_pinned": false,
+    "workspace_id": "ws_8b85cd00",
+    "created_at": "2026-06-02T17:26:34.048247Z",
+    "updated_at": "2026-06-02T17:26:37.863448Z"
   }
 ]

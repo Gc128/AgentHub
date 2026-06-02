@@ -752,5 +752,130 @@
       }
     ],
     "created_at": "2026-06-02T16:33:39.438038Z"
+  },
+  {
+    "id": "msg_52e72871",
+    "conversation_id": "conv_002",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@Orchestrator",
+    "artifacts": [],
+    "created_at": "2026-06-02T17:08:33.797394Z"
+  },
+  {
+    "id": "msg_dc32d365",
+    "conversation_id": "conv_002",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "我已围绕“开发任务”拆解任务：Code Agent 生成页面代码 → Review Agent 检查实现风险 → Preview Agent 准备预览状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T17:08:33.816065Z",
+        "data": {
+          "estimated_minutes": 9,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "开发任务"
+        },
+        "id": "artifact_file_3fe32cc4",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T17:08:33.829917Z"
+  },
+  {
+    "id": "msg_849c80ae",
+    "conversation_id": "conv_002",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "Code Agent 已生成“开发任务”页面代码和 Diff。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T17:08:33.836494Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_0f535d97",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-02T17:08:33.836506Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n+      <h1>开发任务</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_bb323fe6",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-02T17:08:33.844150Z"
+  },
+  {
+    "id": "msg_834eb688",
+    "conversation_id": "conv_002",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "Review Agent 完成检查，建议优先处理：Artifact 卡片要可滚动、Agent 回复要保留时间线、长文件名需要省略显示。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T17:08:33.848672Z",
+        "data": {
+          "findings": [
+            "Artifact 卡片要可滚动",
+            "Agent 回复要保留时间线",
+            "长文件名需要省略显示"
+          ],
+          "risk_level": "low"
+        },
+        "id": "artifact_file_11a93da9",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T17:08:33.857039Z"
+  },
+  {
+    "id": "msg_51669a6c",
+    "conversation_id": "conv_0c276bbb",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@Orchestrator",
+    "artifacts": [],
+    "created_at": "2026-06-02T17:26:37.829522Z"
+  },
+  {
+    "id": "msg_607255e2",
+    "conversation_id": "conv_0c276bbb",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "我已围绕“开发任务”拆解任务：Code Agent 生成页面代码 → Review Agent 检查实现风险 → Preview Agent 准备预览状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T17:26:37.847012Z",
+        "data": {
+          "estimated_minutes": 13,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "开发任务"
+        },
+        "id": "artifact_file_5ba38b83",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T17:26:37.863448Z"
   }
 ]
