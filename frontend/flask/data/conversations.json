@@ -12,30 +12,34 @@
     "is_pinned": false,
     "workspace_id": "ws_001",
     "created_at": "2026-06-01T10:00:00Z",
-    "updated_at": "2026-06-01T10:05:00Z"
+    "updated_at": "2026-06-02T16:33:39.438038Z"
   },
   {
     "id": "conv_002",
     "title": "Landing Page Review",
-    "mode": "single",
+    "mode": "group",
     "agent_ids": [
-      "review-agent"
+      "review-agent",
+      "code-agent"
     ],
     "is_pinned": false,
     "workspace_id": "ws_002",
     "created_at": "2026-06-01T09:30:00Z",
-    "updated_at": "2026-06-02T09:20:16.928303Z"
+    "updated_at": "2026-06-02T15:20:15.746656Z"
   },
   {
     "id": "conv_81531863",
     "title": "我是第一个会话",
-    "mode": "single",
+    "mode": "group",
     "agent_ids": [
+      "review-agent",
+      "orchestrator",
+      "code-agent",
       "preview-agent"
     ],
-    "is_pinned": false,
+    "is_pinned": true,
     "workspace_id": "ws_1e14a1a9",
     "created_at": "2026-06-02T09:33:50.945814Z",
-    "updated_at": "2026-06-02T09:33:50.945814Z"
+    "updated_at": "2026-06-02T16:05:46.152045Z"
   }
 ]

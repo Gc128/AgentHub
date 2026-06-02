@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "id": "apply_30857088",
+    "workspace_id": "ws_001",
+    "artifact_id": "artifact_diff_001",
+    "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+export default function App() {\n+  return <main className=\"todo-app\">Todo List</main>\n+}",
+    "applied_at": "2026-06-02T15:01:54.713973Z"
+  }
+]

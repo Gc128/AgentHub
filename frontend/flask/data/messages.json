@@ -133,5 +133,624 @@
       }
     ],
     "created_at": "2026-06-02T09:20:16.928303Z"
+  },
+  {
+    "id": "msg_61e672c9",
+    "conversation_id": "conv_001",
+    "role": "user",
+    "sender_id": "user",
+    "content": "你好啊",
+    "artifacts": [],
+    "created_at": "2026-06-02T14:41:09.249624Z"
+  },
+  {
+    "id": "msg_121b085c",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "我已围绕“你好啊”拆解任务：Code Agent 生成页面代码 → Review Agent 检查实现风险 → Preview Agent 准备预览状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T14:41:09.279515Z",
+        "data": {
+          "estimated_minutes": 12,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "你好啊"
+        },
+        "id": "artifact_file_890b1a4a",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T14:41:09.311261Z"
+  },
+  {
+    "id": "msg_650ae51f",
+    "conversation_id": "conv_001",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@Orchestrator 帮我做一个简洁的 Todo List 网页",
+    "artifacts": [],
+    "created_at": "2026-06-02T15:02:26.047469Z"
+  },
+  {
+    "id": "msg_8646d629",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "我已围绕“帮我做一个简洁的 Todo List 网页”拆解任务：Code Agent 生成页面代码 → Review Agent 检查实现风险 → Preview Agent 准备预览状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:02:26.077486Z",
+        "data": {
+          "estimated_minutes": 8,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "帮我做一个简洁的 Todo List 网页"
+        },
+        "id": "artifact_file_9c0a5de6",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T15:02:26.108356Z"
+  },
+  {
+    "id": "msg_7097697c",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "Code Agent 已生成“帮我做一个简洁的 Todo List 网页”页面代码和 Diff。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:02:26.130158Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>帮我做一个简洁的 Todo List 网页</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_7360a521",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-02T15:02:26.130172Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n+      <h1>帮我做一个简洁的 Todo List 网页</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_f1058e4b",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-02T15:02:26.140210Z"
+  },
+  {
+    "id": "msg_53f21b41",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "Review Agent 完成检查，建议优先处理：Artifact 卡片要可滚动、Agent 回复要保留时间线、长文件名需要省略显示。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:02:26.143678Z",
+        "data": {
+          "findings": [
+            "Artifact 卡片要可滚动",
+            "Agent 回复要保留时间线",
+            "长文件名需要省略显示"
+          ],
+          "risk_level": "medium"
+        },
+        "id": "artifact_file_3f4163a3",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T15:02:26.158970Z"
+  },
+  {
+    "id": "msg_1a9ba1f7",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "preview-agent",
+    "content": "预览环境已就绪，可以在右侧查看 workspace 状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:02:26.164360Z",
+        "data": {
+          "checked_at": "2026-06-02T15:02:26.164328Z",
+          "status": "ready",
+          "workspace_id": "ws_001"
+        },
+        "id": "artifact_preview_15d8f07c",
+        "title": "Workspace Preview",
+        "type": "preview"
+      }
+    ],
+    "created_at": "2026-06-02T15:02:26.174574Z"
+  },
+  {
+    "id": "msg_f2bbd720",
+    "conversation_id": "conv_81531863",
+    "role": "user",
+    "sender_id": "user",
+    "content": "女孩",
+    "artifacts": [],
+    "created_at": "2026-06-02T15:44:01.123515Z"
+  },
+  {
+    "id": "msg_baf81057",
+    "conversation_id": "conv_81531863",
+    "role": "agent",
+    "sender_id": "preview-agent",
+    "content": "预览环境已就绪，可以在右侧查看 workspace 状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:44:01.155136Z",
+        "data": {
+          "checked_at": "2026-06-02T15:44:01.155112Z",
+          "status": "ready",
+          "workspace_id": "ws_1e14a1a9"
+        },
+        "id": "artifact_preview_0cd39793",
+        "title": "Workspace Preview",
+        "type": "preview"
+      }
+    ],
+    "created_at": "2026-06-02T15:44:01.172323Z"
+  },
+  {
+    "id": "msg_1c2f146f",
+    "conversation_id": "conv_81531863",
+    "role": "user",
+    "sender_id": "user",
+    "content": "你好",
+    "artifacts": [],
+    "created_at": "2026-06-02T15:44:31.830434Z"
+  },
+  {
+    "id": "msg_4b02d47e",
+    "conversation_id": "conv_81531863",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "Review Agent 完成检查，建议优先处理：按钮需要 disabled 状态、空列表要有提示、移动端标题需要换行保护。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:44:31.850525Z",
+        "data": {
+          "findings": [
+            "按钮需要 disabled 状态",
+            "空列表要有提示",
+            "移动端标题需要换行保护"
+          ],
+          "risk_level": "low"
+        },
+        "id": "artifact_file_7866e069",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T15:44:31.870946Z"
+  },
+  {
+    "id": "msg_007ba1ac",
+    "conversation_id": "conv_81531863",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@Orchestrator",
+    "artifacts": [],
+    "created_at": "2026-06-02T15:55:05.923160Z"
+  },
+  {
+    "id": "msg_23a619c5",
+    "conversation_id": "conv_81531863",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "我已围绕“开发任务”拆解任务：Code Agent 生成页面代码 → Review Agent 检查实现风险 → Preview Agent 准备预览状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:55:05.947610Z",
+        "data": {
+          "estimated_minutes": 7,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "开发任务"
+        },
+        "id": "artifact_file_3a41f982",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T15:55:05.969836Z"
+  },
+  {
+    "id": "msg_2c59deaf",
+    "conversation_id": "conv_81531863",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "Review Agent 完成检查，建议优先处理：按钮需要 disabled 状态、空列表要有提示、移动端标题需要换行保护。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:55:05.985519Z",
+        "data": {
+          "findings": [
+            "按钮需要 disabled 状态",
+            "空列表要有提示",
+            "移动端标题需要换行保护"
+          ],
+          "risk_level": "low"
+        },
+        "id": "artifact_file_b733c527",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T15:55:05.989217Z"
+  },
+  {
+    "id": "msg_9e15d81c",
+    "conversation_id": "conv_81531863",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@Orchestrator 帮我做一个简洁的 Todo List 网页",
+    "artifacts": [],
+    "created_at": "2026-06-02T15:56:14.191190Z"
+  },
+  {
+    "id": "msg_906211f0",
+    "conversation_id": "conv_81531863",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "我已围绕“帮我做一个简洁的 Todo List 网页”拆解任务：Code Agent 生成页面代码 → Review Agent 检查实现风险 → Preview Agent 准备预览状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:56:14.213972Z",
+        "data": {
+          "estimated_minutes": 13,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "帮我做一个简洁的 Todo List 网页"
+        },
+        "id": "artifact_file_4ce9989b",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T15:56:14.236819Z"
+  },
+  {
+    "id": "msg_b6bce18a",
+    "conversation_id": "conv_81531863",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "Code Agent 已生成“帮我做一个简洁的 Todo List 网页”页面代码和 Diff。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:56:14.251178Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n      <h1>帮我做一个简洁的 Todo List 网页</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_95f3b070",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-02T15:56:14.251200Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n+      <h1>帮我做一个简洁的 Todo List 网页</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_e94dd6b0",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-02T15:56:14.256923Z"
+  },
+  {
+    "id": "msg_0f9daf5b",
+    "conversation_id": "conv_81531863",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "Review Agent 完成检查，建议优先处理：按钮需要 disabled 状态、空列表要有提示、移动端标题需要换行保护。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:56:14.260153Z",
+        "data": {
+          "findings": [
+            "按钮需要 disabled 状态",
+            "空列表要有提示",
+            "移动端标题需要换行保护"
+          ],
+          "risk_level": "low"
+        },
+        "id": "artifact_file_b2f40593",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T15:56:14.269416Z"
+  },
+  {
+    "id": "msg_09b815d5",
+    "conversation_id": "conv_81531863",
+    "role": "agent",
+    "sender_id": "preview-agent",
+    "content": "预览服务正在启动，当前 workspace 已进入 running 状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T15:56:14.273307Z",
+        "data": {
+          "checked_at": "2026-06-02T15:56:14.273282Z",
+          "status": "running",
+          "workspace_id": "ws_1e14a1a9"
+        },
+        "id": "artifact_preview_28069953",
+        "title": "Workspace Preview",
+        "type": "preview"
+      }
+    ],
+    "created_at": "2026-06-02T15:56:14.281485Z"
+  },
+  {
+    "id": "msg_59f3b375",
+    "conversation_id": "conv_81531863",
+    "role": "user",
+    "sender_id": "user",
+    "content": "你好",
+    "artifacts": [],
+    "created_at": "2026-06-02T16:05:46.110481Z"
+  },
+  {
+    "id": "msg_df3d315c",
+    "conversation_id": "conv_81531863",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "我已围绕“你好”拆解任务：Code Agent 生成页面代码 → Review Agent 检查实现风险 → Preview Agent 准备预览状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T16:05:46.127172Z",
+        "data": {
+          "estimated_minutes": 12,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "你好"
+        },
+        "id": "artifact_file_f3e1a5d0",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T16:05:46.152045Z"
+  },
+  {
+    "id": "msg_590d314b",
+    "conversation_id": "conv_001",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent 你好",
+    "artifacts": [],
+    "created_at": "2026-06-02T16:10:49.328945Z"
+  },
+  {
+    "id": "msg_e18a8f69",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "Code Agent 已生成“你好”页面代码和 Diff。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T16:10:49.358136Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>你好</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_fbc89a9b",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-02T16:10:49.358165Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n+      <h1>你好</h1>\n+      <button>Add task</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_ca204418",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-02T16:10:49.385329Z"
+  },
+  {
+    "id": "msg_eaea6885",
+    "conversation_id": "conv_001",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@Orchestrator @CodeAgent @ReviewAgent",
+    "artifacts": [],
+    "created_at": "2026-06-02T16:29:05.450762Z"
+  },
+  {
+    "id": "msg_c714dd03",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "我已围绕“开发任务”拆解任务：Code Agent 生成页面代码 → Review Agent 检查实现风险 → Preview Agent 准备预览状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T16:29:05.477587Z",
+        "data": {
+          "estimated_minutes": 14,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "开发任务"
+        },
+        "id": "artifact_file_90c9bc7f",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T16:29:05.506810Z"
+  },
+  {
+    "id": "msg_5584fdfb",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "Code Agent 已生成“开发任务”页面代码和 Diff。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T16:29:05.528453Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_5e723330",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-02T16:29:05.528487Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n+      <h1>开发任务</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_f741f514",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-02T16:29:05.540032Z"
+  },
+  {
+    "id": "msg_cd087bed",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "Review Agent 完成检查，建议优先处理：Diff 应用失败要提示、输入框需要 trim、预览未就绪时不要展示空 iframe。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T16:29:05.545024Z",
+        "data": {
+          "findings": [
+            "Diff 应用失败要提示",
+            "输入框需要 trim",
+            "预览未就绪时不要展示空 iframe"
+          ],
+          "risk_level": "low"
+        },
+        "id": "artifact_file_8499ab01",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T16:29:05.555396Z"
+  },
+  {
+    "id": "msg_1582380b",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "preview-agent",
+    "content": "预览环境已就绪，可以在右侧查看 workspace 状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T16:29:05.560293Z",
+        "data": {
+          "checked_at": "2026-06-02T16:29:05.560260Z",
+          "status": "ready",
+          "workspace_id": "ws_001"
+        },
+        "id": "artifact_preview_cf7395c7",
+        "title": "Workspace Preview",
+        "type": "preview"
+      }
+    ],
+    "created_at": "2026-06-02T16:29:05.569469Z"
+  },
+  {
+    "id": "msg_08c490d9",
+    "conversation_id": "conv_001",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@ReviewAgent @PreviewAgent 111",
+    "artifacts": [],
+    "created_at": "2026-06-02T16:33:39.341875Z"
+  },
+  {
+    "id": "msg_d7652cc0",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "Review Agent 完成检查，建议优先处理：Diff 应用失败要提示、输入框需要 trim、预览未就绪时不要展示空 iframe。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T16:33:39.376394Z",
+        "data": {
+          "findings": [
+            "Diff 应用失败要提示",
+            "输入框需要 trim",
+            "预览未就绪时不要展示空 iframe"
+          ],
+          "risk_level": "medium"
+        },
+        "id": "artifact_file_cac1dda2",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T16:33:39.401508Z"
+  },
+  {
+    "id": "msg_acd3b677",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "preview-agent",
+    "content": "预览环境已就绪，可以在右侧查看 workspace 状态。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T16:33:39.422640Z",
+        "data": {
+          "checked_at": "2026-06-02T16:33:39.422607Z",
+          "status": "ready",
+          "workspace_id": "ws_001"
+        },
+        "id": "artifact_preview_e9002f7b",
+        "title": "Workspace Preview",
+        "type": "preview"
+      }
+    ],
+    "created_at": "2026-06-02T16:33:39.438038Z"
   }
 ]

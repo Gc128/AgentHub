@@ -1,7 +1,7 @@
 [
   {
     "workspace_id": "ws_001",
-    "status": "not_started"
+    "status": "ready"
   },
   {
     "workspace_id": "ws_002",
@@ -9,6 +9,6 @@
   },
   {
     "workspace_id": "ws_1e14a1a9",
-    "status": "not_started"
+    "status": "running"
   }
 ]
