@@ -1,0 +1,137 @@
+[
+  {
+    "id": "msg_001",
+    "conversation_id": "conv_001",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@Orchestrator 帮我做一个简洁的 Todo List 网页",
+    "artifacts": [],
+    "created_at": "2026-06-01T10:01:00Z"
+  },
+  {
+    "id": "msg_002",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "我会先拆解任务：Code Agent 生成页面代码，Review Agent 检查实现风险，Preview Agent 返回预览状态。",
+    "artifacts": [
+      {
+        "id": "artifact_plan_001",
+        "type": "file",
+        "title": "Task Breakdown",
+        "data": {
+          "summary": "Rule-based MVP plan",
+          "steps": [
+            "生成 Todo 页面",
+            "检查代码质量",
+            "准备页面预览"
+          ]
+        },
+        "created_at": "2026-06-01T10:01:10Z"
+      }
+    ],
+    "created_at": "2026-06-01T10:01:10Z"
+  },
+  {
+    "id": "msg_003",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "Code Agent 已生成 Todo List 的 React 页面骨架和样式。",
+    "artifacts": [
+      {
+        "id": "artifact_code_001",
+        "type": "code",
+        "title": "Todo App Component",
+        "data": {
+          "filename": "src/App.tsx",
+          "language": "tsx",
+          "content": "export default function App() {\n  return <main className=\"todo-app\">Todo List</main>\n}\n"
+        },
+        "created_at": "2026-06-01T10:02:00Z"
+      },
+      {
+        "id": "artifact_diff_001",
+        "type": "diff",
+        "title": "Todo App Diff",
+        "data": {
+          "filename": "src/App.tsx",
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+export default function App() {\n+  return <main className=\"todo-app\">Todo List</main>\n+}\n"
+        },
+        "created_at": "2026-06-01T10:02:05Z"
+      }
+    ],
+    "created_at": "2026-06-01T10:02:00Z"
+  },
+  {
+    "id": "msg_004",
+    "conversation_id": "conv_001",
+    "role": "agent",
+    "sender_id": "preview-agent",
+    "content": "Preview Agent 已准备好工作区预览，等待应用 Diff 后刷新。",
+    "artifacts": [
+      {
+        "id": "artifact_preview_001",
+        "type": "preview",
+        "title": "Workspace Preview",
+        "data": {
+          "workspace_id": "ws_001",
+          "status": "not_started"
+        },
+        "created_at": "2026-06-01T10:03:00Z"
+      }
+    ],
+    "created_at": "2026-06-01T10:03:00Z"
+  },
+  {
+    "id": "msg_005",
+    "conversation_id": "conv_002",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@ReviewAgent 帮我检查首页交互风险",
+    "artifacts": [],
+    "created_at": "2026-06-01T09:40:00Z"
+  },
+  {
+    "id": "msg_006",
+    "conversation_id": "conv_002",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "建议优先检查按钮状态、空状态和移动端文本换行。",
+    "artifacts": [],
+    "created_at": "2026-06-01T09:41:00Z"
+  },
+  {
+    "id": "msg_74104dd3",
+    "conversation_id": "conv_002",
+    "role": "user",
+    "sender_id": "user",
+    "content": "你好",
+    "artifacts": [],
+    "created_at": "2026-06-02T09:20:16.857901Z"
+  },
+  {
+    "id": "msg_025bfbc9",
+    "conversation_id": "conv_002",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "Review Agent 完成检查，建议优先处理：Artifact 卡片要可滚动、Agent 回复要保留时间线、长文件名需要省略显示。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-02T09:20:16.888961Z",
+        "data": {
+          "findings": [
+            "Artifact 卡片要可滚动",
+            "Agent 回复要保留时间线",
+            "长文件名需要省略显示"
+          ],
+          "risk_level": "low"
+        },
+        "id": "artifact_file_a4225d96",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-02T09:20:16.928303Z"
+  }
+]

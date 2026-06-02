@@ -1,0 +1,8 @@
+[
+  {
+    "workspace_id": "ws_001",
+    "path": "src/App.tsx",
+    "content": "export default function App() { return null }\n",
+    "updated_at": "2026-06-01T10:00:00Z"
+  }
+]

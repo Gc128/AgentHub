@@ -15,7 +15,7 @@ type DiffArtifactCardProps = {
   applied: boolean
   /** 当前 diff 是否正在应用；用于禁用按钮和展示进行中状态。 */
   applying: boolean
-  /** 点击 Apply Diff 时调用，父组件负责请求 mock API 并刷新 Preview。 */
+  /** 点击 Apply Diff 时调用，父组件负责请求后端 API 并刷新 Preview。 */
   onApplyDiff?: (artifact: Artifact, diff: string) => Promise<void>
 }
 

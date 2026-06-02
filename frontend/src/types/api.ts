@@ -23,7 +23,7 @@ export type AgentRole =
 
 /**
  * Agent 的适配器类型，对齐后端 Agent.adapter_type。
- * MVP 默认 mock；真实接入时再使用 codex、claude、opencode 或 custom。
+ * 数据模型保留 mock 这个适配器枚举值；当前 Flask JSON 后端默认使用 custom。
  */
 export type AgentAdapterType =
   | 'mock'
@@ -117,7 +117,7 @@ export type Agent = {
   description: string
   /** 能力标签列表，例如 code、diff、preview。 */
   capabilities: string[]
-  /** 背后的适配器类型；当前前端 mock 数据默认 mock。 */
+  /** 背后的适配器类型；当前 Flask JSON 后端默认 custom。 */
   adapter_type: AgentAdapterType
 }
 
@@ -180,7 +180,7 @@ export type CreateConversationInput = {
   agent_ids: string[]
   /**
    * 是否创建后直接置顶。
-   * 该字段可选，当前 UI 新建会话默认不置顶，mock 会兜底为 false。
+   * 该字段可选，当前 UI 新建会话默认不置顶，后端会兜底为 false。
    */
   is_pinned?: boolean
 }
@@ -202,7 +202,7 @@ export type UpdateConversationInput = {
 
 /**
  * 删除会话的响应体。
- * 后端当前未明确 DELETE 返回结构，前端 mock 使用最小可读结果。
+ * 后端当前使用最小可读结果。
  */
 export type DeleteConversationResult = {
   /** 被删除的会话 ID。 */
@@ -223,7 +223,7 @@ export type CreateMessageInput = {
   content: string
   /**
    * 可选结构化产物。
-   * 后端请求体尚未明确，当前只在前端 mock 中用于保存 Agent 回复生成的 artifacts。
+   * 后端请求体尚未明确，当前用于保存 Agent 回复生成的 artifacts。
    */
   artifacts?: Artifact[]
 }
@@ -231,7 +231,7 @@ export type CreateMessageInput = {
 /**
  * Apply Diff 的前端请求体。
  * 后端文档只声明 POST /api/workspaces/{workspace_id}/apply-diff，未明确请求体；
- * 当前前端 mock 使用 artifact_id 定位按钮状态，使用 diff 字符串模拟应用内容。
+ * 当前前端使用 artifact_id 定位按钮状态，使用 diff 字符串提交应用内容。
  */
 export type ApplyDiffInput = {
   /** 被应用的 diff artifact ID，用于让同一张 Diff 卡片展示 applied 状态。 */
@@ -242,12 +242,12 @@ export type ApplyDiffInput = {
 
 /**
  * Apply Diff 的前端响应体。
- * 后端文档未明确返回结构，当前 mock 返回 workspace 状态和应用时间，方便刷新 Preview。
+ * 后端返回 workspace 状态和应用时间，方便刷新 Preview。
  */
 export type ApplyDiffResult = {
   /** 本次应用变更所属 workspace。 */
   workspace_id: string
-  /** 应用后的预览状态；mock 中成功应用后会变为 ready。 */
+  /** 应用后的预览状态；成功应用后会变为 ready。 */
   status: WorkspacePreview['status']
   /** 成功应用的 diff artifact ID。 */
   applied_artifact_id: string

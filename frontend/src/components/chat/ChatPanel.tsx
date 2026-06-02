@@ -17,7 +17,7 @@ type ChatPanelProps = {
   messages: Message[]
   /** 消息和 preview 加载状态。 */
   loading: boolean
-  /** mock Agent 是否正在生成回复。 */
+  /** Agent 是否正在生成回复。 */
   agentRunning: boolean
   /** 已经成功应用的 diff artifact ID 集合。 */
   appliedDiffIds: ReadonlySet<string>
@@ -165,7 +165,7 @@ export function ChatPanel({
               <span>生成中</span>
             </div>
             <p>
-              Mock Agent 正在根据 @Agent 路由生成回复
+              Agent 正在根据 @Agent 路由生成回复
               <span className="typing-dots" aria-hidden="true">
                 ...
               </span>

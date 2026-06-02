@@ -71,7 +71,7 @@ const getFallbackAgentId = (agents: Agent[]) =>
   hasAgent('orchestrator', agents) ? 'orchestrator' : agents[0]?.id
 
 /**
- * 根据消息内容决定 mock Agent 调用顺序。
+ * 根据消息内容决定 Agent 调用顺序。
  * 这里传入的 agents 必须是“当前会话成员”，不是全局 Agent 列表；
  * 因此 @ 菜单和自动调度都不会越过 conversation.agent_ids 的成员边界。
  */

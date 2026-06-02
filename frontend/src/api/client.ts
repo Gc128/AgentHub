@@ -12,19 +12,51 @@ import type {
   UpdateConversationInput,
   WorkspacePreview,
 } from '../types/api'
-import { mockFetch } from './mock'
 
 /**
- * 是否使用前端 mock。
- * 默认启用 mock，保证没有后端时也能稳定演示；设置 VITE_USE_MOCK=false 后请求真实 /api。
+ * Flask API 基础地址。
+ * 默认指向本地 Flask 服务；如需换端口或部署地址，可在 Vite 环境变量中设置 VITE_API_BASE_URL。
  */
-const useMock = import.meta.env.VITE_USE_MOCK !== 'false'
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:5001'
+).replace(/\/$/, '')
 
-/**
- * 前端请求使用的 fetch 实现。
- * mock 模式也先构造 method/path/body 请求，再由 mockFetch 按路由拦截，方便后端接入时直接切换。
- */
-const fetchTransport: typeof fetch = useMock ? mockFetch : fetch
+type ApiEnvelope<T> = {
+  /** Flask 后端统一返回成功标记。 */
+  success: boolean
+  /** 成功时的真实业务数据。 */
+  data: T
+  /** 失败时的错误信息；成功时为 null。 */
+  error: string | null
+}
+
+/** 从后端错误响应里提取可读错误信息，兼容 envelope/detail/message 几种形态。 */
+const getErrorMessage = (payload: unknown) => {
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+
+  const errorPayload = payload as {
+    /** Flask envelope 中的错误字段。 */
+    error?: unknown
+    /** FastAPI 常见错误字段，保留兼容。 */
+    detail?: unknown
+    /** 其他后端常见错误字段。 */
+    message?: unknown
+  }
+
+  for (const value of [
+    errorPayload.error,
+    errorPayload.detail,
+    errorPayload.message,
+  ]) {
+    if (typeof value === 'string' && value.trim()) {
+      return value
+    }
+  }
+
+  return null
+}
 
 /**
  * 统一的 JSON 请求助手。
@@ -34,7 +66,7 @@ const requestJson = async <T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> => {
-  const response = await fetchTransport(path, {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
       ...init?.headers,
@@ -42,23 +74,41 @@ const requestJson = async <T>(
     ...init,
   })
 
+  const payload = (await response.json().catch(() => null)) as
+    | ApiEnvelope<T>
+    | { detail?: string; error?: string; message?: string }
+    | T
+    | null
+
   if (!response.ok) {
-    const errorPayload = (await response.json().catch(() => null)) as
-      | { detail?: string }
-      | null
     throw new Error(
-      errorPayload?.detail ??
+      getErrorMessage(payload) ??
         `Request failed: ${response.status} ${response.statusText}`,
     )
   }
 
-  return response.json() as Promise<T>
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'success' in payload &&
+    'data' in payload
+  ) {
+    const envelopedPayload = payload as ApiEnvelope<T>
+
+    if (!envelopedPayload.success) {
+      throw new Error(envelopedPayload.error ?? '接口请求失败')
+    }
+
+    return envelopedPayload.data
+  }
+
+  return payload as T
 }
 
 export const apiClient = {
   /**
    * 获取会话列表。
-   * 始终发起 GET /api/conversations；mock 模式由 mockFetch 拦截。
+   * 始终发起 GET /api/conversations，由 Flask JSON 后端返回真实持久化数据。
    */
   listConversations(): Promise<Conversation[]> {
     return requestJson<Conversation[]>('/api/conversations')
@@ -66,7 +116,7 @@ export const apiClient = {
 
   /**
    * 新建会话。
-   * 请求体沿用前端最小输入 CreateConversationInput，等待后端文档进一步明确。
+   * 请求体沿用前端最小输入 CreateConversationInput，Flask 后端会生成 id/workspace_id/时间戳。
    */
   createConversation(
     input: CreateConversationInput,
@@ -79,7 +129,7 @@ export const apiClient = {
 
   /**
    * 更新会话信息。
-   * 当前 UI 只使用 is_pinned 做置顶/取消置顶；仍采用 PATCH，方便真实后端按部分字段更新。
+   * 当前 UI 使用它做置顶/取消置顶和成员变更；PATCH 只修改传入字段。
    */
   updateConversation(
     conversationId: string,
@@ -93,7 +143,7 @@ export const apiClient = {
 
   /**
    * 删除会话。
-   * 始终发起 DELETE /api/conversations/{id}，mock 拦截后会同步清理消息和预览状态。
+   * 始终发起 DELETE /api/conversations/{id}，后端会同步清理消息和预览状态。
    */
   deleteConversation(conversationId: string): Promise<DeleteConversationResult> {
     return requestJson<DeleteConversationResult>(
@@ -116,7 +166,7 @@ export const apiClient = {
 
   /**
    * 在指定会话中创建一条消息。
-   * 后端请求体尚未定稿，当前前端只传 sender_id/content，mock 会补齐 Message 结构。
+   * 当前前端传 sender_id/content/artifacts，Flask 后端会补齐 Message 结构并写入 messages.json。
    */
   createMessage(
     conversationId: string,
@@ -133,7 +183,7 @@ export const apiClient = {
 
   /**
    * 获取 Agent 联系人列表。
-   * 该接口是前端需要但后端文档未明确的接口，真实联调前需要后端补充。
+   * 由 Flask 后端读取 agents.json 返回。
    */
   listAgents(): Promise<Agent[]> {
     return requestJson<Agent[]>('/api/agents')
@@ -162,7 +212,7 @@ export const apiClient = {
 
   /**
    * 应用 workspace 中的 Diff。
-   * 后端请求体未定稿，当前前端按 ApplyDiffInput 发送，mock 会同步刷新 preview 状态。
+   * 当前前端按 ApplyDiffInput 发送，Flask 后端会记录应用结果并刷新 preview 状态。
    */
   applyDiff(
     workspaceId: string,

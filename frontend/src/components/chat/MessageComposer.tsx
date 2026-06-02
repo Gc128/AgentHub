@@ -33,7 +33,7 @@ type MessageComposerProps = {
 
 /**
  * 聊天输入组件。
- * 第三天增加 @Agent 菜单；发送后父组件会根据 @ 触发 mock Agent 回复。
+ * 输入 @Agent 后，父组件会根据当前会话成员触发后端 Agent 调用。
  */
 export function MessageComposer({
   agents,
@@ -70,7 +70,7 @@ export function MessageComposer({
     setComposerError(null)
   }
 
-  /** 提交用户消息；空白内容不会发送到 mock API。 */
+  /** 提交用户消息；空白内容不会发送到后端 API。 */
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const normalizedContent = content.trim()

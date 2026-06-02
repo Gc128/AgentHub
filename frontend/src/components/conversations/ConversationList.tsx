@@ -144,7 +144,7 @@ export function ConversationList({
                 </Tooltip>
                 <Popconfirm
                   cancelText="取消"
-                  description="删除后会同步移除该会话的 mock 消息和预览状态。"
+                  description="删除后会同步移除该会话的消息和预览状态。"
                   okButtonProps={{ danger: true }}
                   okText="删除"
                   onConfirm={() => void onDeleteConversation(conversation.id)}

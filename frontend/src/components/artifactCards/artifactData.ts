@@ -26,7 +26,7 @@ export const getArtifactStringList = (artifact: Artifact, key: string) => {
 
 /**
  * 从 Artifact.data 中安全读取数字字段。
- * 当前用于显示 mock Orchestrator 的 estimated_minutes。
+ * 当前用于显示 Orchestrator 的 estimated_minutes。
  */
 export const getArtifactNumber = (
   artifact: Artifact,

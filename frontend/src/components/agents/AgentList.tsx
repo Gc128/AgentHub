@@ -3,7 +3,7 @@ import type { Agent } from '../../types/api'
 
 /** Agent 联系人列表组件的入参。 */
 type AgentListProps = {
-  /** 当前可用 Agent；首日来自 mock，后续可来自 GET /api/agents。 */
+  /** 当前可用 Agent；来自 GET /api/agents。 */
   agents: Agent[]
 }
 

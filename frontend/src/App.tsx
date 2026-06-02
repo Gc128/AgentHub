@@ -52,7 +52,7 @@ const inferConversationMode = (agentIds: string[]): ConversationMode =>
  * 这里负责把首日 Demo 的核心数据串起来：会话列表、聊天消息、Agent 联系人和右侧产物预览。
  */
 function App() {
-  // 可用 Agent 列表，来自 apiClient；当前默认走 mock，后续可切到真实 /api。
+  // 可用 Agent 列表，来自 Flask 后端 /api/agents。
   const [agents, setAgents] = useState<Agent[]>([])
   // 左侧会话列表，Conversation 字段严格对齐后端 schema。
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -72,7 +72,7 @@ function App() {
   const [newConversationOpen, setNewConversationOpen] = useState(false)
   // 控制当前会话成员管理弹窗是否打开。
   const [memberManagerOpen, setMemberManagerOpen] = useState(false)
-  // mock Agent 回复生成状态；生成中禁用输入框并展示一条系统态消息。
+  // Agent 回复生成状态；生成中禁用输入框并展示一条系统态消息。
   const [agentRunning, setAgentRunning] = useState(false)
   // 已成功应用的 diff artifact ID；聊天流和右侧产物栏共享这份状态。
   const [appliedDiffIds, setAppliedDiffIds] = useState<ReadonlySet<string>>(
@@ -106,7 +106,7 @@ function App() {
         setConversations(nextConversations)
         setAgents(nextAgents)
         setError(null)
-        // 默认选中最近活跃的第一条会话，mock API 已按 updated_at 倒序返回。
+        // 默认选中最近活跃的第一条会话，后端已按置顶和 updated_at 排序返回。
         setSelectedConversationId(nextConversations[0]?.id ?? null)
       } catch (caughtError) {
         if (!ignore) {
@@ -341,7 +341,7 @@ function App() {
 
   /**
    * 把 AgentRunResult 保存为聊天消息。
-   * 这里仍走 createMessage，让 mock 内存消息表和前端状态保持一致。
+   * 这里仍走 createMessage，让后端 messages.json 和前端状态保持一致。
    */
   const appendAgentResult = async (
     conversationId: string,
@@ -359,7 +359,7 @@ function App() {
 
   /**
    * 应用某个 Diff Artifact。
-   * 这是第五天的关键闭环：Diff 卡片按钮 → mock apply-diff → workspace preview 刷新。
+   * 这是核心闭环：Diff 卡片按钮 → 后端 apply-diff → workspace preview 刷新。
    */
   const handleApplyDiff = async (artifact: Artifact, diff: string) => {
     if (!selectedConversation) {
@@ -396,7 +396,7 @@ function App() {
 
   /**
    * 在当前会话中发送用户消息。
-   * 第三天在保存用户消息后，会根据 @Agent 或关键词触发 mock Agent 回复。
+   * 保存用户消息后，会根据 @Agent 或关键词触发后端 Agent 回复。
    */
   const handleSendMessage = async (content: string) => {
     if (!selectedConversation) {
