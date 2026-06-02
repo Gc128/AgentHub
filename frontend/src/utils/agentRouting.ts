@@ -62,9 +62,18 @@ const resolveMentionedAgentIds = (content: string, agents: Agent[]) => {
 const uniqueInOrder = (agentIds: string[]) =>
   agentIds.filter((agentId, index) => agentIds.indexOf(agentId) === index)
 
+/** 判断某个 Agent 是否存在于当前会话成员中。 */
+const hasAgent = (agentId: string, agents: Agent[]) =>
+  agents.some((agent) => agent.id === agentId)
+
+/** 返回当前会话中第一个可用 Agent，用于关键词路由没有匹配成员时兜底。 */
+const getFallbackAgentId = (agents: Agent[]) =>
+  hasAgent('orchestrator', agents) ? 'orchestrator' : agents[0]?.id
+
 /**
  * 根据消息内容决定 mock Agent 调用顺序。
- * 规则对齐项目文档：@Orchestrator 触发多 Agent 链路，直接 @ 子 Agent 则优先调用该 Agent。
+ * 这里传入的 agents 必须是“当前会话成员”，不是全局 Agent 列表；
+ * 因此 @ 菜单和自动调度都不会越过 conversation.agent_ids 的成员边界。
  */
 export const resolveAgentRunOrder = (content: string, agents: Agent[]) => {
   const mentionedAgentIds = resolveMentionedAgentIds(content, agents)
@@ -75,24 +84,25 @@ export const resolveAgentRunOrder = (content: string, agents: Agent[]) => {
       'code-agent',
       'review-agent',
       'preview-agent',
-    ])
+    ]).filter((agentId) => hasAgent(agentId, agents))
   }
 
   if (mentionedAgentIds.length > 0) {
     return uniqueInOrder(mentionedAgentIds)
   }
 
-  if (/[写实现生成页面组件]/.test(content)) {
+  if (/[写实现生成页面组件]/.test(content) && hasAgent('code-agent', agents)) {
     return ['code-agent']
   }
 
-  if (/检查|优化|问题|review|bug/i.test(content)) {
+  if (/检查|优化|问题|review|bug/i.test(content) && hasAgent('review-agent', agents)) {
     return ['review-agent']
   }
 
-  if (/预览|效果|页面展示/.test(content)) {
+  if (/预览|效果|页面展示/.test(content) && hasAgent('preview-agent', agents)) {
     return ['preview-agent']
   }
 
-  return ['orchestrator']
+  const fallbackAgentId = getFallbackAgentId(agents)
+  return fallbackAgentId ? [fallbackAgentId] : []
 }

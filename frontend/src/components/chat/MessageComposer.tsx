@@ -9,8 +9,18 @@ import {
 } from '../../utils/agentRouting'
 import { MentionMenu } from './MentionMenu'
 
-/** 稳定演示用的默认 Prompt，和 docs/demo-script.md 的主线保持一致。 */
-const DEMO_PROMPT = '@Orchestrator 帮我做一个简洁的 Todo List 网页'
+/** Demo Prompt 的业务文本；真正的 @Agent 标签会根据当前会话成员动态选择。 */
+const DEMO_TASK = '帮我做一个简洁的 Todo List 网页'
+
+/**
+ * 根据当前会话成员生成演示 Prompt。
+ * 如果会话里有 Orchestrator，就走完整多 Agent Demo；否则使用当前会话第一个 Agent，避免越权 @。
+ */
+const createDemoPrompt = (agents: Agent[]) => {
+  const orchestrator = agents.find((agent) => agent.id === 'orchestrator')
+  const targetAgent = orchestrator ?? agents[0]
+  return targetAgent ? `${getAgentMentionLabel(targetAgent)} ${DEMO_TASK}` : ''
+}
 
 type MessageComposerProps = {
   /** 可 @ 的 Agent 列表，用于快捷标签和 MentionMenu。 */
@@ -39,6 +49,8 @@ export function MessageComposer({
 
   /** 当前正在输入的 @ 查询；为 null 时不显示 MentionMenu。 */
   const mentionQuery = getActiveMentionQuery(content)
+  /** 当前会话可用的 Demo Prompt；只会使用当前会话成员中的 Agent。 */
+  const demoPrompt = createDemoPrompt(agents)
 
   /** 把用户选择的 Agent 以 @ 标签形式插入输入框。 */
   const handleSelectAgent = (agent: Agent) => {
@@ -54,7 +66,7 @@ export function MessageComposer({
 
   /** 一键填入 Demo Prompt，减少现场演示输入成本。 */
   const handleUseDemoPrompt = () => {
-    setContent(DEMO_PROMPT)
+    setContent(demoPrompt)
     setComposerError(null)
   }
 
@@ -87,15 +99,19 @@ export function MessageComposer({
     <form className="message-composer" onSubmit={handleSubmit}>
       {/* 快捷 @ 标签：适合 Demo 时不用键盘输入也能快速指定 Agent。 */}
       <div className="mention-bar" aria-label="Agent 快捷提及">
-        {agents.map((agent) => (
-          <Tag
-            className="mention-chip"
-            key={agent.id}
-            onClick={() => handleSelectAgent(agent)}
-          >
-            {getAgentMentionLabel(agent)}
-          </Tag>
-        ))}
+        {agents.length > 0 ? (
+          agents.map((agent) => (
+            <Tag
+              className="mention-chip"
+              key={agent.id}
+              onClick={() => handleSelectAgent(agent)}
+            >
+              {getAgentMentionLabel(agent)}
+            </Tag>
+          ))
+        ) : (
+          <Tag className="mention-chip is-disabled">当前会话暂无 Agent</Tag>
+        )}
       </div>
       <div className="composer-input-wrap">
         <MentionMenu
@@ -116,18 +132,18 @@ export function MessageComposer({
               event.currentTarget.form?.requestSubmit()
             }
           }}
-          placeholder="输入开发需求，例如：@Orchestrator 帮我做一个简洁的 Todo List 网页"
+          placeholder="输入开发需求，@ 菜单只会显示当前会话成员"
           rows={3}
           value={content}
         />
       </div>
       <div className="composer-footer">
         <span className="composer-hint">
-          输入 @ 可选择 Agent；@Orchestrator 会触发多 Agent 模拟协作
+          输入 @ 可选择当前会话成员；调整成员后 @ 菜单会同步变化
         </span>
         <Button
           className="secondary-button demo-prompt-button"
-          disabled={disabled || sending}
+          disabled={disabled || sending || !demoPrompt}
           icon={<ThunderboltOutlined />}
           onClick={handleUseDemoPrompt}
         >

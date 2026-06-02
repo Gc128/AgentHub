@@ -361,6 +361,15 @@
   padding: 18px 22px;
 }
 
+.chat-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .chat-header h1,
 .panel-header h2 {
   margin: 0;
@@ -381,6 +390,18 @@
   background: #eef5f1;
   color: #235b54;
   padding: 8px 10px;
+}
+
+.member-count-tag {
+  border: 0;
+  background: #f2eee6;
+  color: #4f574f;
+  font-weight: 700;
+  margin-inline-end: 0;
+}
+
+.member-manage-button {
+  min-height: 30px;
 }
 
 .message-list {
@@ -522,6 +543,11 @@
 .mention-chip:disabled {
   cursor: not-allowed;
   opacity: 0.56;
+}
+
+.mention-chip.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.66;
 }
 
 .composer-input-wrap {
@@ -1066,6 +1092,11 @@
   padding: 10px;
 }
 
+.agent-checkbox.is-required-member {
+  border-color: #bad0c9;
+  background: #eef5f1;
+}
+
 .agent-checkbox input {
   margin-top: 4px;
 }
@@ -1079,6 +1110,21 @@
   color: #71766d;
   font-size: 12px;
   font-weight: 400;
+}
+
+.member-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.member-summary-tag {
+  margin-inline-end: 0;
+  border: 0;
+  background: #eef5f1;
+  color: #235b54;
+  font-weight: 700;
 }
 
 .form-error {
@@ -1129,6 +1175,15 @@
   .composer-shell {
     padding-right: 14px;
     padding-left: 14px;
+  }
+
+  .chat-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .chat-header-actions {
+    justify-content: flex-start;
   }
 
   .composer-footer,

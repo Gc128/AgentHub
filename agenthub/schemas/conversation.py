@@ -21,9 +21,9 @@ class ConversationUpdate(BaseModel):
     title: str | None = None
     # 会话模式可选更新；用于后续编辑单聊/群聊。
     mode: Literal["single", "group"] | None = None
-    # Agent 列表可选更新；用于后续调整会话参与者。
-    agent_ids: list[str] | None = None
-    # 置顶状态可选更新；本轮前端只使用这个字段。
+    # Agent 列表可选更新；用于后续调整会话参与者，传入时至少保留一个成员。
+    agent_ids: list[str] | None = Field(default=None, min_length=1)
+    # 置顶状态可选更新。
     is_pinned: bool | None = None
 
 

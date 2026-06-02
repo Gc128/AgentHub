@@ -23,7 +23,7 @@ const inferMode = (agentIds: string[]): ConversationMode =>
 
 /**
  * 新建会话弹窗。
- * 第二天只实现最小可用输入：标题 + 参与 Agent；置顶/归档等字段文档未明确，暂不加入。
+ * 会话成员会成为后续 @Agent 的可用边界；mode 根据成员数量自动推导。
  */
 export function NewConversationModal({
   open,
@@ -33,10 +33,8 @@ export function NewConversationModal({
 }: NewConversationModalProps) {
   // 新会话标题，默认贴近 Demo 主线，方便比赛演示快速创建。
   const [title, setTitle] = useState('Todo App Development')
-  // 默认选择 Orchestrator，让新会话天然服务多 Agent 协作主链路。
-  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([
-    'orchestrator',
-  ])
+  // 默认成员会在弹窗打开时按当前全局 Agent 列表重置，便于 Demo 新会话直接具备完整协作链路。
+  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([])
   // 提交中的 loading 状态，防止连续点击创建重复会话。
   const [submitting, setSubmitting] = useState(false)
   // 表单错误，主要处理空标题或没有选择 Agent。
@@ -44,21 +42,30 @@ export function NewConversationModal({
 
   useEffect(() => {
     if (open) {
+      setSelectedAgentIds(agents.map((agent) => agent.id))
       setFormError(null)
     }
-  }, [open])
+  }, [agents, open])
 
   if (!open) {
     return null
   }
 
-  /** 勾选或取消某个 Agent，并保持至少由提交校验兜底。 */
+  /** 勾选或取消某个 Agent；取消最后一个成员时立即阻止，保证会话至少有一个 Agent。 */
   const toggleAgent = (agentId: string) => {
-    setSelectedAgentIds((currentAgentIds) =>
-      currentAgentIds.includes(agentId)
+    setSelectedAgentIds((currentAgentIds) => {
+      const removing = currentAgentIds.includes(agentId)
+
+      if (removing && currentAgentIds.length === 1) {
+        setFormError('请至少选择一个 Agent')
+        return currentAgentIds
+      }
+
+      setFormError(null)
+      return removing
         ? currentAgentIds.filter((currentAgentId) => currentAgentId !== agentId)
-        : [...currentAgentIds, agentId],
-    )
+        : [...currentAgentIds, agentId]
+    })
   }
 
   /** 提交新建会话，输入结构严格使用 CreateConversationInput。 */

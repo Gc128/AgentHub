@@ -73,6 +73,10 @@ const sortByUpdatedAt = (items: Conversation[]) =>
     },
   )
 
+/** 会话模式由 Agent 成员数量推导，避免前端/后端出现单聊群聊判断不一致。 */
+const inferConversationMode = (agentIds: string[]) =>
+  agentIds.length > 1 ? 'group' : 'single'
+
 /** 生成随机 Artifact ID，避免连续调用 Agent 时产物 key 冲突。 */
 const nextArtifactId = (type: string) =>
   `artifact_${type}_${Date.now()}_${randomInt(100, 999)}`
@@ -245,12 +249,17 @@ export const mockApi = {
     input: CreateConversationInput,
   ): Promise<Conversation> {
     await delay()
+
+    if (input.agent_ids.length === 0) {
+      throw new Error('创建会话至少需要选择一个 Agent')
+    }
+
     const timestamp = nowIso()
     const id = nextId('conv', conversations.length)
     const conversation: Conversation = {
       id,
       title: input.title,
-      mode: input.mode,
+      mode: inferConversationMode(input.agent_ids),
       agent_ids: input.agent_ids,
       is_pinned: input.is_pinned ?? false,
       workspace_id: nextId('ws', conversations.length),
@@ -286,13 +295,18 @@ export const mockApi = {
       conversation.updated_at = nowIso()
     }
 
-    if (input.mode !== undefined) {
-      conversation.mode = input.mode
+    if (input.agent_ids !== undefined) {
+      if (input.agent_ids.length === 0) {
+        throw new Error('当前会话至少需要保留一个 Agent')
+      }
+
+      conversation.agent_ids = input.agent_ids
+      conversation.mode = inferConversationMode(input.agent_ids)
       conversation.updated_at = nowIso()
     }
 
-    if (input.agent_ids !== undefined) {
-      conversation.agent_ids = input.agent_ids
+    if (input.mode !== undefined && input.agent_ids === undefined) {
+      conversation.mode = input.mode
       conversation.updated_at = nowIso()
     }
 

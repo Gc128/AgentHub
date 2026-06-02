@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { Avatar, Empty, Spin } from 'antd'
+import { TeamOutlined } from '@ant-design/icons'
+import { Avatar, Button, Empty, Spin, Tag } from 'antd'
 import type { Agent, Artifact, Conversation, Message } from '../../types/api'
 import { ArtifactRenderer } from '../artifactCards/ArtifactRenderer'
 import { MessageComposer } from './MessageComposer'
@@ -8,6 +9,8 @@ import { MessageComposer } from './MessageComposer'
 type ChatPanelProps = {
   /** Agent 列表，用于把 message.sender_id 翻译成可读名称。 */
   agents: Agent[]
+  /** 当前会话成员 Agent；输入框和 @ 菜单只能使用这批 Agent。 */
+  availableAgents: Agent[]
   /** 当前会话；为空时展示空状态。 */
   conversation: Conversation | null
   /** 当前会话消息流。 */
@@ -24,6 +27,8 @@ type ChatPanelProps = {
   onApplyDiff: (artifact: Artifact, diff: string) => Promise<void>
   /** 用户发送消息时调用，父组件负责创建 Message 并刷新状态。 */
   onSendMessage: (content: string) => Promise<void>
+  /** 打开当前会话成员管理弹窗。 */
+  onOpenMemberManager: () => void
 }
 
 /**
@@ -54,6 +59,7 @@ const formatTime = (value: string) =>
  */
 export function ChatPanel({
   agents,
+  availableAgents,
   conversation,
   messages,
   loading,
@@ -62,6 +68,7 @@ export function ChatPanel({
   applyingDiffId,
   onApplyDiff,
   onSendMessage,
+  onOpenMemberManager,
 }: ChatPanelProps) {
   // messageListRef 用于第六天的演示体验：新消息和 Agent 生成状态出现时自动滚动到底部。
   const messageListRef = useRef<HTMLDivElement | null>(null)
@@ -90,7 +97,19 @@ export function ChatPanel({
           <p className="eyebrow">AgentHub Demo</p>
           <h1>{conversation.title}</h1>
         </div>
-        <span className="workspace-badge">{conversation.workspace_id}</span>
+        <div className="chat-header-actions">
+          {/* 成员数量来自 conversation.agent_ids，用于提示当前会话的 @Agent 边界。 */}
+          <Tag className="member-count-tag">{availableAgents.length} Agents</Tag>
+          <Button
+            className="secondary-button member-manage-button"
+            icon={<TeamOutlined />}
+            onClick={onOpenMemberManager}
+            size="small"
+          >
+            管理成员
+          </Button>
+          <span className="workspace-badge">{conversation.workspace_id}</span>
+        </div>
       </header>
 
       <div className="message-list" ref={messageListRef}>
@@ -158,7 +177,7 @@ export function ChatPanel({
       <footer className="composer-shell">
         {/* 第二天接入真实输入组件；第三天会在此基础上增加 @Agent 菜单和 Agent 回复。 */}
         <MessageComposer
-          agents={agents}
+          agents={availableAgents}
           disabled={!conversation || agentRunning}
           onSendMessage={onSendMessage}
         />

@@ -4,6 +4,7 @@ import { apiClient } from './api/client'
 import { AgentList } from './components/agents/AgentList'
 import { ArtifactPanel } from './components/artifactCards/ArtifactPanel'
 import { ChatPanel } from './components/chat/ChatPanel'
+import { ConversationMembersModal } from './components/conversations/ConversationMembersModal'
 import { ConversationList } from './components/conversations/ConversationList'
 import { NewConversationModal } from './components/conversations/NewConversationModal'
 import { AppLayout } from './components/layout/AppLayout'
@@ -14,6 +15,7 @@ import type {
   Conversation,
   CreateConversationInput,
   Message,
+  ConversationMode,
   WorkspacePreview,
 } from './types/api'
 import { resolveAgentRunOrder } from './utils/agentRouting'
@@ -41,6 +43,10 @@ const sortConversationsByUpdatedAt = (items: Conversation[]) =>
 const hasPreviewArtifact = (result: AgentRunResult) =>
   result.artifacts.some((artifact) => artifact.type === 'preview')
 
+/** 会话模式由成员数量推导，避免 UI 手动选择后和 agent_ids 语义不一致。 */
+const inferConversationMode = (agentIds: string[]): ConversationMode =>
+  agentIds.length > 1 ? 'group' : 'single'
+
 /**
  * AgentHub 前端根组件。
  * 这里负责把首日 Demo 的核心数据串起来：会话列表、聊天消息、Agent 联系人和右侧产物预览。
@@ -64,6 +70,8 @@ function App() {
   const [conversationSearchTerm, setConversationSearchTerm] = useState('')
   // 控制新建会话弹窗是否打开。
   const [newConversationOpen, setNewConversationOpen] = useState(false)
+  // 控制当前会话成员管理弹窗是否打开。
+  const [memberManagerOpen, setMemberManagerOpen] = useState(false)
   // mock Agent 回复生成状态；生成中禁用输入框并展示一条系统态消息。
   const [agentRunning, setAgentRunning] = useState(false)
   // 已成功应用的 diff artifact ID；聊天流和右侧产物栏共享这份状态。
@@ -129,6 +137,20 @@ function App() {
       ) ?? null,
     [conversations, selectedConversationId],
   )
+
+  /**
+   * 当前会话实际可用的 Agent。
+   * 这里严格按 conversation.agent_ids 取成员，聊天输入和 @ 路由都只能使用这批 Agent。
+   */
+  const selectedConversationAgents = useMemo(() => {
+    if (!selectedConversation) {
+      return []
+    }
+
+    return selectedConversation.agent_ids
+      .map((agentId) => agents.find((agent) => agent.id === agentId))
+      .filter((agent): agent is Agent => Boolean(agent))
+  }, [agents, selectedConversation])
 
   useEffect(() => {
     // 没有选中会话时清空中间消息区和右侧预览，避免展示上一个会话的数据。
@@ -252,6 +274,45 @@ function App() {
   }
 
   /**
+   * 更新当前会话成员。
+   * 保存 agent_ids 的同时同步推导 mode，保证一个成员就是单聊，多个成员就是群聊。
+   */
+  const handleUpdateConversationMembers = async (
+    conversationId: string,
+    nextAgentIds: string[],
+  ) => {
+    if (nextAgentIds.length === 0) {
+      throw new Error('当前会话至少需要保留一个 Agent')
+    }
+
+    try {
+      const updatedConversation = await apiClient.updateConversation(
+        conversationId,
+        {
+          agent_ids: nextAgentIds,
+          mode: inferConversationMode(nextAgentIds),
+        },
+      )
+
+      setConversations((currentConversations) =>
+        sortConversationsByUpdatedAt(
+          currentConversations.map((conversation) =>
+            conversation.id === conversationId
+              ? updatedConversation
+              : conversation,
+          ),
+        ),
+      )
+      setError(null)
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : '更新成员失败'
+      setError(message)
+      throw new Error(message)
+    }
+  }
+
+  /**
    * 删除会话。
    * 如果删除的是当前会话，自动切到排序后的第一条会话；没有会话时进入空状态。
    */
@@ -361,8 +422,15 @@ function App() {
         ),
       )
 
-      const agentRunOrder = resolveAgentRunOrder(content, agents)
+      const agentRunOrder = resolveAgentRunOrder(
+        content,
+        selectedConversationAgents,
+      )
       let hasPreviewUpdate = false
+
+      if (agentRunOrder.length === 0) {
+        throw new Error('当前会话没有可用 Agent，请先添加成员')
+      }
 
       for (const agentId of agentRunOrder) {
         const result = await apiClient.runAgent({
@@ -451,6 +519,7 @@ function App() {
             {/* 中间主区域：当前会话的消息流和消息输入。 */}
             <ChatPanel
               agents={agents}
+              availableAgents={selectedConversationAgents}
               conversation={selectedConversation}
               agentRunning={agentRunning}
               appliedDiffIds={appliedDiffIds}
@@ -458,6 +527,7 @@ function App() {
               loading={loadingMessages}
               messages={messages}
               onApplyDiff={handleApplyDiff}
+              onOpenMemberManager={() => setMemberManagerOpen(true)}
               onSendMessage={handleSendMessage}
             />
           </>
@@ -479,6 +549,13 @@ function App() {
         open={newConversationOpen}
         onClose={() => setNewConversationOpen(false)}
         onCreateConversation={handleCreateConversation}
+      />
+      <ConversationMembersModal
+        agents={agents}
+        conversation={selectedConversation}
+        open={memberManagerOpen}
+        onClose={() => setMemberManagerOpen(false)}
+        onUpdateMembers={handleUpdateConversationMembers}
       />
     </ConfigProvider>
   )

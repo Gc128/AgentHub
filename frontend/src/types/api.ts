@@ -169,6 +169,7 @@ export type WorkspacePreview = {
 /**
  * 新建会话的前端输入。
  * 后端文档尚未明确 POST /api/conversations 请求体，先采用最小必要字段。
+ * mode 保留在请求体中兼容既有接口，但 UI 会按 agent_ids.length 自动推导。
  */
 export type CreateConversationInput = {
   /** 新会话标题。 */
@@ -186,7 +187,7 @@ export type CreateConversationInput = {
 
 /**
  * 更新会话的前端请求体。
- * 当前只开放置顶状态，保留 title/mode/agent_ids 是为了后续编辑会话时复用 PATCH 接口。
+ * 当前支持置顶和成员编辑；mode 保留为兼容字段，成员变更时由 agent_ids.length 推导。
  */
 export type UpdateConversationInput = {
   /** 可选新标题；未传时不修改。 */
