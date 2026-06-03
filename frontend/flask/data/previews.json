@@ -20,8 +20,17 @@
     "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_004/preview-page"
   },
   {
-    "workspace_id": "ws_7f2e91b7",
+    "workspace_id": "ws_19fa6c61",
     "status": "ready",
-    "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_7f2e91b7/preview-page"
+    "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_19fa6c61/preview-page"
+  },
+  {
+    "workspace_id": "ws_378d5944",
+    "status": "not_started"
+  },
+  {
+    "workspace_id": "ws_697851a2",
+    "status": "ready",
+    "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_697851a2/preview-page"
   }
 ]

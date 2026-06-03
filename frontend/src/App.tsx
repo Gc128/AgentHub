@@ -190,7 +190,6 @@ function App() {
           apiClient.listWorkspaceFiles(selectedConversation.workspace_id),
           apiClient.listAppliedDiffs(selectedConversation.workspace_id),
         ])
-
         if (ignore) {
           return
         }
@@ -437,7 +436,6 @@ function App() {
           ),
         ),
       )
-
       const agentRunOrder = resolveAgentRunOrder(
         content,
         selectedConversationAgents,

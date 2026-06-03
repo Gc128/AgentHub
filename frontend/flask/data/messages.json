@@ -37,7 +37,7 @@
     "conversation_id": "conv_001",
     "role": "agent",
     "sender_id": "code-agent",
-    "content": "## Todo 页面实现\n\n我先给出一个轻量 React 版本，主交互集中在新增任务和列表展示。\n\n```tsx file=src/App.tsx\nimport { useState } from 'react'\n\nconst initialTodos = ['梳理需求', '生成代码', '应用 Diff']\n\nexport default function App() {\n  const [todos, setTodos] = useState(initialTodos)\n\n  return (\n    <main className=\"todo-shell\">\n      <section className=\"todo-card\">\n        <p className=\"eyebrow\">AgentHub Demo</p>\n        <h1>Team Todo</h1>\n        <button onClick={() => setTodos([...todos, '预览并提交'])}>Add task</button>\n        <ul>{todos.map((todo) => <li key={todo}>{todo}</li>)}</ul>\n      </section>\n    </main>\n  )\n}\n```\n\n这次变更会替换空壳 `App.tsx`，并保留后续接入真实 workspace 的空间。",
+    "content": "## Todo 页面实现\n\n我先给出一个轻量 React 版本，主交互集中在新增任务和列表展示。\n\n```tsx file=src/App.tsx\nimport { useState } from 'react'\n\nconst initialTodos = ['梳理需求', '生成代码', '应用 Diff']\n\nexport default function App() {\n  const [todos, setTodos] = useState(initialTodos)\n\n  return (\n    <main className=\"todo-shell\">\n      <section className=\"todo-card\">\n        <p className=\"eyebrow\">AgentHub Demo</p>\n        <h1>Team Todo</h1>\n        <button onClick={() => setTodos([...todos, '预览并提交'])}>Add task</button>\n        <ul>{todos.map((todo) => <li key={todo}>{todo}</li>)}</ul>\n      </section>\n    </main>\n  )\n}\n```\n\n这次变更会替换空壳 `App.tsx`，并保留后续接入真实 workspace 的空间。\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>AgentHub Preview</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Add task</button>\n</main>\n```\n\n\n",
     "artifacts": [
       {
         "id": "artifact_code_001",
@@ -188,7 +188,7 @@
     "conversation_id": "conv_003",
     "role": "agent",
     "sender_id": "code-agent",
-    "content": "## 修复输入空值问题\n\n我把提交逻辑改为先 `trim()`，空字符串直接显示错误，不再写入列表。\n\n```ts file=src/todo-actions.ts\nconst submitTask = (value: string) => {\n  const normalized = value.trim()\n  if (!normalized) {\n    setError('请输入任务内容')\n    return\n  }\n  setTodos((items) => [...items, normalized])\n  setDraft('')\n  setError(null)\n}\n```\n\nDiff 已附加为结构化 artifact，可以直接 Apply。",
+    "content": "## 修复输入空值问题\n\n我把提交逻辑改为先 `trim()`，空字符串直接显示错误，不再写入列表。\n\n```ts file=src/todo-actions.ts\nconst submitTask = (value: string) => {\n  const normalized = value.trim()\n  if (!normalized) {\n    setError('请输入任务内容')\n    return\n  }\n  setTodos((items) => [...items, normalized])\n  setDraft('')\n  setError(null)\n}\n```\n\nDiff 已附加为结构化 artifact，可以直接 Apply。\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>AgentHub Preview</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Add task</button>\n</main>\n```\n\n\n",
     "artifacts": [
       {
         "id": "artifact_code_bugfix_001",
@@ -320,134 +320,113 @@
     "created_at": "2026-06-03T10:12:00Z"
   },
   {
-    "id": "msg_812469b5",
-    "conversation_id": "conv_19c9ae2f",
+    "id": "msg_d9c23d46",
+    "conversation_id": "conv_4f68795b",
     "role": "user",
     "sender_id": "user",
-    "content": "@PreviewAgent 你好",
+    "content": "@Orchestrator 帮我做一个简洁的 Todo List 网页",
     "artifacts": [],
-    "created_at": "2026-06-03T03:45:33.730499Z"
+    "created_at": "2026-06-03T04:07:05.551208Z"
   },
   {
-    "id": "msg_a0f79b51",
-    "conversation_id": "conv_19c9ae2f",
+    "id": "msg_a552d287",
+    "conversation_id": "conv_4f68795b",
     "role": "agent",
-    "sender_id": "preview-agent",
-    "content": "## Workspace Preview\n\n- Workspace: `ws_7f2e91b7`\n- Status: `ready`\n- Preview URL: `http://127.0.0.1:5001/api/workspaces/ws_7f2e91b7/preview-page`\n\n预览环境已就绪，右侧 Workspace 面板会显示 iframe、文件列表和变更历史。",
+    "sender_id": "orchestrator",
+    "content": "## “帮我做一个简洁的 Todo List 网页”任务拆解\n\n我会按多 Agent 协作链路推进：\n\n1. Code Agent 生成页面代码\n2. Review Agent 检查实现风险\n3. Preview Agent 准备预览状态\n\n> 结构化 artifacts 只用于执行动作，主要回复会以 Markdown 形式留在聊天记录里。",
     "artifacts": [
       {
-        "created_at": "2026-06-03T03:45:33.753813Z",
+        "created_at": "2026-06-03T04:07:05.568522Z",
         "data": {
-          "checked_at": "2026-06-03T03:45:33.753767Z",
-          "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_7f2e91b7/preview-page",
-          "status": "ready",
-          "workspace_id": "ws_7f2e91b7"
+          "estimated_minutes": 7,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "帮我做一个简洁的 Todo List 网页"
         },
-        "id": "artifact_preview_28b5cfd9",
-        "title": "Workspace Preview",
-        "type": "preview"
+        "id": "artifact_file_106587ea",
+        "title": "Task Breakdown",
+        "type": "file"
       }
     ],
-    "created_at": "2026-06-03T03:45:33.774874Z"
+    "created_at": "2026-06-03T04:07:05.599930Z"
   },
   {
-    "id": "msg_1fcb9d95",
-    "conversation_id": "conv_19c9ae2f",
-    "role": "user",
-    "sender_id": "user",
-    "content": "@CodeAgent 高海清",
-    "artifacts": [],
-    "created_at": "2026-06-03T03:46:06.355924Z"
-  },
-  {
-    "id": "msg_4e64cf1e",
-    "conversation_id": "conv_19c9ae2f",
+    "id": "msg_a28131d8",
+    "conversation_id": "conv_4f68795b",
     "role": "agent",
     "sender_id": "code-agent",
-    "content": "## 已生成“高海清”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>高海清</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "content": "## 已生成“帮我做一个简洁的 Todo List 网页”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>帮我做一个简洁的 Todo List 网页</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>帮我做一个简洁的 Todo List 网页</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Add task</button>\n</main>\n```\n\n\n\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
     "artifacts": [
       {
-        "created_at": "2026-06-03T03:46:06.381417Z",
+        "created_at": "2026-06-03T04:07:05.612980Z",
         "data": {
-          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>高海清</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>帮我做一个简洁的 Todo List 网页</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
           "filename": "src/App.tsx",
           "language": "tsx"
         },
-        "id": "artifact_code_5c581b06",
+        "id": "artifact_code_4fa9ab40",
         "title": "Todo App Component",
         "type": "code"
       },
       {
-        "created_at": "2026-06-03T03:46:06.381443Z",
+        "created_at": "2026-06-03T04:07:05.613019Z",
         "data": {
-          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n+      <h1>高海清</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n+      <h1>帮我做一个简洁的 Todo List 网页</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
           "filename": "src/App.tsx"
         },
-        "id": "artifact_diff_e0d73833",
+        "id": "artifact_diff_cc970716",
         "title": "Todo App Diff",
         "type": "diff"
       }
     ],
-    "created_at": "2026-06-03T03:46:06.401758Z"
+    "created_at": "2026-06-03T04:07:05.626205Z"
   },
   {
-    "id": "msg_aadac3ad",
-    "conversation_id": "conv_19c9ae2f",
-    "role": "user",
-    "sender_id": "user",
-    "content": "@CodeAgent 高海清",
-    "artifacts": [],
-    "created_at": "2026-06-03T03:46:35.694804Z"
-  },
-  {
-    "id": "msg_5d3cfb7a",
-    "conversation_id": "conv_19c9ae2f",
+    "id": "msg_44b4d3ae",
+    "conversation_id": "conv_4f68795b",
     "role": "agent",
-    "sender_id": "code-agent",
-    "content": "## 已生成“高海清”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n      <h1>高海清</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "sender_id": "review-agent",
+    "content": "## Review Agent 检查结果\n\n我重点检查了 Demo 稳定性、聊天可读性和 workspace 操作闭环。\n\n| 检查项 | 结论 |\n| --- | --- |\n| 主要风险 | 按钮需要 disabled 状态、空列表要有提示、移动端标题需要换行保护 |\n| Apply Diff | 保持结构化 artifact 驱动，可靠 |\n| Markdown 回复 | 适合比赛展示和答辩讲解 |\n\n建议优先处理：\n- 按钮需要 disabled 状态\n- 空列表要有提示\n- 移动端标题需要换行保护",
     "artifacts": [
       {
-        "created_at": "2026-06-03T03:46:35.739002Z",
+        "created_at": "2026-06-03T04:07:05.636182Z",
         "data": {
-          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n      <h1>高海清</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
-          "filename": "src/App.tsx",
-          "language": "tsx"
+          "findings": [
+            "按钮需要 disabled 状态",
+            "空列表要有提示",
+            "移动端标题需要换行保护"
+          ],
+          "risk_level": "low"
         },
-        "id": "artifact_code_6cb3339b",
-        "title": "Todo App Component",
-        "type": "code"
-      },
-      {
-        "created_at": "2026-06-03T03:46:35.739020Z",
-        "data": {
-          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n+      <h1>高海清</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
-          "filename": "src/App.tsx"
-        },
-        "id": "artifact_diff_adcfe454",
-        "title": "Todo App Diff",
-        "type": "diff"
+        "id": "artifact_file_b9dea18a",
+        "title": "Review Notes",
+        "type": "file"
       }
     ],
-    "created_at": "2026-06-03T03:46:35.771718Z"
+    "created_at": "2026-06-03T04:07:05.655372Z"
   },
   {
-    "id": "msg_c4347ff2",
-    "conversation_id": "conv_19c9ae2f",
+    "id": "msg_70e120a3",
+    "conversation_id": "conv_4f68795b",
     "role": "user",
     "sender_id": "user",
     "content": "@Orchestrator",
     "artifacts": [],
-    "created_at": "2026-06-03T03:48:41.814959Z"
+    "created_at": "2026-06-03T04:10:00.617567Z"
   },
   {
-    "id": "msg_5a15ccf9",
-    "conversation_id": "conv_19c9ae2f",
+    "id": "msg_f374f4d0",
+    "conversation_id": "conv_4f68795b",
     "role": "agent",
     "sender_id": "orchestrator",
     "content": "## “开发任务”任务拆解\n\n我会按多 Agent 协作链路推进：\n\n1. Code Agent 生成页面代码\n2. Review Agent 检查实现风险\n3. Preview Agent 准备预览状态\n\n> 结构化 artifacts 只用于执行动作，主要回复会以 Markdown 形式留在聊天记录里。",
     "artifacts": [
       {
-        "created_at": "2026-06-03T03:48:41.866496Z",
+        "created_at": "2026-06-03T04:10:00.653943Z",
         "data": {
           "estimated_minutes": 14,
           "steps": [
@@ -458,88 +437,906 @@
           "summary": "Rule-based MVP plan",
           "task_title": "开发任务"
         },
-        "id": "artifact_file_bfc72a9c",
+        "id": "artifact_file_5d8949f6",
         "title": "Task Breakdown",
         "type": "file"
       }
     ],
-    "created_at": "2026-06-03T03:48:41.909561Z"
+    "created_at": "2026-06-03T04:10:00.688736Z"
   },
   {
-    "id": "msg_85e48cb8",
-    "conversation_id": "conv_19c9ae2f",
+    "id": "msg_21fbc40c",
+    "conversation_id": "conv_4f68795b",
     "role": "agent",
     "sender_id": "code-agent",
-    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>开发任务</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Add task</button>\n</main>\n```\n\n\n\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
     "artifacts": [
       {
-        "created_at": "2026-06-03T03:48:41.943251Z",
+        "created_at": "2026-06-03T04:10:00.713557Z",
         "data": {
-          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>开发任务</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n",
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
           "filename": "src/App.tsx",
           "language": "tsx"
         },
-        "id": "artifact_code_ac8b9cb5",
+        "id": "artifact_code_45d36125",
         "title": "Todo App Component",
         "type": "code"
       },
       {
-        "created_at": "2026-06-03T03:48:41.943271Z",
+        "created_at": "2026-06-03T04:10:00.713591Z",
         "data": {
-          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n+      <h1>开发任务</h1>\n+      <button>Add task</button>\n+    </main>\n+  )\n+}\n",
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n+      <h1>开发任务</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
           "filename": "src/App.tsx"
         },
-        "id": "artifact_diff_dc22aed0",
+        "id": "artifact_diff_b8511b83",
         "title": "Todo App Diff",
         "type": "diff"
       }
     ],
-    "created_at": "2026-06-03T03:48:41.972510Z"
+    "created_at": "2026-06-03T04:10:00.733632Z"
   },
   {
-    "id": "msg_09c92bbf",
-    "conversation_id": "conv_19c9ae2f",
+    "id": "msg_d8dd7cb2",
+    "conversation_id": "conv_4f68795b",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "## Review Agent 检查结果\n\n我重点检查了 Demo 稳定性、聊天可读性和 workspace 操作闭环。\n\n| 检查项 | 结论 |\n| --- | --- |\n| 主要风险 | Diff 应用失败要提示、输入框需要 trim、预览未就绪时不要展示空 iframe |\n| Apply Diff | 保持结构化 artifact 驱动，可靠 |\n| Markdown 回复 | 适合比赛展示和答辩讲解 |\n\n建议优先处理：\n- Diff 应用失败要提示\n- 输入框需要 trim\n- 预览未就绪时不要展示空 iframe",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T04:10:00.743061Z",
+        "data": {
+          "findings": [
+            "Diff 应用失败要提示",
+            "输入框需要 trim",
+            "预览未就绪时不要展示空 iframe"
+          ],
+          "risk_level": "medium"
+        },
+        "id": "artifact_file_f741527b",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-03T04:10:00.769605Z"
+  },
+  {
+    "id": "msg_8ef56a3b",
+    "conversation_id": "conv_4f68795b",
+    "role": "agent",
+    "sender_id": "preview-agent",
+    "content": "## Workspace Preview\n\n- Workspace: `ws_19fa6c61`\n- Status: `ready`\n- Preview URL: `http://127.0.0.1:5001/api/workspaces/ws_19fa6c61/preview-page`\n\n预览环境已就绪，右侧 Workspace 面板会显示 iframe、文件列表和变更历史。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T04:10:00.777265Z",
+        "data": {
+          "checked_at": "2026-06-03T04:10:00.777219Z",
+          "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_19fa6c61/preview-page",
+          "status": "ready",
+          "workspace_id": "ws_19fa6c61"
+        },
+        "id": "artifact_preview_519c6333",
+        "title": "Workspace Preview",
+        "type": "preview"
+      }
+    ],
+    "created_at": "2026-06-03T04:10:00.804390Z"
+  },
+  {
+    "id": "msg_b81022aa",
+    "conversation_id": "conv_4f68795b",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@ReviewAgent @PreviewAgent @Orchestrator",
+    "artifacts": [],
+    "created_at": "2026-06-03T07:33:22.209440Z"
+  },
+  {
+    "id": "msg_d4a0df92",
+    "conversation_id": "conv_4f68795b",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "## “开发任务”任务拆解\n\n我会按多 Agent 协作链路推进：\n\n1. Code Agent 生成页面代码\n2. Review Agent 检查实现风险\n3. Preview Agent 准备预览状态\n\n> 结构化 artifacts 只用于执行动作，主要回复会以 Markdown 形式留在聊天记录里。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T07:33:22.271083Z",
+        "data": {
+          "estimated_minutes": 9,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "开发任务"
+        },
+        "id": "artifact_file_7f48eb3b",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-03T07:33:22.328575Z"
+  },
+  {
+    "id": "msg_cd19ada3",
+    "conversation_id": "conv_4f68795b",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Add task</button>\n</main>\n```\n\n\n\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T07:33:22.369824Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_0dd530e5",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T07:33:22.369841Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n+      <h1>开发任务</h1>\n+      <button>Save item</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_7055d19f",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T07:33:22.409086Z"
+  },
+  {
+    "id": "msg_4c5e9d6f",
+    "conversation_id": "conv_4f68795b",
     "role": "agent",
     "sender_id": "review-agent",
     "content": "## Review Agent 检查结果\n\n我重点检查了 Demo 稳定性、聊天可读性和 workspace 操作闭环。\n\n| 检查项 | 结论 |\n| --- | --- |\n| 主要风险 | Artifact 卡片要可滚动、Agent 回复要保留时间线、长文件名需要省略显示 |\n| Apply Diff | 保持结构化 artifact 驱动，可靠 |\n| Markdown 回复 | 适合比赛展示和答辩讲解 |\n\n建议优先处理：\n- Artifact 卡片要可滚动\n- Agent 回复要保留时间线\n- 长文件名需要省略显示",
     "artifacts": [
       {
-        "created_at": "2026-06-03T03:48:41.976744Z",
+        "created_at": "2026-06-03T07:33:22.416369Z",
         "data": {
           "findings": [
             "Artifact 卡片要可滚动",
             "Agent 回复要保留时间线",
             "长文件名需要省略显示"
           ],
-          "risk_level": "low"
+          "risk_level": "medium"
         },
-        "id": "artifact_file_d6bd0367",
+        "id": "artifact_file_653335ad",
         "title": "Review Notes",
         "type": "file"
       }
     ],
-    "created_at": "2026-06-03T03:48:42.011796Z"
+    "created_at": "2026-06-03T07:33:22.469157Z"
   },
   {
-    "id": "msg_d0a044e8",
-    "conversation_id": "conv_19c9ae2f",
+    "id": "msg_8dff79df",
+    "conversation_id": "conv_4f68795b",
     "role": "agent",
     "sender_id": "preview-agent",
-    "content": "## Workspace Preview\n\n- Workspace: `ws_7f2e91b7`\n- Status: `ready`\n- Preview URL: `http://127.0.0.1:5001/api/workspaces/ws_7f2e91b7/preview-page`\n\n预览环境已就绪，右侧 Workspace 面板会显示 iframe、文件列表和变更历史。",
+    "content": "## Workspace Preview\n\n- Workspace: `ws_19fa6c61`\n- Status: `ready`\n- Preview URL: `http://127.0.0.1:5001/api/workspaces/ws_19fa6c61/preview-page`\n\n预览环境已就绪，右侧 Workspace 面板会显示 iframe、文件列表和变更历史。",
     "artifacts": [
       {
-        "created_at": "2026-06-03T03:48:42.017467Z",
+        "created_at": "2026-06-03T07:33:22.477417Z",
         "data": {
-          "checked_at": "2026-06-03T03:48:42.017431Z",
-          "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_7f2e91b7/preview-page",
+          "checked_at": "2026-06-03T07:33:22.477378Z",
+          "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_19fa6c61/preview-page",
           "status": "ready",
-          "workspace_id": "ws_7f2e91b7"
+          "workspace_id": "ws_19fa6c61"
         },
-        "id": "artifact_preview_3e42dd1e",
+        "id": "artifact_preview_1559ac06",
         "title": "Workspace Preview",
         "type": "preview"
       }
     ],
-    "created_at": "2026-06-03T03:48:42.050703Z"
+    "created_at": "2026-06-03T07:33:22.516334Z"
+  },
+  {
+    "id": "msg_48e37ecb",
+    "conversation_id": "conv_4f68795b",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T07:34:23.921904Z"
+  },
+  {
+    "id": "msg_ff39d315",
+    "conversation_id": "conv_4f68795b",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Add task</button>\n</main>\n```\n\n\n\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T07:34:23.996877Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_e27a4135",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T07:34:23.996897Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n+      <h1>开发任务</h1>\n+      <button>Add task</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_78e50359",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T07:34:24.068213Z"
+  },
+  {
+    "id": "msg_231ea8fe",
+    "conversation_id": "conv_4f68795b",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T07:46:11.912308Z"
+  },
+  {
+    "id": "msg_afe966b1",
+    "conversation_id": "conv_4f68795b",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Create todo</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T07:46:11.970304Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_da1705df",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T07:46:11.970321Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n+      <h1>开发任务</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_6ced1f27",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T07:46:12.025893Z"
+  },
+  {
+    "id": "msg_9e421b25",
+    "conversation_id": "conv_5dc6d395",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T07:58:57.739533Z"
+  },
+  {
+    "id": "msg_31123ad9",
+    "conversation_id": "conv_5dc6d395",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Save item</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T07:58:57.768973Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_23c58132",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T07:58:57.769004Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n+      <h1>开发任务</h1>\n+      <button>Save item</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_1b39006c",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T07:58:57.795486Z"
+  },
+  {
+    "id": "msg_70867807",
+    "conversation_id": "conv_002",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@ReviewAgent @CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T08:19:51.693430Z"
+  },
+  {
+    "id": "msg_9ccecf74",
+    "conversation_id": "conv_002",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "## Review Agent 检查结果\n\n我重点检查了 Demo 稳定性、聊天可读性和 workspace 操作闭环。\n\n| 检查项 | 结论 |\n| --- | --- |\n| 主要风险 | 按钮需要 disabled 状态、空列表要有提示、移动端标题需要换行保护 |\n| Apply Diff | 保持结构化 artifact 驱动，可靠 |\n| Markdown 回复 | 适合比赛展示和答辩讲解 |\n\n建议优先处理：\n- 按钮需要 disabled 状态\n- 空列表要有提示\n- 移动端标题需要换行保护",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T08:19:51.731599Z",
+        "data": {
+          "findings": [
+            "按钮需要 disabled 状态",
+            "空列表要有提示",
+            "移动端标题需要换行保护"
+          ],
+          "risk_level": "medium"
+        },
+        "id": "artifact_file_a99e1771",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-03T08:19:51.762798Z"
+  },
+  {
+    "id": "msg_2b748fad",
+    "conversation_id": "conv_002",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>开发任务</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Add task</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T08:19:51.783305Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>开发任务</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_b5dd4a37",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T08:19:51.783324Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n+      <h1>开发任务</h1>\n+      <button>Add task</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_f689d44a",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T08:19:51.800915Z"
+  },
+  {
+    "id": "msg_595f62da",
+    "conversation_id": "conv_b619b403",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent @ReviewAgent 你好",
+    "artifacts": [],
+    "created_at": "2026-06-03T08:25:32.234115Z"
+  },
+  {
+    "id": "msg_9c86d52a",
+    "conversation_id": "conv_b619b403",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“你好”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n      <h1>你好</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>你好</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Save item</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T08:25:32.260712Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n      <h1>你好</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_28265f68",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T08:25:32.260739Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n+      <h1>你好</h1>\n+      <button>Save item</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_3c68393d",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T08:25:32.294500Z"
+  },
+  {
+    "id": "msg_7c840e41",
+    "conversation_id": "conv_b619b403",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "## Review Agent 检查结果\n\n我重点检查了 Demo 稳定性、聊天可读性和 workspace 操作闭环。\n\n| 检查项 | 结论 |\n| --- | --- |\n| 主要风险 | Diff 应用失败要提示、输入框需要 trim、预览未就绪时不要展示空 iframe |\n| Apply Diff | 保持结构化 artifact 驱动，可靠 |\n| Markdown 回复 | 适合比赛展示和答辩讲解 |\n\n建议优先处理：\n- Diff 应用失败要提示\n- 输入框需要 trim\n- 预览未就绪时不要展示空 iframe",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T08:25:32.312315Z",
+        "data": {
+          "findings": [
+            "Diff 应用失败要提示",
+            "输入框需要 trim",
+            "预览未就绪时不要展示空 iframe"
+          ],
+          "risk_level": "low"
+        },
+        "id": "artifact_file_7e922c5a",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-03T08:25:32.374303Z"
+  },
+  {
+    "id": "msg_6981a671",
+    "conversation_id": "conv_003",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T08:37:00.515955Z"
+  },
+  {
+    "id": "msg_df02066e",
+    "conversation_id": "conv_003",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Create todo</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T08:37:00.569740Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_eb570c7b",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T08:37:00.569768Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n+      <h1>开发任务</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_c070f093",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T08:37:09.419534Z"
+  },
+  {
+    "id": "msg_66978e11",
+    "conversation_id": "conv_003",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@Orchestrator",
+    "artifacts": [],
+    "created_at": "2026-06-03T08:37:16.173106Z"
+  },
+  {
+    "id": "msg_2c3d67f8",
+    "conversation_id": "conv_003",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "## “开发任务”任务拆解\n\n我会按多 Agent 协作链路推进：\n\n1. Code Agent 生成页面代码\n2. Review Agent 检查实现风险\n3. Preview Agent 准备预览状态\n\n> 结构化 artifacts 只用于执行动作，主要回复会以 Markdown 形式留在聊天记录里。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T08:37:16.246869Z",
+        "data": {
+          "estimated_minutes": 11,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "开发任务"
+        },
+        "id": "artifact_file_e4c0f497",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-03T08:37:18.419218Z"
+  },
+  {
+    "id": "msg_c61179cf",
+    "conversation_id": "conv_003",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>开发任务</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Add task</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T08:37:18.480035Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>开发任务</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_72923e0c",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T08:37:18.480067Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n+      <h1>开发任务</h1>\n+      <button>Add task</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_2d615933",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T08:37:18.521211Z"
+  },
+  {
+    "id": "msg_73092ce9",
+    "conversation_id": "conv_003",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "## Review Agent 检查结果\n\n我重点检查了 Demo 稳定性、聊天可读性和 workspace 操作闭环。\n\n| 检查项 | 结论 |\n| --- | --- |\n| 主要风险 | 按钮需要 disabled 状态、空列表要有提示、移动端标题需要换行保护 |\n| Apply Diff | 保持结构化 artifact 驱动，可靠 |\n| Markdown 回复 | 适合比赛展示和答辩讲解 |\n\n建议优先处理：\n- 按钮需要 disabled 状态\n- 空列表要有提示\n- 移动端标题需要换行保护",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T08:37:18.528283Z",
+        "data": {
+          "findings": [
+            "按钮需要 disabled 状态",
+            "空列表要有提示",
+            "移动端标题需要换行保护"
+          ],
+          "risk_level": "medium"
+        },
+        "id": "artifact_file_95618c0c",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-03T08:37:18.576940Z"
+  },
+  {
+    "id": "msg_50ba2f38",
+    "conversation_id": "conv_003",
+    "role": "agent",
+    "sender_id": "preview-agent",
+    "content": "## Workspace Preview\n\n- Workspace: `ws_003`\n- Status: `ready`\n- Preview URL: `http://127.0.0.1:5001/api/workspaces/ws_003/preview-page`\n\n预览环境已就绪，右侧 Workspace 面板会显示 iframe、文件列表和变更历史。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T08:37:18.584358Z",
+        "data": {
+          "checked_at": "2026-06-03T08:37:18.584326Z",
+          "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_003/preview-page",
+          "status": "ready",
+          "workspace_id": "ws_003"
+        },
+        "id": "artifact_preview_0e7095f2",
+        "title": "Workspace Preview",
+        "type": "preview"
+      }
+    ],
+    "created_at": "2026-06-03T08:37:18.632620Z"
+  },
+  {
+    "id": "msg_d86309a2",
+    "conversation_id": "conv_4f68795b",
+    "role": "user",
+    "sender_id": "user",
+    "content": "1 @ReviewAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T08:39:13.771692Z"
+  },
+  {
+    "id": "msg_67722803",
+    "conversation_id": "conv_4f68795b",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "## Review Agent 检查结果\n\n我重点检查了 Demo 稳定性、聊天可读性和 workspace 操作闭环。\n\n| 检查项 | 结论 |\n| --- | --- |\n| 主要风险 | 按钮需要 disabled 状态、空列表要有提示、移动端标题需要换行保护 |\n| Apply Diff | 保持结构化 artifact 驱动，可靠 |\n| Markdown 回复 | 适合比赛展示和答辩讲解 |\n\n建议优先处理：\n- 按钮需要 disabled 状态\n- 空列表要有提示\n- 移动端标题需要换行保护",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T08:39:13.897460Z",
+        "data": {
+          "findings": [
+            "按钮需要 disabled 状态",
+            "空列表要有提示",
+            "移动端标题需要换行保护"
+          ],
+          "risk_level": "medium"
+        },
+        "id": "artifact_file_faa28332",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-03T08:39:13.999276Z"
+  },
+  {
+    "id": "msg_cc3638f7",
+    "conversation_id": "conv_5dc6d395",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T09:31:07.558435Z"
+  },
+  {
+    "id": "msg_60e61a6e",
+    "conversation_id": "conv_5dc6d395",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Save item</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T09:31:07.611372Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_f747fd79",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T09:31:07.611394Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n+      <h1>开发任务</h1>\n+      <button>Save item</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_8eff7a6f",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T09:31:07.670318Z"
+  },
+  {
+    "id": "msg_f9b053b1",
+    "conversation_id": "conv_5dc6d395",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T09:31:15.038183Z"
+  },
+  {
+    "id": "msg_4e407a94",
+    "conversation_id": "conv_5dc6d395",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Save item</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T09:31:15.107606Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_f7af2b5e",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T09:31:15.107632Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n+      <h1>开发任务</h1>\n+      <button>Save item</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_9f8925a8",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T09:31:15.161139Z"
+  },
+  {
+    "id": "msg_6246845e",
+    "conversation_id": "conv_002",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T09:35:11.863845Z"
+  },
+  {
+    "id": "msg_83e11fc0",
+    "conversation_id": "conv_002",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Create todo</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T09:40:46.763912Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_c5cc25a2",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T09:40:46.763934Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n+      <h1>开发任务</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_37afe2a0",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T09:40:46.826181Z"
+  },
+  {
+    "id": "msg_6da19191",
+    "conversation_id": "conv_b619b403",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@ReviewAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T11:21:53.034013Z"
+  },
+  {
+    "id": "msg_1372f0d1",
+    "conversation_id": "conv_b619b403",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "## Review Agent 检查结果\n\n我重点检查了 Demo 稳定性、聊天可读性和 workspace 操作闭环。\n\n| 检查项 | 结论 |\n| --- | --- |\n| 主要风险 | Diff 应用失败要提示、输入框需要 trim、预览未就绪时不要展示空 iframe |\n| Apply Diff | 保持结构化 artifact 驱动，可靠 |\n| Markdown 回复 | 适合比赛展示和答辩讲解 |\n\n建议优先处理：\n- Diff 应用失败要提示\n- 输入框需要 trim\n- 预览未就绪时不要展示空 iframe",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T11:22:00.949806Z",
+        "data": {
+          "findings": [
+            "Diff 应用失败要提示",
+            "输入框需要 trim",
+            "预览未就绪时不要展示空 iframe"
+          ],
+          "risk_level": "low"
+        },
+        "id": "artifact_file_ad7d6040",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-03T11:22:01.008970Z"
+  },
+  {
+    "id": "msg_7d69dfd1",
+    "conversation_id": "conv_b619b403",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T12:03:16.517969Z"
+  },
+  {
+    "id": "msg_c64c3f0f",
+    "conversation_id": "conv_b619b403",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n      <h1>开发任务</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Add task</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T12:03:20.011310Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n      <h1>开发任务</h1>\n      <button>Add task</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_560d2486",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T12:03:20.011369Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n+      <h1>开发任务</h1>\n+      <button>Add task</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_9a64a47e",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T12:03:20.068865Z"
+  },
+  {
+    "id": "msg_9dc8264c",
+    "conversation_id": "conv_003",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T12:17:40.051347Z"
+  },
+  {
+    "id": "msg_06d572c2",
+    "conversation_id": "conv_003",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Save item</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T12:17:40.137448Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_db48dd19",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T12:17:40.137470Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n+      <h1>开发任务</h1>\n+      <button>Save item</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_9d8870de",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T12:17:40.214257Z"
+  },
+  {
+    "id": "msg_18d9253c",
+    "conversation_id": "conv_003",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@CodeAgent",
+    "artifacts": [],
+    "created_at": "2026-06-03T12:20:12.367678Z"
+  },
+  {
+    "id": "msg_50da63b3",
+    "conversation_id": "conv_003",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Create todo</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-03T12:20:12.467393Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n      <h1>开发任务</h1>\n      <button>Create todo</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_07cb9a26",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-03T12:20:12.467414Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n+      <h1>开发任务</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_cf626610",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-03T12:20:12.563395Z"
   }
 ]

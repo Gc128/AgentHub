@@ -1112,6 +1112,13 @@ def build_code_agent_result(input_data: dict[str, Any]) -> dict[str, Any]:
         "  )\n"
         "}\n"
     )
+    html_preview = (
+        "<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n"
+        f"  <h1>{task_title}</h1>\n"
+        "  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n"
+        f"  <button>{button_text}</button>\n"
+        "</main>\n"
+    )
 
     # diff artifact 的正文：前端 Diff 卡片按 unified diff 文本做新增/删除高亮。
     diff = (
@@ -1128,6 +1135,11 @@ def build_code_agent_result(input_data: dict[str, Any]) -> dict[str, Any]:
         "我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n"
         "```tsx file=src/App.tsx\n"
         f"{content}"
+        "```\n\n"
+        "下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** "
+        "可以打开 Modal：\n\n"
+        "```html file=index.html\n"
+        f"{html_preview}"
         "```\n\n"
         "| 产物 | 用途 |\n"
         "| --- | --- |\n"
