@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { TeamOutlined } from '@ant-design/icons'
 import { Avatar, Button, Empty, Spin, Tag } from 'antd'
 import type { Agent, Artifact, Conversation, Message } from '../../types/api'
-import { ArtifactRenderer } from '../artifactCards/ArtifactRenderer'
+import { MarkdownMessage } from './MarkdownMessage'
+import { MessageArtifactActions } from './MessageArtifactActions'
 import { MessageComposer } from './MessageComposer'
 
 /** 聊天主面板组件的入参。 */
@@ -137,21 +138,13 @@ export function ChatPanel({
                   {formatTime(message.created_at)}
                 </time>
               </div>
-              <p>{message.content}</p>
-              {message.artifacts.length > 0 ? (
-                <div className="message-artifact-list">
-                  {/* 聊天内联直接展示详细 Artifact 卡片，让协作过程和产物保持在同一条消息中。 */}
-                  {message.artifacts.map((artifact) => (
-                    <ArtifactRenderer
-                      appliedDiffIds={appliedDiffIds}
-                      applyingDiffId={applyingDiffId}
-                      artifact={artifact}
-                      key={artifact.id}
-                      onApplyDiff={onApplyDiff}
-                    />
-                  ))}
-                </div>
-              ) : null}
+              <MarkdownMessage content={message.content} />
+              <MessageArtifactActions
+                appliedDiffIds={appliedDiffIds}
+                applyingDiffId={applyingDiffId}
+                artifacts={message.artifacts}
+                onApplyDiff={onApplyDiff}
+              />
             </article>
           ))
         )}

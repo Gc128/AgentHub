@@ -143,8 +143,8 @@ Artifact `data` 常见结构：
 | `conversation_id` | `string` | 是 | 消息所属会话 id。 |
 | `role` | `"user" \| "agent" \| "system"` | 是 | 消息角色。当前 Flask 写消息时，`sender_id=user` 会生成 `user`，其他发送者生成 `agent`。 |
 | `sender_id` | `string` | 是 | 发送者 id。用户为 `user`，Agent 消息为 Agent id。 |
-| `content` | `string` | 是 | 消息正文。 |
-| `artifacts` | `Artifact[]` | 是 | 消息携带的结构化产物数组。 |
+| `content` | `string` | 是 | 消息正文，约定为 Markdown 字符串。前端会渲染标题、列表、表格、引用和代码块。 |
+| `artifacts` | `Artifact[]` | 是 | 消息携带的结构化产物数组，主要用于 Apply Diff、Preview、文件写入等机器动作。 |
 | `created_at` | `string` | 是 | 消息创建时间，UTC ISO 字符串。 |
 
 ### 3.6 Preview
@@ -153,6 +153,7 @@ Artifact `data` 常见结构：
 |---|---|---|---|
 | `workspace_id` | `string` | 是 | workspace id。 |
 | `status` | `"not_started" \| "running" \| "ready" \| "error"` | 是 | 预览状态。 |
+| `preview_url` | `string` | 否 | 可嵌入 iframe 的预览地址。 |
 
 ### 3.7 WorkspaceFile
 
@@ -168,9 +169,19 @@ Artifact `data` 常见结构：
 | 字段 | 类型 | 必返 | 含义 |
 |---|---|---|---|
 | `agent_id` | `string` | 是 | 实际响应的 Agent id。 |
-| `content` | `string` | 是 | Agent 自然语言回复内容。 |
-| `artifacts` | `Artifact[]` | 是 | Agent 生成的结构化产物。 |
+| `content` | `string` | 是 | Agent Markdown 主回复内容。 |
+| `artifacts` | `Artifact[]` | 是 | Agent 生成的结构化产物，用于驱动可执行动作。 |
 | `next_actions` | `string[]` | 是 | 建议后续动作，例如 `review`、`preview`。 |
+
+### 3.9 AppliedDiff
+
+| 字段 | 类型 | 必返 | 含义 |
+|---|---|---|---|
+| `id` | `string` | 是 | 应用记录 id。 |
+| `workspace_id` | `string` | 是 | 所属 workspace id。 |
+| `artifact_id` | `string` | 是 | 被应用的 diff artifact id。 |
+| `diff` | `string` | 是 | 原始 unified diff 内容。 |
+| `applied_at` | `string` | 是 | 应用时间，UTC ISO 字符串。 |
 
 ## 4. 基础接口
 
@@ -640,9 +651,28 @@ Artifact `data` 常见结构：
 
 `data` 字段见 [3.6 Preview](#36-preview)。
 
-补充规则：如果 `previews.json` 中没有对应 workspace，后端会返回 `{ workspace_id, status: "not_started" }`，不会返回 404。
+补充规则：如果 `previews.json` 中没有对应 workspace，后端会返回 `{ workspace_id, status: "not_started" }`，不会返回 404。存在 `preview_url` 时，前端右侧 Workspace 面板会用 iframe 展示。
 
-### 8.2 POST `/api/workspaces/<workspace_id>/apply-diff`
+### 8.2 GET `/api/workspaces/<workspace_id>/preview-page`
+
+用途：返回可嵌入 iframe 的 workspace HTML 预览页。当前 Demo 优先读取 workspace 中的 `index.html`；没有该文件时返回状态占位页。
+
+路径字段：
+
+| 字段 | 类型 | 必填 | 含义 |
+|---|---|---|---|
+| `workspace_id` | `string` | 是 | 要预览的 workspace id。 |
+
+请求 Body 字段：无。
+
+成功响应：
+
+| 项 | 值 |
+|---|---|
+| HTTP 状态码 | `200` |
+| Content-Type | `text/html` |
+
+### 8.3 POST `/api/workspaces/<workspace_id>/apply-diff`
 
 用途：应用 Diff，并把该 workspace 的 preview 状态更新为 `ready`。
 
@@ -691,7 +721,26 @@ Artifact `data` 常见结构：
 | `400` | `artifact_id` 缺失或为空。 |
 | `400` | `diff` 缺失或为空。 |
 
-### 8.3 GET `/api/workspaces/<workspace_id>/files`
+### 8.4 GET `/api/workspaces/<workspace_id>/applied-diffs`
+
+用途：获取 workspace 已应用 Diff 历史。右侧 Workspace 面板用它展示用户已经确认过的变更。
+
+路径字段：
+
+| 字段 | 类型 | 必填 | 含义 |
+|---|---|---|---|
+| `workspace_id` | `string` | 是 | 要查询变更历史的 workspace id。 |
+
+请求 Body 字段：无。
+
+成功响应：
+
+| 项 | 值 |
+|---|---|
+| HTTP 状态码 | `200` |
+| `data` 类型 | `AppliedDiff[]` |
+
+### 8.5 GET `/api/workspaces/<workspace_id>/files`
 
 用途：获取 workspace 文件列表。
 
@@ -719,7 +768,7 @@ Artifact `data` 常见结构：
 
 补充规则：文件列表接口不返回 `content`，需要通过文件内容接口单独获取。
 
-### 8.4 GET `/api/workspaces/<workspace_id>/files/content?path=<path>`
+### 8.6 GET `/api/workspaces/<workspace_id>/files/content?path=<path>`
 
 用途：获取 workspace 中某个文件的内容。
 
@@ -756,7 +805,7 @@ GET /api/workspaces/ws_001/files/content?path=src/App.tsx
 |---|---|
 | `404` | 指定 `workspace_id + path` 的文件不存在，或未传有效 `path`。 |
 
-### 8.5 POST `/api/workspaces/<workspace_id>/files`
+### 8.7 POST `/api/workspaces/<workspace_id>/files`
 
 用途：新增或覆盖 workspace 文件。
 
@@ -817,7 +866,9 @@ GET /api/workspaces/ws_001/files/content?path=src/App.tsx
 | `GET` | `/api/messages/<conversation_id>` | 获取消息列表兼容接口。 |
 | `POST` | `/api/messages` | 创建消息兼容接口。 |
 | `GET` | `/api/workspaces/<workspace_id>/preview` | 获取预览状态。 |
+| `GET` | `/api/workspaces/<workspace_id>/preview-page` | 获取 iframe HTML 预览页。 |
 | `POST` | `/api/workspaces/<workspace_id>/apply-diff` | 应用 Diff。 |
+| `GET` | `/api/workspaces/<workspace_id>/applied-diffs` | 获取已应用 Diff 历史。 |
 | `GET` | `/api/workspaces/<workspace_id>/files` | 获取文件列表。 |
 | `GET` | `/api/workspaces/<workspace_id>/files/content?path=<path>` | 获取文件内容。 |
 | `POST` | `/api/workspaces/<workspace_id>/files` | 写入或更新文件。 |

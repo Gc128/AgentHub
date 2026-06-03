@@ -2,20 +2,22 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, ConfigProvider, theme } from 'antd'
 import { apiClient } from './api/client'
 import { AgentList } from './components/agents/AgentList'
-import { ArtifactPanel } from './components/artifactCards/ArtifactPanel'
 import { ChatPanel } from './components/chat/ChatPanel'
 import { ConversationMembersModal } from './components/conversations/ConversationMembersModal'
 import { ConversationList } from './components/conversations/ConversationList'
 import { NewConversationModal } from './components/conversations/NewConversationModal'
 import { AppLayout } from './components/layout/AppLayout'
+import { WorkspacePanel } from './components/workspace/WorkspacePanel'
 import type {
   Agent,
   AgentRunResult,
+  AppliedDiffRecord,
   Artifact,
   Conversation,
   CreateConversationInput,
   Message,
   ConversationMode,
+  WorkspaceFile,
   WorkspacePreview,
 } from './types/api'
 import { resolveAgentRunOrder } from './utils/agentRouting'
@@ -62,8 +64,14 @@ function App() {
   >(null)
   // 当前会话的消息列表；切换会话时会重新加载。
   const [messages, setMessages] = useState<Message[]>([])
-  // 当前会话 workspace 的预览状态，用于右侧 ArtifactPanel 顶部状态卡。
+  // 当前会话 workspace 的预览状态，用于右侧 Workspace 面板。
   const [preview, setPreview] = useState<WorkspacePreview | null>(null)
+  // 当前 workspace 文件列表。
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([])
+  // 当前 workspace 已应用 Diff 历史。
+  const [appliedDiffRecords, setAppliedDiffRecords] = useState<
+    AppliedDiffRecord[]
+  >([])
   // 消息区 loading 状态，只作用于当前会话消息和 preview 加载。
   const [loadingMessages, setLoadingMessages] = useState(false)
   // 会话搜索关键词；搜索接口文档未明确，第二天先做前端本地过滤。
@@ -157,6 +165,8 @@ function App() {
     if (!selectedConversation) {
       setMessages([])
       setPreview(null)
+      setWorkspaceFiles([])
+      setAppliedDiffRecords([])
       return
     }
 
@@ -165,13 +175,20 @@ function App() {
 
     /**
      * 切换会话后的数据加载：
-     * 消息流和 workspace preview 都依赖当前会话，所以放在同一个 effect 中同步刷新。
+     * 消息流和 workspace 面板都依赖当前会话，所以放在同一个 effect 中同步刷新。
      */
     const loadConversationData = async () => {
       try {
-        const [nextMessages, nextPreview] = await Promise.all([
+        const [
+          nextMessages,
+          nextPreview,
+          nextWorkspaceFiles,
+          nextAppliedDiffRecords,
+        ] = await Promise.all([
           apiClient.listMessages(selectedConversation.id),
           apiClient.getWorkspacePreview(selectedConversation.workspace_id),
+          apiClient.listWorkspaceFiles(selectedConversation.workspace_id),
+          apiClient.listAppliedDiffs(selectedConversation.workspace_id),
         ])
 
         if (ignore) {
@@ -180,6 +197,8 @@ function App() {
 
         setMessages(nextMessages)
         setPreview(nextPreview)
+        setWorkspaceFiles(nextWorkspaceFiles)
+        setAppliedDiffRecords(nextAppliedDiffRecords)
         setError(null)
       } catch (caughtError) {
         if (!ignore) {
@@ -217,15 +236,6 @@ function App() {
       conversation.title.toLowerCase().includes(normalizedSearchTerm),
     )
   }, [conversations, conversationSearchTerm])
-
-  /**
-   * 从当前消息流中提取所有 Artifact，交给右侧面板集中展示。
-   * 聊天气泡内仍保留 artifact 摘要，右侧面板负责跨消息聚合。
-   */
-  const artifacts = useMemo(
-    () => messages.flatMap((message) => message.artifacts),
-    [messages],
-  )
 
   /**
    * 创建新会话。
@@ -382,7 +392,13 @@ function App() {
       const nextPreview = await apiClient.getWorkspacePreview(
         selectedConversation.workspace_id,
       )
+      const [nextWorkspaceFiles, nextAppliedDiffRecords] = await Promise.all([
+        apiClient.listWorkspaceFiles(selectedConversation.workspace_id),
+        apiClient.listAppliedDiffs(selectedConversation.workspace_id),
+      ])
       setPreview(nextPreview)
+      setWorkspaceFiles(nextWorkspaceFiles)
+      setAppliedDiffRecords(nextAppliedDiffRecords)
       setError(null)
     } catch (caughtError) {
       const message =
@@ -533,13 +549,11 @@ function App() {
           </>
         }
         aside={
-          /* 右侧产物区：聚合当前会话所有 artifacts，并展示 workspace preview 状态。 */
-          <ArtifactPanel
-            appliedDiffIds={appliedDiffIds}
-            applyingDiffId={applyingDiffId}
-            artifacts={artifacts}
+          /* 右侧 Workspace 区：展示预览、文件和已应用 Diff 历史。 */
+          <WorkspacePanel
+            appliedDiffs={appliedDiffRecords}
             conversation={selectedConversation}
-            onApplyDiff={handleApplyDiff}
+            files={workspaceFiles}
             preview={preview}
           />
         }

@@ -1,18 +1,27 @@
 [
   {
     "workspace_id": "ws_001",
-    "status": "ready"
+    "status": "ready",
+    "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_001/preview-page"
   },
   {
     "workspace_id": "ws_002",
-    "status": "ready"
+    "status": "ready",
+    "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_002/preview-page"
   },
   {
-    "workspace_id": "ws_1e14a1a9",
-    "status": "running"
+    "workspace_id": "ws_003",
+    "status": "ready",
+    "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_003/preview-page"
   },
   {
-    "workspace_id": "ws_8b85cd00",
-    "status": "not_started"
+    "workspace_id": "ws_004",
+    "status": "ready",
+    "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_004/preview-page"
+  },
+  {
+    "workspace_id": "ws_7f2e91b7",
+    "status": "ready",
+    "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_7f2e91b7/preview-page"
   }
 ]

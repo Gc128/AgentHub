@@ -11,48 +11,63 @@
     ],
     "is_pinned": false,
     "workspace_id": "ws_001",
-    "created_at": "2026-06-01T10:00:00Z",
-    "updated_at": "2026-06-02T16:33:39.438038Z"
+    "created_at": "2026-06-03T09:00:00Z",
+    "updated_at": "2026-06-03T09:13:00Z"
   },
   {
     "id": "conv_002",
     "title": "Landing Page Review",
-    "mode": "group",
+    "mode": "single",
     "agent_ids": [
-      "review-agent",
-      "code-agent",
-      "orchestrator"
+      "review-agent"
     ],
     "is_pinned": false,
     "workspace_id": "ws_002",
-    "created_at": "2026-06-01T09:30:00Z",
-    "updated_at": "2026-06-02T17:08:33.857039Z"
+    "created_at": "2026-06-03T09:20:00Z",
+    "updated_at": "2026-06-03T09:31:00Z"
   },
   {
-    "id": "conv_81531863",
-    "title": "我是第一个会话",
+    "id": "conv_003",
+    "title": "Bug Fix Iteration",
     "mode": "group",
     "agent_ids": [
-      "review-agent",
       "orchestrator",
       "code-agent",
+      "review-agent",
       "preview-agent"
     ],
     "is_pinned": true,
-    "workspace_id": "ws_1e14a1a9",
-    "created_at": "2026-06-02T09:33:50.945814Z",
-    "updated_at": "2026-06-02T16:05:46.152045Z"
+    "workspace_id": "ws_003",
+    "created_at": "2026-06-03T09:40:00Z",
+    "updated_at": "2026-06-03T09:55:00Z"
   },
   {
-    "id": "conv_0c276bbb",
-    "title": "Todo App Development",
-    "mode": "single",
+    "id": "conv_004",
+    "title": "Workspace Preview Demo",
+    "mode": "group",
     "agent_ids": [
-      "orchestrator"
+      "code-agent",
+      "review-agent",
+      "preview-agent"
     ],
     "is_pinned": false,
-    "workspace_id": "ws_8b85cd00",
-    "created_at": "2026-06-02T17:26:34.048247Z",
-    "updated_at": "2026-06-02T17:26:37.863448Z"
+    "workspace_id": "ws_004",
+    "created_at": "2026-06-03T10:00:00Z",
+    "updated_at": "2026-06-03T10:12:00Z"
+  },
+  {
+    "id": "conv_19c9ae2f",
+    "title": "Todo App Development",
+    "mode": "group",
+    "agent_ids": [
+      "code-agent",
+      "orchestrator",
+      "review-agent",
+      "preview-agent"
+    ],
+    "is_pinned": false,
+    "workspace_id": "ws_7f2e91b7",
+    "created_at": "2026-06-03T03:45:24.880449Z",
+    "updated_at": "2026-06-03T03:48:42.050703Z"
   }
 ]

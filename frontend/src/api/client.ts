@@ -2,6 +2,7 @@ import type {
   Agent,
   AgentRunInput,
   AgentRunResult,
+  AppliedDiffRecord,
   ApplyDiffInput,
   ApplyDiffResult,
   Conversation,
@@ -10,6 +11,7 @@ import type {
   DeleteConversationResult,
   Message,
   UpdateConversationInput,
+  WorkspaceFile,
   WorkspacePreview,
 } from '../types/api'
 
@@ -207,6 +209,24 @@ export const apiClient = {
   getWorkspacePreview(workspaceId: string): Promise<WorkspacePreview> {
     return requestJson<WorkspacePreview>(
       `/api/workspaces/${workspaceId}/preview`,
+    )
+  },
+
+  /**
+   * 获取 workspace 文件列表。
+   * 右侧 Workspace 面板用它展示当前会话真实文件状态。
+   */
+  listWorkspaceFiles(workspaceId: string): Promise<WorkspaceFile[]> {
+    return requestJson<WorkspaceFile[]>(`/api/workspaces/${workspaceId}/files`)
+  },
+
+  /**
+   * 获取 workspace 已应用 Diff 历史。
+   * 右侧 Workspace 面板用它展示用户已经确认过的变更。
+   */
+  listAppliedDiffs(workspaceId: string): Promise<AppliedDiffRecord[]> {
+    return requestJson<AppliedDiffRecord[]>(
+      `/api/workspaces/${workspaceId}/applied-diffs`,
     )
   },
 

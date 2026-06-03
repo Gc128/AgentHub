@@ -68,6 +68,12 @@ def make_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex[:8]}"
 
 
+def preview_page_url(workspace_id: str) -> str:
+    """生成本地 Flask iframe 预览地址。"""
+
+    return f"http://127.0.0.1:5001/api/workspaces/{workspace_id}/preview-page"
+
+
 def infer_mode(agent_ids: list[str]) -> ConversationMode:
     """根据会话成员数量推导会话模式。
 
@@ -242,8 +248,8 @@ DEFAULT_CONVERSATIONS: list[dict[str, Any]] = [
         "agent_ids": ["orchestrator", "code-agent", "review-agent", "preview-agent"],
         "is_pinned": False,
         "workspace_id": "ws_001",
-        "created_at": "2026-06-01T10:00:00Z",
-        "updated_at": "2026-06-01T10:05:00Z",
+        "created_at": "2026-06-03T09:00:00Z",
+        "updated_at": "2026-06-03T09:13:00Z",
     },
     {
         "id": "conv_002",
@@ -252,10 +258,89 @@ DEFAULT_CONVERSATIONS: list[dict[str, Any]] = [
         "agent_ids": ["review-agent"],
         "is_pinned": False,
         "workspace_id": "ws_002",
-        "created_at": "2026-06-01T09:30:00Z",
-        "updated_at": "2026-06-01T09:42:00Z",
+        "created_at": "2026-06-03T09:20:00Z",
+        "updated_at": "2026-06-03T09:31:00Z",
+    },
+    {
+        "id": "conv_003",
+        "title": "Bug Fix Iteration",
+        "mode": "group",
+        "agent_ids": ["orchestrator", "code-agent", "review-agent", "preview-agent"],
+        "is_pinned": True,
+        "workspace_id": "ws_003",
+        "created_at": "2026-06-03T09:40:00Z",
+        "updated_at": "2026-06-03T09:55:00Z",
+    },
+    {
+        "id": "conv_004",
+        "title": "Workspace Preview Demo",
+        "mode": "group",
+        "agent_ids": ["code-agent", "review-agent", "preview-agent"],
+        "is_pinned": False,
+        "workspace_id": "ws_004",
+        "created_at": "2026-06-03T10:00:00Z",
+        "updated_at": "2026-06-03T10:12:00Z",
     },
 ]
+
+TODO_APP_CODE = (
+    "import { useState } from 'react'\n\n"
+    "const initialTodos = ['梳理需求', '生成代码', '应用 Diff']\n\n"
+    "export default function App() {\n"
+    "  const [todos, setTodos] = useState(initialTodos)\n\n"
+    "  return (\n"
+    '    <main className="todo-shell">\n'
+    '      <section className="todo-card">\n'
+    '        <p className="eyebrow">AgentHub Demo</p>\n'
+    "        <h1>Team Todo</h1>\n"
+    "        <button onClick={() => setTodos([...todos, '预览并提交'])}>Add task</button>\n"
+    "        <ul>{todos.map((todo) => <li key={todo}>{todo}</li>)}</ul>\n"
+    "      </section>\n"
+    "    </main>\n"
+    "  )\n"
+    "}\n"
+)
+
+TODO_APP_DIFF = (
+    "--- a/src/App.tsx\n"
+    "+++ b/src/App.tsx\n"
+    "@@\n"
+    "-export default function App() { return null }\n"
+    "+import { useState } from 'react'\n"
+    "+\n"
+    "+const initialTodos = ['梳理需求', '生成代码', '应用 Diff']\n"
+    "+\n"
+    "+export default function App() {\n"
+    "+  const [todos, setTodos] = useState(initialTodos)\n"
+    '+  return <main className="todo-shell">Team Todo</main>\n'
+    "+}\n"
+)
+
+BUG_FIX_CODE = (
+    "const submitTask = (value: string) => {\n"
+    "  const normalized = value.trim()\n"
+    "  if (!normalized) {\n"
+    "    setError('请输入任务内容')\n"
+    "    return\n"
+    "  }\n"
+    "  setTodos((items) => [...items, normalized])\n"
+    "  setDraft('')\n"
+    "  setError(null)\n"
+    "}\n"
+)
+
+BUG_FIX_DIFF = (
+    "--- a/src/todo-actions.ts\n"
+    "+++ b/src/todo-actions.ts\n"
+    "@@\n"
+    "-setTodos((items) => [...items, value])\n"
+    "+const normalized = value.trim()\n"
+    "+if (!normalized) {\n"
+    "+  setError('请输入任务内容')\n"
+    "+  return\n"
+    "+}\n"
+    "+setTodos((items) => [...items, normalized])\n"
+)
 
 # Message 表默认数据。
 #
@@ -273,9 +358,11 @@ DEFAULT_MESSAGES: list[dict[str, Any]] = [
         "conversation_id": "conv_001",
         "role": "user",
         "sender_id": "user",
-        "content": "@Orchestrator 帮我做一个简洁的 Todo List 网页",
+        "content": (
+            "@Orchestrator 帮我做一个适合比赛演示的 Todo List 页面，要能展示代码、Diff 和预览。"
+        ),
         "artifacts": [],
-        "created_at": "2026-06-01T10:01:00Z",
+        "created_at": "2026-06-03T09:01:00Z",
     },
     {
         "id": "msg_002",
@@ -283,8 +370,12 @@ DEFAULT_MESSAGES: list[dict[str, Any]] = [
         "role": "agent",
         "sender_id": "orchestrator",
         "content": (
-            "我会先拆解任务：Code Agent 生成页面代码，"
-            "Review Agent 检查实现风险，Preview Agent 返回预览状态。"
+            "## 任务拆解\n\n"
+            "我会按比赛 Demo 主线推进：\n\n"
+            "1. **Code Agent** 生成 Todo 页面和可应用 Diff。\n"
+            "2. **Review Agent** 检查交互、空状态和移动端风险。\n"
+            "3. **Preview Agent** 刷新 workspace 预览，并把结果放到右侧面板。\n\n"
+            "> 目标不是堆卡片，而是让聊天记录本身完整记录协作过程。"
         ),
         "artifacts": [
             {
@@ -295,17 +386,24 @@ DEFAULT_MESSAGES: list[dict[str, Any]] = [
                     "summary": "Rule-based MVP plan",
                     "steps": ["生成 Todo 页面", "检查代码质量", "准备页面预览"],
                 },
-                "created_at": "2026-06-01T10:01:10Z",
+                "created_at": "2026-06-03T09:02:00Z",
             }
         ],
-        "created_at": "2026-06-01T10:01:10Z",
+        "created_at": "2026-06-03T09:02:00Z",
     },
     {
         "id": "msg_003",
         "conversation_id": "conv_001",
         "role": "agent",
         "sender_id": "code-agent",
-        "content": "Code Agent 已生成 Todo List 的 React 页面骨架和样式。",
+        "content": (
+            "## Todo 页面实现\n\n"
+            "我先给出一个轻量 React 版本，主交互集中在新增任务和列表展示。\n\n"
+            "```tsx file=src/App.tsx\n"
+            f"{TODO_APP_CODE}"
+            "```\n\n"
+            "这次变更会替换空壳 `App.tsx`，并保留后续接入真实 workspace 的空间。"
+        ),
         "artifacts": [
             {
                 "id": "artifact_code_001",
@@ -314,13 +412,9 @@ DEFAULT_MESSAGES: list[dict[str, Any]] = [
                 "data": {
                     "filename": "src/App.tsx",
                     "language": "tsx",
-                    "content": (
-                        "export default function App() {\n"
-                        '  return <main className="todo-app">Todo List</main>\n'
-                        "}\n"
-                    ),
+                    "content": TODO_APP_CODE,
                 },
-                "created_at": "2026-06-01T10:02:00Z",
+                "created_at": "2026-06-03T09:04:00Z",
             },
             {
                 "id": "artifact_diff_001",
@@ -328,55 +422,355 @@ DEFAULT_MESSAGES: list[dict[str, Any]] = [
                 "title": "Todo App Diff",
                 "data": {
                     "filename": "src/App.tsx",
-                    "diff": (
-                        "--- a/src/App.tsx\n"
-                        "+++ b/src/App.tsx\n"
-                        "@@\n"
-                        "-export default function App() { return null }\n"
-                        "+export default function App() {\n"
-                        '+  return <main className="todo-app">Todo List</main>\n'
-                        "+}\n"
-                    ),
+                    "diff": TODO_APP_DIFF,
                 },
-                "created_at": "2026-06-01T10:02:05Z",
+                "created_at": "2026-06-03T09:04:10Z",
             },
         ],
-        "created_at": "2026-06-01T10:02:00Z",
+        "created_at": "2026-06-03T09:04:00Z",
     },
     {
         "id": "msg_004",
         "conversation_id": "conv_001",
         "role": "agent",
+        "sender_id": "review-agent",
+        "content": (
+            "## Review 结果\n\n"
+            "| 检查项 | 结论 | 建议 |\n"
+            "| --- | --- | --- |\n"
+            "| 空状态 | 通过 | 初始任务足够支撑 Demo |\n"
+            "| 移动端 | 有风险 | 标题和按钮需要换行保护 |\n"
+            "| Diff 应用 | 通过 | artifact 中已有 unified diff |\n\n"
+            "- 建议 Apply Diff 后立即刷新右侧预览。\n"
+            "- 代码块已经适合 Markdown 渲染和复制。"
+        ),
+        "artifacts": [],
+        "created_at": "2026-06-03T09:06:00Z",
+    },
+    {
+        "id": "msg_005",
+        "conversation_id": "conv_001",
+        "role": "user",
+        "sender_id": "user",
+        "content": "可以，应用这个 Diff，然后帮我看预览状态。",
+        "artifacts": [],
+        "created_at": "2026-06-03T09:08:00Z",
+    },
+    {
+        "id": "msg_006",
+        "conversation_id": "conv_001",
+        "role": "agent",
         "sender_id": "preview-agent",
-        "content": "Preview Agent 已准备好工作区预览，等待应用 Diff 后刷新。",
+        "content": (
+            "## Workspace Preview\n\n"
+            "预览已经就绪，右侧 Workspace 面板会展示 iframe、文件列表和变更历史。\n\n"
+            "- Workspace: `ws_001`\n"
+            "- Status: `ready`\n"
+            "- Preview URL: 已写入结构化 preview artifact"
+        ),
         "artifacts": [
             {
                 "id": "artifact_preview_001",
                 "type": "preview",
                 "title": "Workspace Preview",
-                "data": {"workspace_id": "ws_001", "status": "not_started"},
-                "created_at": "2026-06-01T10:03:00Z",
+                "data": {
+                    "workspace_id": "ws_001",
+                    "status": "ready",
+                    "preview_url": preview_page_url("ws_001"),
+                },
+                "created_at": "2026-06-03T09:10:00Z",
             }
         ],
-        "created_at": "2026-06-01T10:03:00Z",
+        "created_at": "2026-06-03T09:10:00Z",
     },
     {
-        "id": "msg_005",
+        "id": "msg_007",
+        "conversation_id": "conv_001",
+        "role": "agent",
+        "sender_id": "orchestrator",
+        "content": (
+            "## 小结\n\n"
+            "这条会话已经跑通：用户需求 -> 任务拆解 -> 代码生成 -> "
+            "Review -> Apply Diff -> Preview。\n\n"
+            "下一步如果继续迭代，只需要让 Code Agent 输出新的 Markdown 说明和 diff artifact。"
+        ),
+        "artifacts": [],
+        "created_at": "2026-06-03T09:13:00Z",
+    },
+    {
+        "id": "msg_008",
         "conversation_id": "conv_002",
         "role": "user",
         "sender_id": "user",
-        "content": "@ReviewAgent 帮我检查首页交互风险",
+        "content": "@ReviewAgent 帮我检查一个落地页首屏，重点看转化、移动端和视觉层级。",
         "artifacts": [],
-        "created_at": "2026-06-01T09:40:00Z",
+        "created_at": "2026-06-03T09:21:00Z",
     },
     {
-        "id": "msg_006",
+        "id": "msg_009",
         "conversation_id": "conv_002",
         "role": "agent",
         "sender_id": "review-agent",
-        "content": "建议优先检查按钮状态、空状态和移动端文本换行。",
+        "content": (
+            "## Landing Page Review\n\n"
+            "整体方向清楚，但首屏还有三个会影响转化的点：\n\n"
+            "1. **CTA 层级不够稳定**：主按钮和次按钮视觉权重接近。\n"
+            "2. **移动端标题可能过长**：建议限制行宽并允许自然换行。\n"
+            "3. **信任证据出现太晚**：首屏下沿应露出客户案例或指标。\n\n"
+            "| 风险 | 等级 | 处理方式 |\n"
+            "| --- | --- | --- |\n"
+            "| CTA 混淆 | medium | 主按钮使用实色，次按钮降权 |\n"
+            "| 移动端拥挤 | medium | 标题控制在 2-3 行 |\n"
+            "| 缺少证据 | low | 加一条数据型 proof |\n"
+        ),
         "artifacts": [],
-        "created_at": "2026-06-01T09:41:00Z",
+        "created_at": "2026-06-03T09:23:00Z",
+    },
+    {
+        "id": "msg_010",
+        "conversation_id": "conv_002",
+        "role": "user",
+        "sender_id": "user",
+        "content": "如果只改文案，不动布局，你会怎么建议？",
+        "artifacts": [],
+        "created_at": "2026-06-03T09:25:00Z",
+    },
+    {
+        "id": "msg_011",
+        "conversation_id": "conv_002",
+        "role": "agent",
+        "sender_id": "review-agent",
+        "content": (
+            "## 只改文案的版本\n\n"
+            "> 目标是让用户在 5 秒内知道：它解决什么问题、为什么可信、下一步点哪里。\n\n"
+            "- H1：从“智能开发平台”改成“让多个 AI Agent 一起完成开发任务”。\n"
+            "- 副标题：强调 `聊天记录 + Diff + 预览` 的闭环。\n"
+            "- CTA：主按钮写“开始一个开发会话”，次按钮写“查看 Demo 流程”。"
+        ),
+        "artifacts": [],
+        "created_at": "2026-06-03T09:27:00Z",
+    },
+    {
+        "id": "msg_012",
+        "conversation_id": "conv_002",
+        "role": "user",
+        "sender_id": "user",
+        "content": "移动端最担心什么？",
+        "artifacts": [],
+        "created_at": "2026-06-03T09:29:00Z",
+    },
+    {
+        "id": "msg_013",
+        "conversation_id": "conv_002",
+        "role": "agent",
+        "sender_id": "review-agent",
+        "content": (
+            "## 移动端优先级\n\n"
+            "最担心的是按钮和标题挤压输入区域。建议：\n\n"
+            "- 首屏只保留一个主 CTA。\n"
+            "- 导航不要超过 3 个可见入口。\n"
+            "- 文案不要依赖横向排列的对比卡片。\n\n"
+            "这类调整不影响后端，可以作为前端体验优化独立完成。"
+        ),
+        "artifacts": [],
+        "created_at": "2026-06-03T09:31:00Z",
+    },
+    {
+        "id": "msg_014",
+        "conversation_id": "conv_003",
+        "role": "user",
+        "sender_id": "user",
+        "content": "@Orchestrator Todo 输入框现在空字符串也会新增任务，请组织修复并 review。",
+        "artifacts": [],
+        "created_at": "2026-06-03T09:41:00Z",
+    },
+    {
+        "id": "msg_015",
+        "conversation_id": "conv_003",
+        "role": "agent",
+        "sender_id": "orchestrator",
+        "content": (
+            "## Bug 修复计划\n\n"
+            "我会让 Code Agent 先修复输入归一化，再交给 Review Agent 检查边界。\n\n"
+            "```txt\n"
+            "用户输入 -> trim -> 空值拦截 -> 更新 todos -> 清空输入\n"
+            "```\n\n"
+            "修复完成后由 Preview Agent 刷新 `ws_003`。"
+        ),
+        "artifacts": [],
+        "created_at": "2026-06-03T09:43:00Z",
+    },
+    {
+        "id": "msg_016",
+        "conversation_id": "conv_003",
+        "role": "agent",
+        "sender_id": "code-agent",
+        "content": (
+            "## 修复输入空值问题\n\n"
+            "我把提交逻辑改为先 `trim()`，空字符串直接显示错误，不再写入列表。\n\n"
+            "```ts file=src/todo-actions.ts\n"
+            f"{BUG_FIX_CODE}"
+            "```\n\n"
+            "Diff 已附加为结构化 artifact，可以直接 Apply。"
+        ),
+        "artifacts": [
+            {
+                "id": "artifact_code_bugfix_001",
+                "type": "code",
+                "title": "Todo Submit Guard",
+                "data": {
+                    "filename": "src/todo-actions.ts",
+                    "language": "ts",
+                    "content": BUG_FIX_CODE,
+                },
+                "created_at": "2026-06-03T09:46:00Z",
+            },
+            {
+                "id": "artifact_diff_bugfix_001",
+                "type": "diff",
+                "title": "Trim Empty Todo Diff",
+                "data": {"filename": "src/todo-actions.ts", "diff": BUG_FIX_DIFF},
+                "created_at": "2026-06-03T09:46:10Z",
+            },
+        ],
+        "created_at": "2026-06-03T09:46:00Z",
+    },
+    {
+        "id": "msg_017",
+        "conversation_id": "conv_003",
+        "role": "agent",
+        "sender_id": "review-agent",
+        "content": (
+            "## Review 结论\n\n"
+            "- [x] 空字符串不会新增任务。\n"
+            "- [x] 输入会在成功提交后清空。\n"
+            "- [x] 错误文案不泄露内部实现。\n\n"
+            "剩余建议：把错误提示放在输入框下方，不要用浏览器 alert。"
+        ),
+        "artifacts": [],
+        "created_at": "2026-06-03T09:49:00Z",
+    },
+    {
+        "id": "msg_018",
+        "conversation_id": "conv_003",
+        "role": "agent",
+        "sender_id": "preview-agent",
+        "content": (
+            "## 修复预览\n\n`ws_003` 已经刷新为 ready。右侧可以看到当前文件和最新变更历史。"
+        ),
+        "artifacts": [
+            {
+                "id": "artifact_preview_bugfix_001",
+                "type": "preview",
+                "title": "Bug Fix Preview",
+                "data": {
+                    "workspace_id": "ws_003",
+                    "status": "ready",
+                    "preview_url": preview_page_url("ws_003"),
+                },
+                "created_at": "2026-06-03T09:52:00Z",
+            }
+        ],
+        "created_at": "2026-06-03T09:52:00Z",
+    },
+    {
+        "id": "msg_019",
+        "conversation_id": "conv_003",
+        "role": "user",
+        "sender_id": "user",
+        "content": "这个修复可以作为答辩时的迭代例子。",
+        "artifacts": [],
+        "created_at": "2026-06-03T09:55:00Z",
+    },
+    {
+        "id": "msg_020",
+        "conversation_id": "conv_004",
+        "role": "user",
+        "sender_id": "user",
+        "content": "@PreviewAgent 展示一下右侧 workspace 面板应该怎么工作。",
+        "artifacts": [],
+        "created_at": "2026-06-03T10:01:00Z",
+    },
+    {
+        "id": "msg_021",
+        "conversation_id": "conv_004",
+        "role": "agent",
+        "sender_id": "preview-agent",
+        "content": (
+            "## Workspace 面板说明\n\n"
+            "右侧不再重复聊天里的 artifact，而是展示三个真正有用的信息：\n\n"
+            "1. iframe 预览当前 workspace。\n"
+            "2. 文件列表帮助定位 Agent 改了什么。\n"
+            "3. 变更历史记录用户已经应用过哪些 Diff。"
+        ),
+        "artifacts": [
+            {
+                "id": "artifact_preview_workspace_001",
+                "type": "preview",
+                "title": "Workspace Panel Preview",
+                "data": {
+                    "workspace_id": "ws_004",
+                    "status": "ready",
+                    "preview_url": preview_page_url("ws_004"),
+                },
+                "created_at": "2026-06-03T10:03:00Z",
+            }
+        ],
+        "created_at": "2026-06-03T10:03:00Z",
+    },
+    {
+        "id": "msg_022",
+        "conversation_id": "conv_004",
+        "role": "agent",
+        "sender_id": "code-agent",
+        "content": (
+            "## HTML 预览示例\n\n"
+            "下面这个 HTML 代码块可以直接在聊天里点“预览”：\n\n"
+            "```html file=index.html\n"
+            '<main style="font-family: system-ui; padding: 32px">\n'
+            "  <h1>AgentHub Workspace</h1>\n"
+            "  <p>Preview, files, and applied diffs live in the right panel.</p>\n"
+            "</main>\n"
+            "```"
+        ),
+        "artifacts": [],
+        "created_at": "2026-06-03T10:05:00Z",
+    },
+    {
+        "id": "msg_023",
+        "conversation_id": "conv_004",
+        "role": "agent",
+        "sender_id": "review-agent",
+        "content": (
+            "## 面板 Review\n\n"
+            "- 不再展示重复 artifact，信息噪音明显降低。\n"
+            "- iframe、文件、历史是三个不同维度，适合放在右栏。\n"
+            "- 如果移动端宽度不足，右栏可以隐藏，不影响聊天主流程。"
+        ),
+        "artifacts": [],
+        "created_at": "2026-06-03T10:08:00Z",
+    },
+    {
+        "id": "msg_024",
+        "conversation_id": "conv_004",
+        "role": "user",
+        "sender_id": "user",
+        "content": "这个方向比产物卡片列表清晰很多。",
+        "artifacts": [],
+        "created_at": "2026-06-03T10:10:00Z",
+    },
+    {
+        "id": "msg_025",
+        "conversation_id": "conv_004",
+        "role": "agent",
+        "sender_id": "preview-agent",
+        "content": (
+            "## Demo 提示\n\n"
+            "答辩时可以先展示聊天主回复的 Markdown 排版，再点击 Apply Diff，"
+            "最后说明右侧面板只承载 workspace 状态。"
+        ),
+        "artifacts": [],
+        "created_at": "2026-06-03T10:12:00Z",
     },
 ]
 
@@ -386,8 +780,10 @@ DEFAULT_MESSAGES: list[dict[str, Any]] = [
 # - workspace_id: 预览状态所属工作区。
 # - status: not_started/running/ready/error，右侧预览面板直接展示。
 DEFAULT_PREVIEWS: list[dict[str, Any]] = [
-    {"workspace_id": "ws_001", "status": "not_started"},
-    {"workspace_id": "ws_002", "status": "ready"},
+    {"workspace_id": "ws_001", "status": "ready", "preview_url": preview_page_url("ws_001")},
+    {"workspace_id": "ws_002", "status": "ready", "preview_url": preview_page_url("ws_002")},
+    {"workspace_id": "ws_003", "status": "ready", "preview_url": preview_page_url("ws_003")},
+    {"workspace_id": "ws_004", "status": "ready", "preview_url": preview_page_url("ws_004")},
 ]
 
 # Workspace 文件表默认数据。
@@ -401,9 +797,80 @@ DEFAULT_WORKSPACE_FILES: list[dict[str, Any]] = [
     {
         "workspace_id": "ws_001",
         "path": "src/App.tsx",
-        "content": "export default function App() { return null }\n",
-        "updated_at": "2026-06-01T10:00:00Z",
-    }
+        "content": TODO_APP_CODE,
+        "updated_at": "2026-06-03T09:09:00Z",
+    },
+    {
+        "workspace_id": "ws_001",
+        "path": "index.html",
+        "content": "<main><h1>Team Todo</h1><p>Diff 已应用，预览已就绪。</p></main>",
+        "updated_at": "2026-06-03T09:10:00Z",
+    },
+    {
+        "workspace_id": "ws_002",
+        "path": "src/LandingReview.md",
+        "content": "# Landing Review\n\nCTA、移动端、信任证据是主要风险。\n",
+        "updated_at": "2026-06-03T09:31:00Z",
+    },
+    {
+        "workspace_id": "ws_002",
+        "path": "index.html",
+        "content": "<main><h1>Landing Review</h1><p>Review Agent 输出首屏优化建议。</p></main>",
+        "updated_at": "2026-06-03T09:31:00Z",
+    },
+    {
+        "workspace_id": "ws_003",
+        "path": "src/todo-actions.ts",
+        "content": BUG_FIX_CODE,
+        "updated_at": "2026-06-03T09:52:00Z",
+    },
+    {
+        "workspace_id": "ws_003",
+        "path": "index.html",
+        "content": "<main><h1>Bug Fix Ready</h1><p>空输入已被拦截。</p></main>",
+        "updated_at": "2026-06-03T09:52:00Z",
+    },
+    {
+        "workspace_id": "ws_004",
+        "path": "index.html",
+        "content": (
+            '<main style="font-family: system-ui; padding: 32px">'
+            "<h1>AgentHub Workspace</h1>"
+            "<p>Preview, files, and applied diffs live in the right panel.</p>"
+            "</main>"
+        ),
+        "updated_at": "2026-06-03T10:03:00Z",
+    },
+    {
+        "workspace_id": "ws_004",
+        "path": "README.md",
+        "content": "# Workspace Preview Demo\n\n右栏展示 iframe、文件树、变更历史。\n",
+        "updated_at": "2026-06-03T10:08:00Z",
+    },
+]
+
+DEFAULT_APPLIED_DIFFS: list[dict[str, Any]] = [
+    {
+        "id": "apply_todo_001",
+        "workspace_id": "ws_001",
+        "artifact_id": "artifact_diff_001",
+        "diff": TODO_APP_DIFF,
+        "applied_at": "2026-06-03T09:09:00Z",
+    },
+    {
+        "id": "apply_bugfix_001",
+        "workspace_id": "ws_003",
+        "artifact_id": "artifact_diff_bugfix_001",
+        "diff": BUG_FIX_DIFF,
+        "applied_at": "2026-06-03T09:52:00Z",
+    },
+    {
+        "id": "apply_workspace_001",
+        "workspace_id": "ws_004",
+        "artifact_id": "artifact_preview_workspace_001",
+        "diff": "--- a/index.html\n+++ b/index.html\n@@\n+<h1>AgentHub Workspace</h1>\n",
+        "applied_at": "2026-06-03T10:03:00Z",
+    },
 ]
 
 # 下面这些变量就是“表对象”：
@@ -419,7 +886,7 @@ conversations_table = JsonTable("conversations", DEFAULT_CONVERSATIONS)
 messages_table = JsonTable("messages", DEFAULT_MESSAGES)
 previews_table = JsonTable("previews", DEFAULT_PREVIEWS)
 workspace_files_table = JsonTable("workspace_files", DEFAULT_WORKSPACE_FILES)
-applied_diffs_table = JsonTable("applied_diffs", [])
+applied_diffs_table = JsonTable("applied_diffs", DEFAULT_APPLIED_DIFFS)
 
 # Flask 应用对象。前端默认请求 `http://127.0.0.1:5001/api/...`。
 app = Flask(__name__)
@@ -524,7 +991,11 @@ def get_preview(workspace_id: str) -> dict[str, Any]:
     return preview or {"workspace_id": workspace_id, "status": "not_started"}
 
 
-def upsert_preview(workspace_id: str, status: PreviewStatus) -> dict[str, Any]:
+def upsert_preview(
+    workspace_id: str,
+    status: PreviewStatus,
+    preview_url: str | None = None,
+) -> dict[str, Any]:
     """新增或更新 workspace 预览状态。
 
     Args:
@@ -538,7 +1009,14 @@ def upsert_preview(workspace_id: str, status: PreviewStatus) -> dict[str, Any]:
     previews = previews_table.all()
 
     # preview 表以 workspace_id 作为业务主键，而不是通用 id。
-    preview = {"workspace_id": workspace_id, "status": status}
+    # 更新状态时保留 preview_url，避免 Apply Diff 后右侧 iframe 地址丢失。
+    existing_preview = next(
+        (row for row in previews if row.get("workspace_id") == workspace_id),
+        {},
+    )
+    preview = {**existing_preview, "workspace_id": workspace_id, "status": status}
+    if preview_url is not None:
+        preview["preview_url"] = preview_url
     found = False
     next_previews = []
 
@@ -645,10 +1123,23 @@ def build_code_agent_result(input_data: dict[str, Any]) -> dict[str, Any]:
         + "\n"
     )
 
+    markdown_content = (
+        f"## 已生成“{task_title}”页面代码\n\n"
+        "我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n"
+        "```tsx file=src/App.tsx\n"
+        f"{content}"
+        "```\n\n"
+        "| 产物 | 用途 |\n"
+        "| --- | --- |\n"
+        "| Markdown 代码块 | 给用户阅读、复制和预览 |\n"
+        "| diff artifact | 给系统执行 Apply Diff |\n\n"
+        "下一步建议交给 Review Agent 检查交互和移动端风险。"
+    )
+
     return {
         # 这里必须返回 code-agent，前端根据 agent_id 关联头像和名称。
         "agent_id": "code-agent",
-        "content": f"Code Agent 已生成“{task_title}”页面代码和 Diff。",
+        "content": markdown_content,
         "artifacts": [
             create_agent_artifact(
                 "code",
@@ -680,9 +1171,20 @@ def build_review_agent_result() -> dict[str, Any]:
             ["Artifact 卡片要可滚动", "Agent 回复要保留时间线", "长文件名需要省略显示"],
         ]
     )
+    markdown_content = (
+        "## Review Agent 检查结果\n\n"
+        "我重点检查了 Demo 稳定性、聊天可读性和 workspace 操作闭环。\n\n"
+        "| 检查项 | 结论 |\n"
+        "| --- | --- |\n"
+        f"| 主要风险 | {'、'.join(findings)} |\n"
+        "| Apply Diff | 保持结构化 artifact 驱动，可靠 |\n"
+        "| Markdown 回复 | 适合比赛展示和答辩讲解 |\n\n"
+        "建议优先处理：\n" + "\n".join(f"- {finding}" for finding in findings)
+    )
+
     return {
         "agent_id": "review-agent",
-        "content": f"Review Agent 完成检查，建议优先处理：{'、'.join(findings)}。",
+        "content": markdown_content,
         "artifacts": [
             create_agent_artifact(
                 "file",
@@ -705,19 +1207,32 @@ def build_preview_agent_result(input_data: dict[str, Any]) -> dict[str, Any]:
 
     # ready 权重更高，保证 Demo 大多数情况下可以展示“预览已就绪”。
     status: PreviewStatus = random.choice(["ready", "ready", "running"])
-    upsert_preview(workspace_id, status)
+    preview_url = preview_page_url(workspace_id)
+    upsert_preview(workspace_id, status, preview_url)
+    markdown_content = (
+        "## Workspace Preview\n\n"
+        f"- Workspace: `{workspace_id}`\n"
+        f"- Status: `{status}`\n"
+        f"- Preview URL: `{preview_url}`\n\n"
+        + (
+            "预览环境已就绪，右侧 Workspace 面板会显示 iframe、文件列表和变更历史。"
+            if status == "ready"
+            else "预览服务正在启动，右侧状态会显示为 running。"
+        )
+    )
     return {
         "agent_id": "preview-agent",
-        "content": (
-            "预览环境已就绪，可以在右侧查看 workspace 状态。"
-            if status == "ready"
-            else "预览服务正在启动，当前 workspace 已进入 running 状态。"
-        ),
+        "content": markdown_content,
         "artifacts": [
             create_agent_artifact(
                 "preview",
                 "Workspace Preview",
-                {"workspace_id": workspace_id, "status": status, "checked_at": now_iso()},
+                {
+                    "workspace_id": workspace_id,
+                    "status": status,
+                    "checked_at": now_iso(),
+                    "preview_url": preview_url,
+                },
             )
         ],
         "next_actions": [],
@@ -735,9 +1250,16 @@ def build_orchestrator_result(input_data: dict[str, Any]) -> dict[str, Any]:
 
     # steps 会放进 file artifact 中，前端可渲染为“任务拆解”卡片。
     steps = ["Code Agent 生成页面代码", "Review Agent 检查实现风险", "Preview Agent 准备预览状态"]
+    markdown_content = (
+        f"## “{task_title}”任务拆解\n\n"
+        "我会按多 Agent 协作链路推进：\n\n"
+        + "\n".join(f"{index}. {step}" for index, step in enumerate(steps, start=1))
+        + "\n\n> 结构化 artifacts 只用于执行动作，主要回复会以 Markdown 形式留在聊天记录里。"
+    )
+
     return {
         "agent_id": "orchestrator",
-        "content": f"我已围绕“{task_title}”拆解任务：{' → '.join(steps)}。",
+        "content": markdown_content,
         "artifacts": [
             create_agent_artifact(
                 "file",
@@ -1093,6 +1615,44 @@ def get_workspace_preview(workspace_id: str) -> tuple[Response, int]:
     return success(get_preview(workspace_id))
 
 
+@app.get("/api/workspaces/<workspace_id>/preview-page")
+def get_workspace_preview_page(workspace_id: str) -> Response:
+    """返回一个可嵌入 iframe 的 workspace 预览页面。
+
+    Demo 后端优先读取 workspace 中的 `index.html`；如果当前 workspace 没有 HTML
+    文件，则返回一个轻量状态页，避免 iframe 空白。
+    """
+
+    html_file = next(
+        (
+            row
+            for row in workspace_files_table.all()
+            if row.get("workspace_id") == workspace_id and row.get("path") == "index.html"
+        ),
+        None,
+    )
+    if html_file is not None:
+        return Response(str(html_file.get("content", "")), mimetype="text/html")
+
+    preview = get_preview(workspace_id)
+    status = preview.get("status", "not_started")
+    return Response(
+        (
+            '<!doctype html><html><head><meta charset="utf-8">'
+            "<style>body{font-family:Inter,system-ui,sans-serif;margin:0;"
+            "padding:32px;background:#f6f3ed;color:#1f2926}"
+            ".card{border:1px solid #d9d1c5;border-radius:12px;padding:24px;"
+            "background:#fff;max-width:560px;margin:auto}"
+            "code{background:#eef5f2;border-radius:6px;padding:2px 6px}</style>"
+            f'</head><body><section class="card"><h1>{workspace_id}</h1>'
+            f"<p>Preview status: <code>{status}</code></p>"
+            "<p>当前 workspace 尚未生成 index.html，先展示预览状态页。</p>"
+            "</section></body></html>"
+        ),
+        mimetype="text/html",
+    )
+
+
 @app.post("/api/workspaces/<workspace_id>/apply-diff")
 def apply_diff(workspace_id: str) -> tuple[Response, int]:
     """应用 Diff。
@@ -1134,8 +1694,13 @@ def apply_diff(workspace_id: str) -> tuple[Response, int]:
     )
     applied_diffs_table.save(applied)
 
-    # Demo 闭环：Apply Diff 成功后，预览状态变为 ready。
-    upsert_preview(workspace_id, "ready")
+    # Demo 闭环：Apply Diff 成功后，预览状态变为 ready，并确保右侧 iframe 有地址。
+    current_preview_url = get_preview(workspace_id).get("preview_url")
+    upsert_preview(
+        workspace_id,
+        "ready",
+        str(current_preview_url) if current_preview_url else preview_page_url(workspace_id),
+    )
     return success(
         {
             "workspace_id": workspace_id,
@@ -1144,6 +1709,14 @@ def apply_diff(workspace_id: str) -> tuple[Response, int]:
             "applied_at": applied_at,
         }
     )
+
+
+@app.get("/api/workspaces/<workspace_id>/applied-diffs")
+def list_applied_diffs(workspace_id: str) -> tuple[Response, int]:
+    """获取当前 workspace 已应用的 Diff 历史。"""
+
+    rows = [row for row in applied_diffs_table.all() if row.get("workspace_id") == workspace_id]
+    return success(rows)
 
 
 @app.get("/api/workspaces/<workspace_id>/files")

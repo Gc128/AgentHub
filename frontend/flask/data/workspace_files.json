@@ -2,7 +2,49 @@
   {
     "workspace_id": "ws_001",
     "path": "src/App.tsx",
-    "content": "export default function App() { return null }\n",
-    "updated_at": "2026-06-01T10:00:00Z"
+    "content": "import { useState } from 'react'\n\nconst initialTodos = ['梳理需求', '生成代码', '应用 Diff']\n\nexport default function App() {\n  const [todos, setTodos] = useState(initialTodos)\n\n  return (\n    <main className=\"todo-shell\">\n      <section className=\"todo-card\">\n        <p className=\"eyebrow\">AgentHub Demo</p>\n        <h1>Team Todo</h1>\n        <button onClick={() => setTodos([...todos, '预览并提交'])}>Add task</button>\n        <ul>{todos.map((todo) => <li key={todo}>{todo}</li>)}</ul>\n      </section>\n    </main>\n  )\n}\n",
+    "updated_at": "2026-06-03T09:09:00Z"
+  },
+  {
+    "workspace_id": "ws_001",
+    "path": "index.html",
+    "content": "<main><h1>Team Todo</h1><p>Diff 已应用，预览已就绪。</p></main>",
+    "updated_at": "2026-06-03T09:10:00Z"
+  },
+  {
+    "workspace_id": "ws_002",
+    "path": "src/LandingReview.md",
+    "content": "# Landing Review\n\nCTA、移动端、信任证据是主要风险。\n",
+    "updated_at": "2026-06-03T09:31:00Z"
+  },
+  {
+    "workspace_id": "ws_002",
+    "path": "index.html",
+    "content": "<main><h1>Landing Review</h1><p>Review Agent 输出首屏优化建议。</p></main>",
+    "updated_at": "2026-06-03T09:31:00Z"
+  },
+  {
+    "workspace_id": "ws_003",
+    "path": "src/todo-actions.ts",
+    "content": "const submitTask = (value: string) => {\n  const normalized = value.trim()\n  if (!normalized) {\n    setError('请输入任务内容')\n    return\n  }\n  setTodos((items) => [...items, normalized])\n  setDraft('')\n  setError(null)\n}\n",
+    "updated_at": "2026-06-03T09:52:00Z"
+  },
+  {
+    "workspace_id": "ws_003",
+    "path": "index.html",
+    "content": "<main><h1>Bug Fix Ready</h1><p>空输入已被拦截。</p></main>",
+    "updated_at": "2026-06-03T09:52:00Z"
+  },
+  {
+    "workspace_id": "ws_004",
+    "path": "index.html",
+    "content": "<main style=\"font-family: system-ui; padding: 32px\"><h1>AgentHub Workspace</h1><p>Preview, files, and applied diffs live in the right panel.</p></main>",
+    "updated_at": "2026-06-03T10:03:00Z"
+  },
+  {
+    "workspace_id": "ws_004",
+    "path": "README.md",
+    "content": "# Workspace Preview Demo\n\n右栏展示 iframe、文件树、变更历史。\n",
+    "updated_at": "2026-06-03T10:08:00Z"
   }
 ]

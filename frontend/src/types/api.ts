@@ -66,7 +66,8 @@ export type Conversation = {
 
 /**
  * Agent 产物对象，对齐后端 schemas/artifact.py。
- * 前端只依赖 type/title/data 渲染不同卡片，不在顶层随意新增业务字段。
+ * Markdown-first 版本中，content 是给用户看的主回复；artifact 只承载
+ * Apply Diff、Preview、文件写入等机器可执行数据。
  */
 export type Artifact = {
   /** 产物唯一 ID，用作 React key 和后续 Apply Diff 等操作的定位值。 */
@@ -83,7 +84,7 @@ export type Artifact = {
 
 /**
  * 聊天消息对象，对齐后端 schemas/message.py。
- * 每条消息可以携带多个 Artifact，从而在聊天流中内联展示结构化产物。
+ * content 约定为 Markdown 字符串；artifacts 不再要求完整卡片化展示。
  */
 export type Message = {
   /** 消息唯一 ID，例如 msg_001。 */
@@ -94,7 +95,7 @@ export type Message = {
   role: MessageRole
   /** 发送者 ID；用户固定 user，Agent 使用 agent.id。 */
   sender_id: string
-  /** 消息正文，展示在聊天气泡中。 */
+  /** 消息正文，Markdown 字符串，由前端渲染成富文本聊天回复。 */
   content: string
   /** 消息携带的结构化产物列表。 */
   artifacts: Artifact[]
@@ -140,12 +141,12 @@ export type AgentRunInput = {
 
 /**
  * Agent 调用结果，对齐当前后端 AgentRunResult。
- * 前端收到后可追加成 Agent 消息，也可抽取 artifacts 展示到右侧产物面板。
+ * content 是 Markdown 主回复；artifacts 用于驱动 Apply Diff / Preview 等动作。
  */
 export type AgentRunResult = {
   /** 实际返回结果的 Agent ID。 */
   agent_id: string
-  /** Agent 的自然语言回复。 */
+  /** Agent 的 Markdown 主回复。 */
   content: string
   /** Agent 生成的结构化产物列表。 */
   artifacts: Artifact[]
@@ -164,6 +165,28 @@ export type WorkspacePreview = {
   status: 'not_started' | 'running' | 'ready' | 'error'
   /** 可选预览 URL；后端补充后可直接用于 iframe。 */
   preview_url?: string
+}
+
+/** workspace 文件列表项。 */
+export type WorkspaceFile = {
+  /** workspace 内相对路径，例如 src/App.tsx。 */
+  path: string
+  /** 最近更新时间，使用 ISO 字符串。 */
+  updated_at?: string
+}
+
+/** 已应用 Diff 的历史记录。 */
+export type AppliedDiffRecord = {
+  /** 应用记录唯一 ID。 */
+  id: string
+  /** 所属 workspace。 */
+  workspace_id: string
+  /** 被应用的 diff artifact ID。 */
+  artifact_id: string
+  /** 原始 unified diff 内容。 */
+  diff: string
+  /** 应用时间，使用 ISO 字符串。 */
+  applied_at: string
 }
 
 /**

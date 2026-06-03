@@ -461,15 +461,192 @@
   font-weight: 700;
 }
 
-.message-bubble p {
+.message-bubble > p {
   margin: 8px 0 0;
   white-space: pre-wrap;
 }
 
-.message-artifact-list {
+.markdown-message {
+  min-width: 0;
+  color: #202322;
+  font-size: 14px;
+  line-height: 1.68;
+}
+
+.markdown-message > :first-child {
+  margin-top: 8px;
+}
+
+.markdown-message > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-message h1,
+.markdown-message h2,
+.markdown-message h3 {
+  margin: 14px 0 8px;
+  color: #1f2d29;
+  line-height: 1.25;
+}
+
+.markdown-message h1 {
+  font-size: 21px;
+}
+
+.markdown-message h2 {
+  font-size: 18px;
+}
+
+.markdown-message h3 {
+  font-size: 15px;
+}
+
+.markdown-message p,
+.markdown-message ul,
+.markdown-message ol,
+.markdown-message blockquote,
+.markdown-message table,
+.markdown-code-shell {
+  margin: 10px 0 0;
+}
+
+.markdown-message ul,
+.markdown-message ol {
+  padding-left: 22px;
+}
+
+.markdown-message li + li {
+  margin-top: 5px;
+}
+
+.markdown-message blockquote {
+  border-left: 3px solid #b8cbc5;
+  background: #f3f8f5;
+  color: #4f574f;
+  padding: 8px 12px;
+}
+
+.markdown-message table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.markdown-message th,
+.markdown-message td {
+  border: 1px solid #ddd8cd;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.markdown-message th {
+  background: #f2eee6;
+  color: #3d4742;
+  font-weight: 800;
+}
+
+.markdown-inline-code {
+  border-radius: 6px;
+  background: #eef5f1;
+  color: #1f5b51;
+  padding: 2px 5px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
+.markdown-code-shell {
+  overflow: hidden;
+  border: 1px solid #ddd8cd;
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.markdown-code-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #ebe5dc;
+  background: #f5f1e8;
+  padding: 7px 10px;
+}
+
+.markdown-code-meta,
+.markdown-code-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.markdown-code-meta span {
+  border-radius: 999px;
+  background: #235b54;
+  color: #ffffff;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.markdown-code-meta strong {
+  overflow: hidden;
+  color: #555f59;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-code-shell pre,
+.markdown-code-shell code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.markdown-code-shell > div:last-child {
+  max-height: 380px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.markdown-html-preview {
+  width: 100%;
+  min-height: 460px;
+  border: 1px solid #ddd8cd;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.message-artifact-actions {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   margin-top: 12px;
+}
+
+.message-artifact-action {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  border: 1px solid #e2ddd3;
+  border-radius: 8px;
+  background: #fbfaf7;
+  padding: 8px;
+}
+
+.message-artifact-action > span:not(.ant-tag) {
+  overflow: hidden;
+  min-width: 0;
+  color: #4f574f;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-artifact-action .ant-btn {
+  margin-left: auto;
 }
 
 .empty-chat-state {
@@ -686,7 +863,8 @@
   white-space: nowrap;
 }
 
-.artifact-panel {
+.artifact-panel,
+.workspace-panel {
   display: flex;
   height: 100%;
   min-height: 0;
@@ -711,6 +889,10 @@
 }
 
 .preview-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 14px;
 }
 
@@ -947,6 +1129,86 @@
   border: 1px solid #d8d0c3;
   border-radius: 8px;
   background: #ffffff;
+}
+
+.workspace-preview-frame {
+  width: 100%;
+  min-height: 260px;
+  border: 1px solid #d8d0c3;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.workspace-empty-panel {
+  border: 1px dashed #cfc8bc;
+  border-radius: 8px;
+  background: #fbfaf7;
+  color: #686e67;
+  padding: 14px;
+  font-size: 13px;
+}
+
+.workspace-section {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
+.workspace-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #3f4843;
+}
+
+.workspace-section-title h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.workspace-file-list,
+.workspace-change-list {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.workspace-file-row,
+.workspace-change-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #ddd8cd;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.workspace-file-row > div,
+.workspace-change-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.workspace-file-row strong,
+.workspace-change-row strong {
+  overflow: hidden;
+  color: #202322;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-file-row span,
+.workspace-change-row span {
+  color: #71766d;
+  font-size: 12px;
+}
+
+.workspace-change-row {
+  justify-content: space-between;
 }
 
 .artifact-list-content {
