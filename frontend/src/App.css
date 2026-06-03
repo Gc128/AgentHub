@@ -624,6 +624,16 @@
   margin-top: 12px;
 }
 
+.message-artifact-diff-card {
+  display: grid;
+  gap: 0;
+}
+
+.message-artifact-diff-card .message-artifact-action {
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
 .message-artifact-action {
   display: flex;
   align-items: center;
@@ -647,6 +657,14 @@
 
 .message-artifact-action .ant-btn {
   margin-left: auto;
+}
+
+.message-diff-viewer {
+  max-height: 180px;
+  margin-top: 0;
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .empty-chat-state {
@@ -1176,24 +1194,32 @@
 
 .workspace-file-row,
 .workspace-change-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   border: 1px solid #ddd8cd;
   border-radius: 8px;
   background: #ffffff;
   padding: 10px;
 }
 
+.workspace-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.workspace-change-row {
+  display: grid;
+  gap: 8px;
+}
+
 .workspace-file-row > div,
-.workspace-change-row > div {
+.workspace-change-summary > div {
   display: grid;
   min-width: 0;
   gap: 4px;
 }
 
 .workspace-file-row strong,
-.workspace-change-row strong {
+.workspace-change-summary strong {
   overflow: hidden;
   color: #202322;
   font-size: 13px;
@@ -1202,13 +1228,21 @@
 }
 
 .workspace-file-row span,
-.workspace-change-row span {
+.workspace-change-summary span {
   color: #71766d;
   font-size: 12px;
 }
 
-.workspace-change-row {
+.workspace-change-summary {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 10px;
+}
+
+.workspace-diff-viewer {
+  max-height: 180px;
+  margin-top: 0;
 }
 
 .artifact-list-content {

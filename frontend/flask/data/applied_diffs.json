@@ -54,5 +54,21 @@
     "artifact_id": "artifact_diff_9d8870de",
     "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@\n-export default function App() { return null }\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n+      <h1>开发任务</h1>\n+      <button>Save item</button>\n+    </main>\n+  )\n+}",
     "applied_at": "2026-06-03T12:17:49.331975Z"
+  },
+  {
+    "id": "apply_caa63fea",
+    "workspace_id": "ws_c77e1bbf",
+    "artifact_id": "artifact_diff_2b5968c6",
+    "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -0,0 +1,10 @@\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n+      <h1>开发任务</h1>\n+      <button>Save item</button>\n+    </main>\n+  )\n+}",
+    "path": "src/App.tsx",
+    "applied_at": "2026-06-03T13:04:52.950680Z"
+  },
+  {
+    "id": "apply_159176a6",
+    "workspace_id": "ws_c77e1bbf",
+    "artifact_id": "artifact_diff_4a047932",
+    "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -2,7 +2,7 @@\n \n export default function App() {\n   return (\n-    <main className=\"todo-app\" style={{ '--accent': '#235b54' }}>\n+    <main className=\"todo-app\" style={{ '--accent': '#6a5acd' }}>\n       <h1>开发任务</h1>\n       <button>Save item</button>\n     </main>",
+    "path": "src/App.tsx",
+    "applied_at": "2026-06-03T13:34:05.288727Z"
   }
 ]

@@ -183,6 +183,8 @@ export type AppliedDiffRecord = {
   workspace_id: string
   /** 被应用的 diff artifact ID。 */
   artifact_id: string
+  /** 实际修改的 workspace 文件路径；历史数据可能没有该字段。 */
+  path?: string
   /** 原始 unified diff 内容。 */
   diff: string
   /** 应用时间，使用 ISO 字符串。 */
@@ -274,6 +276,8 @@ export type ApplyDiffResult = {
   status: WorkspacePreview['status']
   /** 成功应用的 diff artifact ID。 */
   applied_artifact_id: string
+  /** 实际修改的 workspace 文件路径。 */
+  path?: string
   /** 应用时间，使用 ISO 字符串。 */
   applied_at: string
 }

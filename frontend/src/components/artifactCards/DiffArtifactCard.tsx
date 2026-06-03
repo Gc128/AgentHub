@@ -7,6 +7,7 @@ import { Alert, Button, Tag } from 'antd'
 import { useState } from 'react'
 import type { Artifact } from '../../types/api'
 import { getArtifactString } from './artifactData'
+import { parseDiffLines } from './diffLines'
 
 type DiffArtifactCardProps = {
   /** diff 类型的 Artifact，data 中应包含 filename/diff。 */
@@ -18,41 +19,6 @@ type DiffArtifactCardProps = {
   /** 点击 Apply Diff 时调用，父组件负责请求后端 API 并刷新 Preview。 */
   onApplyDiff?: (artifact: Artifact, diff: string) => Promise<void>
 }
-
-type DiffLine = {
-  /** 原始 diff 行文本。 */
-  content: string
-  /** 行类型，用于决定新增、删除、文件头和上下文样式。 */
-  kind: 'added' | 'removed' | 'meta' | 'context'
-}
-
-/** 根据 unified diff 行前缀判断行类型。 */
-const getDiffLineKind = (line: string): DiffLine['kind'] => {
-  if (
-    line.startsWith('+++') ||
-    line.startsWith('---') ||
-    line.startsWith('@@')
-  ) {
-    return 'meta'
-  }
-  if (line.startsWith('+')) {
-    return 'added'
-  }
-  if (line.startsWith('-')) {
-    return 'removed'
-  }
-  return 'context'
-}
-
-/**
- * 把 unified diff 字符串拆成可渲染的行模型。
- * 这里不尝试完整解析 diff 语法，只做前端展示需要的轻量分类。
- */
-const parseDiffLines = (diff: string): DiffLine[] =>
-  diff.split('\n').map((line) => ({
-    content: line,
-    kind: getDiffLineKind(line),
-  }))
 
 /**
  * Diff 产物卡片。

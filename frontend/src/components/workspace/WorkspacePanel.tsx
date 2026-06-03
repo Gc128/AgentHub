@@ -11,6 +11,7 @@ import type {
   WorkspaceFile,
   WorkspacePreview,
 } from '../../types/api'
+import { parseDiffLines } from '../artifactCards/diffLines'
 
 type WorkspacePanelProps = {
   /** 当前会话，用于展示 workspace 归属。 */
@@ -149,13 +150,25 @@ export function WorkspacePanel({
           <div className="workspace-change-list">
             {appliedDiffs.map((diff) => (
               <article className="workspace-change-row" key={diff.id}>
-                <div>
-                  <strong>{diff.artifact_id}</strong>
-                  <span>
-                    <ClockCircleOutlined /> {formatTime(diff.applied_at)}
-                  </span>
+                <div className="workspace-change-summary">
+                  <div>
+                    <strong>{diff.path ?? diff.artifact_id}</strong>
+                    <span>
+                      <ClockCircleOutlined /> {formatTime(diff.applied_at)}
+                    </span>
+                  </div>
+                  <Tag>{getDiffSummary(diff.diff)}</Tag>
                 </div>
-                <Tag>{getDiffSummary(diff.diff)}</Tag>
+                <div className="diff-viewer workspace-diff-viewer">
+                  {parseDiffLines(diff.diff).map((line, index) => (
+                    <pre
+                      className={`diff-line diff-line-${line.kind}`}
+                      key={`${diff.id}-${index}-${line.content}`}
+                    >
+                      {line.content || ' '}
+                    </pre>
+                  ))}
+                </div>
               </article>
             ))}
           </div>

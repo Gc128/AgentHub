@@ -9,6 +9,7 @@ import {
 import { Button, Tag } from 'antd'
 import type { Artifact } from '../../types/api'
 import { getArtifactString, getArtifactStringList } from '../artifactCards/artifactData'
+import { parseDiffLines } from '../artifactCards/diffLines'
 
 type MessageArtifactActionsProps = {
   /** 当前消息携带的结构化产物。 */
@@ -55,27 +56,42 @@ export function MessageArtifactActions({
           const diff = getArtifactString(artifact, 'diff')
           const applied = appliedDiffIds.has(artifact.id)
           const applying = applyingDiffId === artifact.id
+          const diffLines = parseDiffLines(diff)
           return (
-            <div className="message-artifact-action" key={artifact.id}>
-              <Tag className="artifact-type">{artifact.type}</Tag>
-              <span>{label}</span>
-              <Button
-                disabled={applied || applying || !diff}
-                icon={
-                  applied ? (
-                    <CheckCircleOutlined />
-                  ) : applying ? (
-                    <LoadingOutlined />
-                  ) : (
-                    <CloudUploadOutlined />
-                  )
-                }
-                loading={applying}
-                onClick={() => onApplyDiff(artifact, diff)}
-                size="small"
-              >
-                {applied ? '已应用' : 'Apply Diff'}
-              </Button>
+            <div className="message-artifact-diff-card" key={artifact.id}>
+              <div className="message-artifact-action">
+                <Tag className="artifact-type">{artifact.type}</Tag>
+                <span>{label}</span>
+                <Button
+                  disabled={applied || applying || !diff}
+                  icon={
+                    applied ? (
+                      <CheckCircleOutlined />
+                    ) : applying ? (
+                      <LoadingOutlined />
+                    ) : (
+                      <CloudUploadOutlined />
+                    )
+                  }
+                  loading={applying}
+                  onClick={() => onApplyDiff(artifact, diff)}
+                  size="small"
+                >
+                  {applied ? '已应用' : 'Apply Diff'}
+                </Button>
+              </div>
+              {diff ? (
+                <div className="diff-viewer message-diff-viewer">
+                  {diffLines.map((line, index) => (
+                    <pre
+                      className={`diff-line diff-line-${line.kind}`}
+                      key={`${index}-${line.content}`}
+                    >
+                      {line.content || ' '}
+                    </pre>
+                  ))}
+                </div>
+              ) : null}
             </div>
           )
         }

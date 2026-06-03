@@ -13,11 +13,12 @@
 
 from __future__ import annotations
 
+import difflib
 import json
 import random
 from copy import deepcopy
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -1034,6 +1035,213 @@ def upsert_preview(
     return preview
 
 
+def normalize_workspace_file_path(path: str) -> str:
+    """校验并规范化 workspace 内文件路径。"""
+
+    value = path.strip()
+    if value.startswith(("a/", "b/")):
+        value = value[2:]
+
+    candidate = PurePosixPath(value)
+    if (
+        not value
+        or candidate.is_absolute()
+        or any(part in {"", ".", ".."} for part in candidate.parts)
+    ):
+        raise ValueError("文件路径必须是 workspace 内的相对路径")
+    return candidate.as_posix()
+
+
+def get_workspace_file_content_value(workspace_id: str, path: str) -> str:
+    """读取 workspace 文件正文；不存在时返回空字符串。"""
+
+    normalized_path = normalize_workspace_file_path(path)
+    row = next(
+        (
+            item
+            for item in workspace_files_table.all()
+            if item.get("workspace_id") == workspace_id and item.get("path") == normalized_path
+        ),
+        None,
+    )
+    return str(row.get("content", "")) if row is not None else ""
+
+
+def create_workspace_unified_diff(old: str, new: str, filename: str) -> str:
+    """按 workspace 文件内容生成 Git 风格 unified diff。"""
+
+    normalized_filename = normalize_workspace_file_path(filename)
+    return "".join(
+        difflib.unified_diff(
+            old.splitlines(keepends=True),
+            new.splitlines(keepends=True),
+            fromfile=f"a/{normalized_filename}",
+            tofile=f"b/{normalized_filename}",
+        )
+    )
+
+
+def extract_diff_target_path(diff: str) -> str:
+    """从 unified diff 的 `+++` 文件头中提取目标 workspace 路径。"""
+
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            path = line[4:].strip()
+            if path == "/dev/null":
+                raise ValueError("当前 Demo 暂不支持删除文件 Diff")
+            return normalize_workspace_file_path(path)
+    raise ValueError("Diff 缺少目标文件头")
+
+
+def apply_unified_diff_to_content(old_content: str, diff: str) -> str:
+    """把单文件 unified diff 应用到旧内容，返回新内容。
+
+    支持标准 `@@ -old +new @@` hunk，也兼容当前 Demo 早期生成的裸 `@@` hunk。
+    """
+
+    old_lines = old_content.splitlines(keepends=True)
+    diff_lines = diff.splitlines()
+    result: list[str] = []
+    old_index = 0
+    saw_hunk = False
+    bare_hunk = False
+    index = 0
+
+    while index < len(diff_lines):
+        line = diff_lines[index]
+        if not line.startswith("@@"):
+            index += 1
+            continue
+
+        saw_hunk = True
+        hunk_parts = line.split()
+        if len(hunk_parts) >= 3 and hunk_parts[1].startswith("-"):
+            old_start_text = hunk_parts[1][1:].split(",", maxsplit=1)[0]
+            try:
+                old_start = max(int(old_start_text), 1)
+            except ValueError as error:
+                raise ValueError("Diff hunk 行号格式不正确") from error
+            target_old_index = old_start - 1
+            result.extend(old_lines[old_index:target_old_index])
+            old_index = target_old_index
+        else:
+            # 早期 mock diff 使用裸 @@，无法定位原文件行号；按整文件替换处理。
+            result = []
+            old_index = 0
+            bare_hunk = True
+
+        index += 1
+        while index < len(diff_lines) and not diff_lines[index].startswith("@@"):
+            hunk_line = diff_lines[index]
+            if hunk_line.startswith("+") and not hunk_line.startswith("+++"):
+                result.append(f"{hunk_line[1:]}\n")
+            elif hunk_line.startswith("-") and not hunk_line.startswith("---"):
+                if old_index < len(old_lines):
+                    old_index += 1
+            elif hunk_line.startswith(" "):
+                result.append(f"{hunk_line[1:]}\n")
+                if old_index < len(old_lines):
+                    old_index += 1
+            elif hunk_line.startswith("\\"):
+                # 暂不区分 no-newline 标记，MVP 统一按换行文本处理。
+                pass
+            index += 1
+
+    if not saw_hunk:
+        raise ValueError("Diff 缺少可应用的变更块")
+    if not bare_hunk:
+        result.extend(old_lines[old_index:])
+    return "".join(result)
+
+
+def upsert_workspace_file(
+    workspace_id: str,
+    path: str,
+    content: str,
+    updated_at: str,
+) -> dict[str, Any]:
+    """新增或覆盖 workspace 文件记录。"""
+
+    normalized_path = normalize_workspace_file_path(path)
+    rows = workspace_files_table.all()
+    next_rows: list[dict[str, Any]] = []
+    file_record = {
+        "workspace_id": workspace_id,
+        "path": normalized_path,
+        "content": content,
+        "updated_at": updated_at,
+    }
+    found = False
+
+    for row in rows:
+        if row.get("workspace_id") == workspace_id and row.get("path") == normalized_path:
+            next_rows.append(file_record)
+            found = True
+        else:
+            next_rows.append(row)
+
+    if not found:
+        next_rows.append(file_record)
+
+    workspace_files_table.save(next_rows)
+    return file_record
+
+
+def ensure_code_artifact_diffs(
+    workspace_id: str,
+    artifacts: list[Any],
+) -> list[dict[str, Any]]:
+    """为缺少 diff 的 code artifact 自动生成待应用 Diff。"""
+
+    normalized_artifacts = [
+        deepcopy(artifact) for artifact in artifacts if isinstance(artifact, dict)
+    ]
+    diff_filenames: set[str] = set()
+    for artifact in normalized_artifacts:
+        data = artifact.get("data") if isinstance(artifact.get("data"), dict) else {}
+        if artifact.get("type") != "diff" or not data.get("filename"):
+            continue
+        try:
+            diff_filenames.add(normalize_workspace_file_path(str(data["filename"])))
+        except ValueError:
+            continue
+
+    for artifact in list(normalized_artifacts):
+        data = artifact.get("data") if isinstance(artifact.get("data"), dict) else {}
+        if artifact.get("type") != "code":
+            continue
+
+        filename = data.get("filename")
+        content = data.get("content")
+        if not isinstance(filename, str) or not isinstance(content, str):
+            continue
+
+        try:
+            normalized_filename = normalize_workspace_file_path(filename)
+        except ValueError:
+            continue
+        if normalized_filename in diff_filenames:
+            continue
+
+        old_content = get_workspace_file_content_value(workspace_id, normalized_filename)
+        diff = create_workspace_unified_diff(old_content, content, normalized_filename)
+        if diff:
+            normalized_artifacts.append(
+                create_agent_artifact(
+                    "diff",
+                    f"{normalized_filename} Diff",
+                    {
+                        "filename": normalized_filename,
+                        "diff": diff,
+                        "source_artifact_id": str(artifact.get("id", "")),
+                    },
+                )
+            )
+            diff_filenames.add(normalized_filename)
+
+    return normalized_artifacts
+
+
 def create_agent_artifact(kind: str, title: str, data: dict[str, Any]) -> dict[str, Any]:
     """生成 Agent 返回的结构化产物。
 
@@ -1113,22 +1321,19 @@ def build_code_agent_result(input_data: dict[str, Any]) -> dict[str, Any]:
         "}\n"
     )
     html_preview = (
-        "<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n"
+        '<main style="font-family: system-ui; padding: 32px; background: #f6f3ed;">\n'
         f"  <h1>{task_title}</h1>\n"
         "  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n"
         f"  <button>{button_text}</button>\n"
         "</main>\n"
     )
 
-    # diff artifact 的正文：前端 Diff 卡片按 unified diff 文本做新增/删除高亮。
-    diff = (
-        "--- a/src/App.tsx\n"
-        "+++ b/src/App.tsx\n"
-        "@@\n"
-        "-export default function App() { return null }\n"
-        + "\n".join(f"+{line}" for line in content.splitlines())
-        + "\n"
-    )
+    filename = "src/App.tsx"
+    workspace_id = str(input_data.get("workspace_id", ""))
+    old_content = get_workspace_file_content_value(workspace_id, filename)
+
+    # diff artifact 的正文来自当前 workspace 文件状态，点击 Apply 后会真正落到文件表。
+    diff = create_workspace_unified_diff(old_content, content, filename)
 
     markdown_content = (
         f"## 已生成“{task_title}”页面代码\n\n"
@@ -1156,12 +1361,12 @@ def build_code_agent_result(input_data: dict[str, Any]) -> dict[str, Any]:
             create_agent_artifact(
                 "code",
                 "Todo App Component",
-                {"filename": "src/App.tsx", "language": "tsx", "content": content},
+                {"filename": filename, "language": "tsx", "content": content},
             ),
             create_agent_artifact(
                 "diff",
                 "Todo App Diff",
-                {"filename": "src/App.tsx", "diff": diff},
+                {"filename": filename, "diff": diff},
             ),
         ],
         "next_actions": ["review", "preview"],
@@ -1531,6 +1736,9 @@ def create_message_for_conversation(
         return failure("消息内容不能为空", 400)
 
     timestamp = now_iso()
+    raw_artifacts = body.get("artifacts") if isinstance(body.get("artifacts"), list) else []
+    artifacts = ensure_code_artifact_diffs(conversation["workspace_id"], raw_artifacts)
+
     message = {
         # 消息主键，前端渲染列表时可作为 key。
         "id": make_id("msg"),
@@ -1543,7 +1751,7 @@ def create_message_for_conversation(
         # content 是聊天气泡主体文本。
         "content": content,
         # artifacts 是消息内产物；用户消息一般为空，Agent 消息可能有 code/diff。
-        "artifacts": body.get("artifacts") if isinstance(body.get("artifacts"), list) else [],
+        "artifacts": artifacts,
         # created_at 用于消息排序和右侧时间展示。
         "created_at": timestamp,
     }
@@ -1688,7 +1896,15 @@ def apply_diff(workspace_id: str) -> tuple[Response, int]:
     if not diff:
         return failure("Diff 内容为空，无法应用", 400)
 
+    try:
+        target_path = extract_diff_target_path(diff)
+        old_content = get_workspace_file_content_value(workspace_id, target_path)
+        new_content = apply_unified_diff_to_content(old_content, diff)
+    except ValueError as error:
+        return failure(str(error), 400)
+
     applied_at = now_iso()
+    upsert_workspace_file(workspace_id, target_path, new_content, applied_at)
     applied = applied_diffs_table.all()
     applied.append(
         {
@@ -1700,6 +1916,8 @@ def apply_diff(workspace_id: str) -> tuple[Response, int]:
             "artifact_id": artifact_id,
             # 原始 unified diff 内容，便于演示或后续回放。
             "diff": diff,
+            # 实际被修改的 workspace 文件路径。
+            "path": target_path,
             # 应用时间，用于展示和调试。
             "applied_at": applied_at,
         }
@@ -1718,6 +1936,7 @@ def apply_diff(workspace_id: str) -> tuple[Response, int]:
             "workspace_id": workspace_id,
             "status": "ready",
             "applied_artifact_id": artifact_id,
+            "path": target_path,
             "applied_at": applied_at,
         }
     )
@@ -1760,7 +1979,10 @@ def get_workspace_file_content(workspace_id: str) -> tuple[Response, int]:
     返回整条文件记录：`{ workspace_id, path, content, updated_at }`。
     """
 
-    path = request.args.get("path", "")
+    try:
+        path = normalize_workspace_file_path(request.args.get("path", ""))
+    except ValueError as error:
+        return failure(str(error), 400)
     row = next(
         (
             item
@@ -1786,47 +2008,14 @@ def write_workspace_file(workspace_id: str) -> tuple[Response, int]:
     """
 
     body = get_json_body()
-    path = str(body.get("path", "")).strip()
+    try:
+        path = normalize_workspace_file_path(str(body.get("path", "")).strip())
+    except ValueError as error:
+        return failure(str(error), 400)
     content = str(body.get("content", ""))
-    if not path:
-        return failure("path 不能为空", 400)
-
-    rows = workspace_files_table.all()
     timestamp = now_iso()
-    next_rows = []
-    found = False
-    for row in rows:
-        if row.get("workspace_id") == workspace_id and row.get("path") == path:
-            # 找到同一个 workspace 下的同路径文件，执行覆盖写入。
-            next_rows.append(
-                {
-                    "workspace_id": workspace_id,
-                    "path": path,
-                    "content": content,
-                    "updated_at": timestamp,
-                }
-            )
-            found = True
-        else:
-            # 不是目标文件的记录原样保留。
-            next_rows.append(row)
-
-    if not found:
-        # 没有找到同路径文件，表示这是一个新文件。
-        next_rows.append(
-            {
-                "workspace_id": workspace_id,
-                "path": path,
-                "content": content,
-                "updated_at": timestamp,
-            }
-        )
-
-    workspace_files_table.save(next_rows)
-    return success(
-        {"workspace_id": workspace_id, "path": path, "content": content, "updated_at": timestamp},
-        201,
-    )
+    file_record = upsert_workspace_file(workspace_id, path, content, timestamp)
+    return success(file_record, 201)
 
 
 if __name__ == "__main__":
