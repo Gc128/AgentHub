@@ -40,12 +40,10 @@ AgentHub 是一个 IM 聊天式多 Agent 协作平台。用户可以像使用飞
 - difflib / unidiff：Diff 生成与解析
 - subprocess：封装 Git 命令，必须限制参数和工作目录
 
-UI 方案按项目目标二选一：
+UI 方案：
 
-1. **全 Python Demo 优先**：使用 NiceGUI / Reflex 实现聊天界面、Artifact 卡片和 iframe 预览；
-2. **产品体验优先**：允许保留 React/Next.js 前端，但 Agent、Orchestrator、Workspace、后端 API 均使用 Python。
+ **产品体验优先**：允许保留 React/Next.js 前端，但 Agent、Orchestrator、Workspace、后端 API 均使用 Python。
 
-如果团队明确要求“整个项目尽量 Python”，Codex 不得主动引入 Node.js / TypeScript 前端工程，除非任务明确允许。
 
 ## 3. 当前 MVP 范围
 

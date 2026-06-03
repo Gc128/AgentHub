@@ -1,4 +1,4 @@
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -20,7 +20,7 @@ class AgentRunInput(BaseModel):
     workspace_id: str
     user_message: str
     history: list[Message] = Field(default_factory=list)
-    context: dict[str, str] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentRunResult(BaseModel):
@@ -35,5 +35,4 @@ class AgentAdapter(Protocol):
     name: str
     capabilities: list[str]
 
-    async def run(self, input_data: AgentRunInput) -> AgentRunResult:
-        ...
+    async def run(self, input_data: AgentRunInput) -> AgentRunResult: ...

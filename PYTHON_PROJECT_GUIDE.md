@@ -19,7 +19,7 @@
 
 ## 2. 推荐架构
 
-### 方案 A：Python-first，保留高质量 Web 前端
+### 方案 ：Python-first，保留高质量 Web 前端
 
 ```txt
 React / Next.js 前端
@@ -34,20 +34,6 @@ SQLite / Git / 本地 workspace
 优点：UI 效果最好，适合比赛 Demo。  
 缺点：不是 100% Python。
 
-### 方案 B：全 Python Demo
-
-```txt
-NiceGUI / Reflex UI
-        ↓ 直接调用或 HTTP
-FastAPI 服务层
-        ↓
-Orchestrator / Agent Adapter / Workspace / Diff / Preview
-        ↓
-SQLite / Git / 本地 workspace
-```
-
-优点：几乎全 Python，团队技术栈统一。  
-缺点：复杂 IM 交互、Monaco 编辑器、精细 Diff UI 需要额外处理。
 
 ### 建议
 

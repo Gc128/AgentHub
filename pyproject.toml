@@ -23,6 +23,9 @@ ui = [
     "nicegui>=2",
 ]
 
+[tool.setuptools.packages.find]
+include = ["agenthub*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
