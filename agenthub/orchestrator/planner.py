@@ -183,3 +183,70 @@ def route_task(user_message: str) -> str:
             return agent_id
 
     return AGENT_ORCHESTRATOR
+
+
+def _matches_agent(user_message: str, target_agent_id: str) -> bool:
+    return any(
+        agent_id == target_agent_id and pattern.search(user_message)
+        for agent_id, pattern in _ROUTING_RULES
+    )
+
+
+def create_plan(user_message: str) -> OrchestratorPlan:
+    """基于用户消息创建 MVP 任务计划。
+
+    这是给 FastAPI AgentService / OrchestratorExecutor 使用的结构化拆解入口；
+    `route_task()` 仍保留为单 Agent 路由能力。用户显式 @Orchestrator 时，
+    默认走完整 Code -> Review -> Preview 演示链路。
+    """
+    message = user_message.strip()
+    lowered = message.lower()
+    tasks: list[AgentTask] = []
+
+    wants_code = _matches_agent(message, AGENT_CODE)
+    wants_review = _matches_agent(message, AGENT_REVIEW)
+    wants_preview = _matches_agent(message, AGENT_PREVIEW)
+
+    if "@orchestrator" in lowered:
+        wants_code = True
+        wants_review = True
+        wants_preview = True
+
+    if wants_code:
+        tasks.append(
+            AgentTask(
+                task_id="task-code",
+                agent_id=AGENT_CODE,
+                instruction=message,
+            )
+        )
+    if wants_review:
+        tasks.append(
+            AgentTask(
+                task_id="task-review",
+                agent_id=AGENT_REVIEW,
+                instruction=message,
+                depends_on=["task-code"] if wants_code else [],
+            )
+        )
+    if wants_preview:
+        depends_on = ["task-review"] if wants_review else ["task-code"] if wants_code else []
+        tasks.append(
+            AgentTask(
+                task_id="task-preview",
+                agent_id=AGENT_PREVIEW,
+                instruction=message,
+                depends_on=depends_on,
+            )
+        )
+
+    if not tasks:
+        tasks.append(
+            AgentTask(
+                task_id="task-default",
+                agent_id=AGENT_ORCHESTRATOR,
+                instruction=message or "继续协作",
+            )
+        )
+
+    return OrchestratorPlan(summary="Rule-based MVP plan", tasks=tasks)

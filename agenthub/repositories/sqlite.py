@@ -1,0 +1,269 @@
+import json
+from datetime import UTC, datetime
+from typing import Literal, cast
+
+from sqlmodel import Session, SQLModel, create_engine, select
+
+from agenthub.core.errors import NotFoundError
+from agenthub.models.conversation import ConversationRecord
+from agenthub.models.message import MessageRecord
+from agenthub.models.workspace import (
+    AppliedDiffRecordRow,
+    WorkspaceFileRecord,
+    WorkspacePreviewRecord,
+)
+from agenthub.repositories.conversation_repo import ConversationRepository
+from agenthub.repositories.message_repo import MessageRepository
+from agenthub.repositories.workspace_repo import WorkspaceRepository
+from agenthub.schemas.artifact import Artifact
+from agenthub.schemas.conversation import Conversation
+from agenthub.schemas.message import Message
+from agenthub.schemas.workspace import (
+    AppliedDiffRecord,
+    WorkspaceFileContent,
+    WorkspacePreviewResponse,
+)
+
+
+class _SqliteRepositoryMixin:
+    def __init__(self, database_url: str) -> None:
+        self._engine = create_engine(database_url)
+        SQLModel.metadata.create_all(self._engine)
+
+
+class SqliteConversationRepository(_SqliteRepositoryMixin, ConversationRepository):
+    async def list(self) -> list[Conversation]:
+        with Session(self._engine) as session:
+            records = session.exec(select(ConversationRecord)).all()
+            conversations = [_conversation_from_record(record) for record in records]
+            return sorted(conversations, key=lambda item: item.updated_at, reverse=True)
+
+    async def get(self, conversation_id: str) -> Conversation:
+        with Session(self._engine) as session:
+            record = session.get(ConversationRecord, conversation_id)
+            if record is None:
+                raise NotFoundError("conversation_not_found", "Conversation does not exist.")
+            return _conversation_from_record(record)
+
+    async def save(self, conversation: Conversation) -> Conversation:
+        with Session(self._engine) as session:
+            session.merge(_conversation_to_record(conversation))
+            session.commit()
+            return conversation
+
+    async def delete(self, conversation_id: str) -> None:
+        with Session(self._engine) as session:
+            record = session.get(ConversationRecord, conversation_id)
+            if record is None:
+                raise NotFoundError("conversation_not_found", "Conversation does not exist.")
+            session.delete(record)
+            session.commit()
+
+    async def exists(self, conversation_id: str) -> bool:
+        with Session(self._engine) as session:
+            return session.get(ConversationRecord, conversation_id) is not None
+
+
+class SqliteMessageRepository(_SqliteRepositoryMixin, MessageRepository):
+    async def list_by_conversation(self, conversation_id: str) -> list[Message]:
+        with Session(self._engine) as session:
+            records = session.exec(
+                select(MessageRecord).where(MessageRecord.conversation_id == conversation_id)
+            ).all()
+            messages = [_message_from_record(record) for record in records]
+            return sorted(messages, key=lambda item: item.created_at)
+
+    async def save(self, message: Message) -> Message:
+        with Session(self._engine) as session:
+            session.merge(_message_to_record(message))
+            session.commit()
+            return message
+
+    async def delete_by_conversation(self, conversation_id: str) -> None:
+        with Session(self._engine) as session:
+            records = session.exec(
+                select(MessageRecord).where(MessageRecord.conversation_id == conversation_id)
+            ).all()
+            for record in records:
+                session.delete(record)
+            session.commit()
+
+
+class SqliteWorkspaceRepository(_SqliteRepositoryMixin, WorkspaceRepository):
+    async def get_preview(self, workspace_id: str) -> WorkspacePreviewResponse:
+        with Session(self._engine) as session:
+            record = session.get(WorkspacePreviewRecord, workspace_id)
+            if record is None:
+                return WorkspacePreviewResponse(workspace_id=workspace_id, status="not_started")
+            return WorkspacePreviewResponse(
+                workspace_id=record.workspace_id,
+                status=record.status,
+                preview_url=record.preview_url,
+            )
+
+    async def save_preview(
+        self,
+        preview: WorkspacePreviewResponse,
+    ) -> WorkspacePreviewResponse:
+        with Session(self._engine) as session:
+            session.merge(
+                WorkspacePreviewRecord(
+                    workspace_id=preview.workspace_id,
+                    status=preview.status,
+                    preview_url=preview.preview_url,
+                )
+            )
+            session.commit()
+            return preview
+
+    async def list_files(self, workspace_id: str) -> list[WorkspaceFileContent]:
+        with Session(self._engine) as session:
+            records = session.exec(
+                select(WorkspaceFileRecord)
+                .where(WorkspaceFileRecord.workspace_id == workspace_id)
+                .order_by(WorkspaceFileRecord.path)
+            ).all()
+            return [_workspace_file_from_record(record) for record in records]
+
+    async def get_file(self, workspace_id: str, path: str) -> WorkspaceFileContent:
+        with Session(self._engine) as session:
+            record = session.get(WorkspaceFileRecord, _workspace_file_id(workspace_id, path))
+            if record is None:
+                raise NotFoundError("workspace_file_not_found", "Workspace file does not exist.")
+            return _workspace_file_from_record(record)
+
+    async def get_file_content_or_empty(self, workspace_id: str, path: str) -> str:
+        with Session(self._engine) as session:
+            record = session.get(WorkspaceFileRecord, _workspace_file_id(workspace_id, path))
+            return record.content if record is not None else ""
+
+    async def save_file(self, file_record: WorkspaceFileContent) -> WorkspaceFileContent:
+        with Session(self._engine) as session:
+            session.merge(_workspace_file_to_record(file_record))
+            session.commit()
+            return file_record
+
+    async def list_applied_diffs(self, workspace_id: str) -> list[AppliedDiffRecord]:
+        with Session(self._engine) as session:
+            records = session.exec(
+                select(AppliedDiffRecordRow).where(
+                    AppliedDiffRecordRow.workspace_id == workspace_id
+                )
+            ).all()
+            applied_diffs = [_applied_diff_from_record(record) for record in records]
+            return sorted(applied_diffs, key=lambda item: item.applied_at)
+
+    async def save_applied_diff(self, record: AppliedDiffRecord) -> AppliedDiffRecord:
+        with Session(self._engine) as session:
+            session.merge(_applied_diff_to_record(record))
+            session.commit()
+            return record
+
+
+def _conversation_to_record(conversation: Conversation) -> ConversationRecord:
+    return ConversationRecord(
+        id=conversation.id,
+        title=conversation.title,
+        mode=conversation.mode,
+        agent_ids_json=json.dumps(conversation.agent_ids),
+        is_pinned=conversation.is_pinned,
+        workspace_id=conversation.workspace_id,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+    )
+
+
+def _conversation_from_record(record: ConversationRecord) -> Conversation:
+    agent_ids = json.loads(record.agent_ids_json)
+    return Conversation(
+        id=record.id,
+        title=record.title,
+        mode=cast(Literal["single", "group"], record.mode),
+        agent_ids=[str(agent_id) for agent_id in agent_ids] if isinstance(agent_ids, list) else [],
+        is_pinned=record.is_pinned,
+        workspace_id=record.workspace_id,
+        created_at=_ensure_utc(record.created_at),
+        updated_at=_ensure_utc(record.updated_at),
+    )
+
+
+def _message_to_record(message: Message) -> MessageRecord:
+    return MessageRecord(
+        id=message.id,
+        conversation_id=message.conversation_id,
+        role=message.role,
+        sender_id=message.sender_id,
+        content=message.content,
+        artifacts_json=json.dumps(
+            [artifact.model_dump(mode="json") for artifact in message.artifacts],
+            ensure_ascii=False,
+        ),
+        created_at=message.created_at,
+    )
+
+
+def _message_from_record(record: MessageRecord) -> Message:
+    artifacts_payload = json.loads(record.artifacts_json)
+    artifacts = (
+        [Artifact.model_validate(item) for item in artifacts_payload]
+        if isinstance(artifacts_payload, list)
+        else []
+    )
+    return Message(
+        id=record.id,
+        conversation_id=record.conversation_id,
+        role=cast(Literal["user", "agent", "system"], record.role),
+        sender_id=record.sender_id,
+        content=record.content,
+        artifacts=artifacts,
+        created_at=_ensure_utc(record.created_at),
+    )
+
+
+def _workspace_file_id(workspace_id: str, path: str) -> str:
+    return f"{workspace_id}:{path}"
+
+
+def _workspace_file_to_record(file_record: WorkspaceFileContent) -> WorkspaceFileRecord:
+    return WorkspaceFileRecord(
+        id=_workspace_file_id(file_record.workspace_id, file_record.path),
+        workspace_id=file_record.workspace_id,
+        path=file_record.path,
+        content=file_record.content,
+        updated_at=file_record.updated_at,
+    )
+
+
+def _workspace_file_from_record(record: WorkspaceFileRecord) -> WorkspaceFileContent:
+    return WorkspaceFileContent(
+        workspace_id=record.workspace_id,
+        path=record.path,
+        content=record.content,
+        updated_at=_ensure_utc(record.updated_at),
+    )
+
+
+def _applied_diff_to_record(record: AppliedDiffRecord) -> AppliedDiffRecordRow:
+    return AppliedDiffRecordRow(
+        id=record.id,
+        workspace_id=record.workspace_id,
+        artifact_id=record.artifact_id,
+        diff=record.diff,
+        path=record.path,
+        applied_at=record.applied_at,
+    )
+
+
+def _applied_diff_from_record(record: AppliedDiffRecordRow) -> AppliedDiffRecord:
+    return AppliedDiffRecord(
+        id=record.id,
+        workspace_id=record.workspace_id,
+        artifact_id=record.artifact_id,
+        diff=record.diff,
+        path=record.path,
+        applied_at=_ensure_utc(record.applied_at),
+    )
+
+
+def _ensure_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value

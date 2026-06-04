@@ -23,22 +23,37 @@ class MessageService:
         await self._conversation_repository.get(conversation_id)
         return await self._message_repository.list_by_conversation(conversation_id)
 
+    async def create_message(
+        self,
+        conversation_id: str,
+        request: MessageCreate,
+    ) -> Message:
+        conversation = await self._conversation_repository.get(conversation_id)
+        now = datetime.now(UTC)
+        message = Message(
+            id=new_id("msg"),
+            conversation_id=conversation_id,
+            role="user" if request.sender_id == "user" else "agent",
+            sender_id=request.sender_id,
+            content=request.content,
+            artifacts=request.artifacts,
+            created_at=now,
+        )
+        await self._message_repository.save(message)
+        updated = conversation.model_copy(update={"updated_at": now})
+        await self._conversation_repository.save(updated)
+        return message
+
     async def send_message(
         self,
         conversation_id: str,
         request: MessageCreate,
     ) -> MessageSendResponse:
         conversation = await self._conversation_repository.get(conversation_id)
-        now = datetime.now(UTC)
-        user_message = Message(
-            id=new_id("msg"),
-            conversation_id=conversation_id,
-            role="user",
-            sender_id=request.sender_id,
-            content=request.content,
-            created_at=now,
+        user_message = await self.create_message(
+            conversation_id,
+            request.model_copy(update={"sender_id": "user", "artifacts": []}),
         )
-        await self._message_repository.save(user_message)
 
         agent_messages: list[Message] = []
         if request.run_agent:
@@ -67,3 +82,6 @@ class MessageService:
         updated = conversation.model_copy(update={"updated_at": datetime.now(UTC)})
         await self._conversation_repository.save(updated)
         return MessageSendResponse(user_message=user_message, agent_messages=agent_messages)
+
+    async def delete_messages_for_conversation(self, conversation_id: str) -> None:
+        await self._message_repository.delete_by_conversation(conversation_id)

@@ -19,5 +19,9 @@ class ConversationRepository:
         self._conversations[conversation.id] = conversation
         return conversation
 
+    async def delete(self, conversation_id: str) -> None:
+        await self.get(conversation_id)
+        del self._conversations[conversation_id]
+
     async def exists(self, conversation_id: str) -> bool:
         return conversation_id in self._conversations

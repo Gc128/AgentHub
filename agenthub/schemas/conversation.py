@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Conversation(BaseModel):
@@ -15,10 +15,20 @@ class Conversation(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConversationCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    mode: Literal["single", "group"] = "group"
+    agent_ids: list[str] = Field(default_factory=lambda: ["orchestrator"])
+    workspace_id: str | None = None
+    is_pinned: bool = False
+
 
 class ConversationUpdate(BaseModel):
     # 会话标题可选更新；未传时后端不应修改原值。
-    title: str | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=120)
     # 会话模式可选更新；用于后续编辑单聊/群聊。
     mode: Literal["single", "group"] | None = None
     # Agent 列表可选更新；用于后续调整会话参与者，传入时至少保留一个成员。

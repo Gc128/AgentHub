@@ -69,7 +69,7 @@
         "data": {
           "workspace_id": "{workspace_id}",
           "status": "ready",
-          "url": "/api/workspaces/{workspace_id}/preview"
+          "preview_url": "/api/workspaces/{workspace_id}/preview"
         }
       }
     ],

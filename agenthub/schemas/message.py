@@ -21,6 +21,7 @@ class Message(BaseModel):
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1)
     sender_id: str = "user"
+    artifacts: list[Artifact] = Field(default_factory=list)
     run_agent: bool = True
 
 

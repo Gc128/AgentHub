@@ -22,6 +22,7 @@ from agenthub.orchestrator.planner import (
     AGENT_REVIEW,
     AgentTask,
     OrchestratorPlan,
+    create_plan,
     route_task,
 )
 
@@ -296,3 +297,16 @@ class TestRouteTask:
 
     def test_route_case_insensitive_implement(self) -> None:
         assert route_task("IMPLEMENT a feature") == AGENT_CODE
+
+
+class TestCreatePlan:
+    def test_orchestrator_mention_creates_full_demo_plan(self) -> None:
+        plan = create_plan("@Orchestrator 帮我做一个 Todo 页面")
+
+        assert plan.agent_ids == [AGENT_CODE, AGENT_REVIEW, AGENT_PREVIEW]
+
+    def test_mixed_code_and_review_intent_creates_both_tasks(self) -> None:
+        plan = create_plan("写一段代码然后帮我 review 一下")
+
+        assert plan.agent_ids == [AGENT_CODE, AGENT_REVIEW]
+        assert plan.tasks[1].depends_on == ["task-code"]

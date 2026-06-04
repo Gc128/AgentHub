@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 
@@ -8,6 +9,13 @@ from agenthub.core.errors import AgentHubError, ErrorResponse
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AgentHub", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.exception_handler(AgentHubError)
     async def agenthub_error_handler(_request: Request, exc: AgentHubError) -> JSONResponse:

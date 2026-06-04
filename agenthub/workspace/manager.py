@@ -12,11 +12,32 @@ Workspace 基础路径管理模块。
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 class WorkspacePathError(ValueError):
     """当解析路径越出 workspace 根目录时抛出。"""
+
+
+def normalize_workspace_file_path(path: str) -> str:
+    """规范化 workspace 内文件路径。
+
+    这个 helper 用于 API 层的逻辑文件路径，不访问物理磁盘。它接受 git diff
+    常见的 `a/`、`b/` 前缀，并拒绝绝对路径、空路径和 `..` 越权片段。
+    """
+
+    value = path.strip()
+    if value.startswith(("a/", "b/")):
+        value = value[2:]
+
+    candidate = PurePosixPath(value)
+    if (
+        not value
+        or candidate.is_absolute()
+        or any(part in {"", ".", ".."} for part in candidate.parts)
+    ):
+        raise WorkspacePathError("文件路径必须是 workspace 内的相对路径")
+    return candidate.as_posix()
 
 
 def resolve_workspace_path(root: Path, relative_path: str) -> Path:

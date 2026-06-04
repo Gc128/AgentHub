@@ -22,3 +22,18 @@ python -m ruff format --check .
 python -m mypy agenthub
 python -m uvicorn agenthub.main:app --reload
 ```
+
+## Local Demo Startup
+
+The stable presentation path now uses the React client plus the FastAPI backend:
+
+```bash
+python -m uvicorn agenthub.main:app --reload
+cd frontend
+VITE_API_BASE_URL=http://127.0.0.1:8000 npm run dev
+```
+
+Production-like local runs should copy `.env.example` to `.env`, set
+`OPENAI_API_KEY`, and keep `USE_MOCK_AGENTS=false`. The old Flask JSON service in
+`frontend/flask/` is retained as a historical test fixture/reference, not as the
+default demo backend.

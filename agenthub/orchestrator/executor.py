@@ -36,7 +36,8 @@ from agenthub.agents.base import (
     Artifact,
     Message,
 )
-from agenthub.orchestrator.planner import AgentTask, OrchestratorPlan
+from agenthub.agents.registry import AgentRegistry
+from agenthub.orchestrator.planner import AgentTask, OrchestratorPlan, create_plan
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,54 @@ class ExecutionReport:
     @property
     def succeeded_tasks(self) -> list[TaskOutcome]:
         return [o for o in self.outcomes if o.success]
+
+
+class OrchestratorExecutor:
+    """面向 AgentService 的 Orchestrator 执行器。
+
+    它使用 `create_plan()` 拆解用户消息，再通过 AgentRegistry 依次调用子 Agent。
+    现阶段仍保持串行执行，方便 Demo 链路稳定展示完整 artifact。
+    """
+
+    def __init__(self, registry: AgentRegistry) -> None:
+        self._registry = registry
+
+    async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+        plan = create_plan(input_data.user_message)
+        child_results: list[AgentRunResult] = []
+
+        for task in plan.tasks:
+            agent = self._registry.get(task.agent_id)
+            child_input = input_data.model_copy(
+                update={
+                    "context": {
+                        **input_data.context,
+                        "agent_id": task.agent_id,
+                        "task_id": task.task_id,
+                        "instruction": task.instruction,
+                    }
+                }
+            )
+            child_results.append(await agent.run(child_input))
+
+        artifacts = [
+            Artifact(
+                id="artifact-orchestrator-plan",
+                type="file",
+                title="Orchestrator task plan",
+                data=plan.model_dump(mode="json"),
+            )
+        ]
+        for result in child_results:
+            artifacts.extend(result.artifacts)
+
+        summary_lines = [f"- {task.agent_id}: {task.instruction}" for task in plan.tasks]
+        return AgentRunResult(
+            agent_id="orchestrator",
+            content="Orchestrator completed the plan:\n" + "\n".join(summary_lines),
+            artifacts=artifacts,
+            next_actions=plan.agent_ids,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +318,17 @@ class ExecutionError(RuntimeError):
     def __init__(self, message: str, *, report: ExecutionReport) -> None:
         super().__init__(message)
         self.report = report
+
+
+async def execute_agent(agent_id: str, input_data: AgentRunInput) -> AgentRunResult:
+    """使用默认 AgentRegistry 执行单个 Agent。
+
+    这是一个轻量便捷入口，供后续 API 或脚本在没有显式注入 service 时调用。
+    """
+    from agenthub.agents.registry import create_default_registry
+
+    registry = create_default_registry()
+    return await registry.get(agent_id).run(input_data)
 
 
 # ---------------------------------------------------------------------------

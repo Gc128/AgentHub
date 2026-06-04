@@ -12,3 +12,6 @@ class MessageRepository:
         messages = self._messages.setdefault(message.conversation_id, [])
         messages.append(message)
         return message
+
+    async def delete_by_conversation(self, conversation_id: str) -> None:
+        self._messages.pop(conversation_id, None)
