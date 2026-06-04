@@ -1,0 +1,93 @@
+{
+  "mock-agent": {
+    "content": "{agent_name} received: {user_message}",
+    "artifacts": [
+      {
+        "id": "artifact-mock-code",
+        "type": "code",
+        "title": "Mock code artifact",
+        "data": {
+          "filename": "README.md",
+          "language": "markdown",
+          "content": "# Mock response",
+          "workspace_id": "{workspace_id}"
+        }
+      }
+    ],
+    "next_actions": ["review", "preview"]
+  },
+  "code-agent": {
+    "content": "Code Agent generated a stable Todo page draft for: {user_message}",
+    "artifacts": [
+      {
+        "id": "artifact-code-todo",
+        "type": "code",
+        "title": "Todo page code",
+        "data": {
+          "filename": "src/App.py",
+          "language": "python",
+          "content": "from nicegui import ui\n\nui.label('AgentHub Todo Demo')\nui.run()",
+          "workspace_id": "{workspace_id}"
+        }
+      },
+      {
+        "id": "artifact-diff-todo",
+        "type": "diff",
+        "title": "Todo page diff",
+        "data": {
+          "filename": "src/App.py",
+          "diff": "--- a/src/App.py\n+++ b/src/App.py\n@@ -0,0 +1,4 @@\n+from nicegui import ui\n+\n+ui.label('AgentHub Todo Demo')\n+ui.run()\n",
+          "workspace_id": "{workspace_id}"
+        }
+      }
+    ],
+    "next_actions": ["review", "preview"]
+  },
+  "review-agent": {
+    "content": "Review Agent checked the generated plan and found no blocking issue for the MVP demo.",
+    "artifacts": [
+      {
+        "id": "artifact-review-notes",
+        "type": "file",
+        "title": "Review notes",
+        "data": {
+          "filename": "review.md",
+          "content": "- Keep workspace writes behind WorkspaceManager.\n- Keep API responses typed with Pydantic.\n- Add UI states before demo.",
+          "workspace_id": "{workspace_id}"
+        }
+      }
+    ],
+    "next_actions": ["preview"]
+  },
+  "preview-agent": {
+    "content": "Preview Agent prepared a preview card for the current workspace.",
+    "artifacts": [
+      {
+        "id": "artifact-preview-card",
+        "type": "preview",
+        "title": "Workspace preview",
+        "data": {
+          "workspace_id": "{workspace_id}",
+          "status": "ready",
+          "url": "/api/workspaces/{workspace_id}/preview"
+        }
+      }
+    ],
+    "next_actions": []
+  },
+  "orchestrator": {
+    "content": "Orchestrator is ready to break down the request: {user_message}",
+    "artifacts": [
+      {
+        "id": "artifact-orchestrator-ready",
+        "type": "file",
+        "title": "Orchestrator status",
+        "data": {
+          "status": "ready",
+          "workspace_id": "{workspace_id}"
+        }
+      }
+    ],
+    "next_actions": ["code", "review", "preview"]
+  }
+}

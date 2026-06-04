@@ -10,21 +10,22 @@ import type {
   CreateMessageInput,
   DeleteConversationResult,
   Message,
+  MessageSendResponse,
   UpdateConversationInput,
   WorkspaceFile,
   WorkspacePreview,
 } from '../types/api'
 
 /**
- * Flask API 基础地址。
- * 默认指向本地 Flask 服务；如需换端口或部署地址，可在 Vite 环境变量中设置 VITE_API_BASE_URL。
+ * FastAPI API 基础地址。
+ * 默认指向本地 FastAPI 服务；如需换端口或部署地址，可在 Vite 环境变量中设置 VITE_API_BASE_URL。
  */
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:5001'
+  import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 ).replace(/\/$/, '')
 
 type ApiEnvelope<T> = {
-  /** Flask 后端统一返回成功标记。 */
+  /** 历史 Flask 后端统一返回成功标记；FastAPI 直返业务数据。 */
   success: boolean
   /** 成功时的真实业务数据。 */
   data: T
@@ -39,7 +40,7 @@ const getErrorMessage = (payload: unknown) => {
   }
 
   const errorPayload = payload as {
-    /** Flask envelope 中的错误字段。 */
+    /** 历史 Flask envelope 中的错误字段。 */
     error?: unknown
     /** FastAPI 常见错误字段，保留兼容。 */
     detail?: unknown
@@ -110,7 +111,7 @@ const requestJson = async <T>(
 export const apiClient = {
   /**
    * 获取会话列表。
-   * 始终发起 GET /api/conversations，由 Flask JSON 后端返回真实持久化数据。
+   * 始终发起 GET /api/conversations，由 FastAPI 后端返回真实持久化数据。
    */
   listConversations(): Promise<Conversation[]> {
     return requestJson<Conversation[]>('/api/conversations')
@@ -118,7 +119,7 @@ export const apiClient = {
 
   /**
    * 新建会话。
-   * 请求体沿用前端最小输入 CreateConversationInput，Flask 后端会生成 id/workspace_id/时间戳。
+   * 请求体沿用前端最小输入 CreateConversationInput，FastAPI 后端会生成 id/workspace_id/时间戳。
    */
   createConversation(
     input: CreateConversationInput,
@@ -168,7 +169,7 @@ export const apiClient = {
 
   /**
    * 在指定会话中创建一条消息。
-   * 当前前端传 sender_id/content/artifacts，Flask 后端会补齐 Message 结构并写入 messages.json。
+   * 当前前端传 sender_id/content/artifacts，FastAPI 后端会补齐 Message 结构并持久化。
    */
   createMessage(
     conversationId: string,
@@ -184,8 +185,25 @@ export const apiClient = {
   },
 
   /**
+   * 发送用户消息并由后端完成 Agent 编排。
+   * 这是前端主链路：FastAPI 会保存用户消息，并返回已持久化的 Agent 消息序列。
+   */
+  sendMessage(
+    conversationId: string,
+    input: CreateMessageInput,
+  ): Promise<MessageSendResponse> {
+    return requestJson<MessageSendResponse>(
+      `/api/conversations/${conversationId}/messages/run`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+    )
+  },
+
+  /**
    * 获取 Agent 联系人列表。
-   * 由 Flask 后端读取 agents.json 返回。
+   * 由 FastAPI 后端返回可用 Agent 列表。
    */
   listAgents(): Promise<Agent[]> {
     return requestJson<Agent[]>('/api/agents')
@@ -232,7 +250,7 @@ export const apiClient = {
 
   /**
    * 应用 workspace 中的 Diff。
-   * 当前前端按 ApplyDiffInput 发送，Flask 后端会记录应用结果并刷新 preview 状态。
+   * 当前前端按 ApplyDiffInput 发送，FastAPI 后端会记录应用结果并刷新 preview 状态。
    */
   applyDiff(
     workspaceId: string,

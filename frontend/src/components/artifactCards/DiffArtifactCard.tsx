@@ -97,8 +97,8 @@ export function DiffArtifactCard({
       {applyError ? (
         <Alert
           className="form-error"
-          message={applyError}
           showIcon
+          title={applyError}
           type="error"
         />
       ) : null}

@@ -10,7 +10,6 @@ import { AppLayout } from './components/layout/AppLayout'
 import { WorkspacePanel } from './components/workspace/WorkspacePanel'
 import type {
   Agent,
-  AgentRunResult,
   AppliedDiffRecord,
   Artifact,
   Conversation,
@@ -20,7 +19,6 @@ import type {
   WorkspaceFile,
   WorkspacePreview,
 } from './types/api'
-import { resolveAgentRunOrder } from './utils/agentRouting'
 import './App.css'
 
 /** 会话按最近更新时间倒序排序，保持 IM 左侧列表的常见体验。 */
@@ -39,11 +37,13 @@ const sortConversationsByUpdatedAt = (items: Conversation[]) =>
   )
 
 /**
- * 判断 Agent 返回结果是否携带 preview artifact。
+ * 判断消息序列是否携带 preview artifact。
  * 如果有，前端会重新拉取 workspace preview，保持右侧状态和聊天产物一致。
  */
-const hasPreviewArtifact = (result: AgentRunResult) =>
-  result.artifacts.some((artifact) => artifact.type === 'preview')
+const hasPreviewArtifact = (items: Message[]) =>
+  items.some((message) =>
+    message.artifacts.some((artifact) => artifact.type === 'preview'),
+  )
 
 /** 会话模式由成员数量推导，避免 UI 手动选择后和 agent_ids 语义不一致。 */
 const inferConversationMode = (agentIds: string[]): ConversationMode =>
@@ -54,7 +54,7 @@ const inferConversationMode = (agentIds: string[]): ConversationMode =>
  * 这里负责把首日 Demo 的核心数据串起来：会话列表、聊天消息、Agent 联系人和右侧产物预览。
  */
 function App() {
-  // 可用 Agent 列表，来自 Flask 后端 /api/agents。
+  // 可用 Agent 列表，来自 FastAPI 后端 /api/agents。
   const [agents, setAgents] = useState<Agent[]>([])
   // 左侧会话列表，Conversation 字段严格对齐后端 schema。
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -349,24 +349,6 @@ function App() {
   }
 
   /**
-   * 把 AgentRunResult 保存为聊天消息。
-   * 这里仍走 createMessage，让后端 messages.json 和前端状态保持一致。
-   */
-  const appendAgentResult = async (
-    conversationId: string,
-    result: AgentRunResult,
-  ) => {
-    const message = await apiClient.createMessage(conversationId, {
-      sender_id: result.agent_id,
-      content: result.content,
-      artifacts: result.artifacts,
-    })
-
-    setMessages((currentMessages) => [...currentMessages, message])
-    return message
-  }
-
-  /**
    * 应用某个 Diff Artifact。
    * 这是核心闭环：Diff 卡片按钮 → 后端 apply-diff → workspace preview 刷新。
    */
@@ -411,7 +393,7 @@ function App() {
 
   /**
    * 在当前会话中发送用户消息。
-   * 保存用户消息后，会根据 @Agent 或关键词触发后端 Agent 回复。
+   * 保存用户消息后，由 FastAPI 后端识别 @Agent 并完成 Agent 编排。
    */
   const handleSendMessage = async (content: string) => {
     if (!selectedConversation) {
@@ -421,47 +403,33 @@ function App() {
     setAgentRunning(true)
 
     try {
-      const message = await apiClient.createMessage(selectedConversation.id, {
+      const response = await apiClient.sendMessage(selectedConversation.id, {
         sender_id: 'user',
         content,
       })
+      const nextConversationMessages = [
+        response.user_message,
+        ...response.agent_messages,
+      ]
 
-      setMessages((currentMessages) => [...currentMessages, message])
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        ...nextConversationMessages,
+      ])
+      const lastMessage =
+        nextConversationMessages[nextConversationMessages.length - 1] ??
+        response.user_message
       setConversations((currentConversations) =>
         sortConversationsByUpdatedAt(
           currentConversations.map((conversation) =>
             conversation.id === selectedConversation.id
-              ? { ...conversation, updated_at: message.created_at }
+              ? { ...conversation, updated_at: lastMessage.created_at }
               : conversation,
           ),
         ),
       )
-      const agentRunOrder = resolveAgentRunOrder(
-        content,
-        selectedConversationAgents,
-      )
-      let hasPreviewUpdate = false
 
-      if (agentRunOrder.length === 0) {
-        throw new Error('当前会话没有可用 Agent，请先添加成员')
-      }
-
-      for (const agentId of agentRunOrder) {
-        const result = await apiClient.runAgent({
-          conversation_id: selectedConversation.id,
-          workspace_id: selectedConversation.workspace_id,
-          user_message: content,
-          history: [...messages, message],
-          context: {
-            agent_id: agentId,
-          },
-        })
-
-        await appendAgentResult(selectedConversation.id, result)
-        hasPreviewUpdate = hasPreviewUpdate || hasPreviewArtifact(result)
-      }
-
-      if (hasPreviewUpdate) {
+      if (hasPreviewArtifact(response.agent_messages)) {
         const nextPreview = await apiClient.getWorkspacePreview(
           selectedConversation.workspace_id,
         )
@@ -524,9 +492,9 @@ function App() {
               <Alert
                 className="error-banner"
                 closable
-                message={error}
                 onClose={() => setError(null)}
                 showIcon
+                title={error}
                 type="error"
               />
             ) : null}

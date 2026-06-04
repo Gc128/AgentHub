@@ -23,7 +23,7 @@ export type AgentRole =
 
 /**
  * Agent 的适配器类型，对齐后端 Agent.adapter_type。
- * 数据模型保留 mock 这个适配器枚举值；当前 Flask JSON 后端默认使用 custom。
+ * 数据模型保留 mock 这个适配器枚举值；FastAPI 真实 Agent wrapper 使用 custom。
  */
 export type AgentAdapterType =
   | 'mock'
@@ -104,6 +104,17 @@ export type Message = {
 }
 
 /**
+ * 后端发送消息并运行 Agent 后的响应。
+ * user_message 和 agent_messages 都已经由 FastAPI 保存，前端只负责追加展示。
+ */
+export type MessageSendResponse = {
+  /** 本次用户输入保存后的消息。 */
+  user_message: Message
+  /** 后端编排后产生并保存的 Agent 消息序列。 */
+  agent_messages: Message[]
+}
+
+/**
  * Agent 联系人对象，对齐后端 schemas/agent.py。
  * 前端用它展示 Agent 列表、能力标签和 @Agent 候选项。
  */
@@ -118,7 +129,7 @@ export type Agent = {
   description: string
   /** 能力标签列表，例如 code、diff、preview。 */
   capabilities: string[]
-  /** 背后的适配器类型；当前 Flask JSON 后端默认 custom。 */
+  /** 背后的适配器类型；FastAPI 真实 Agent wrapper 默认 custom。 */
   adapter_type: AgentAdapterType
 }
 

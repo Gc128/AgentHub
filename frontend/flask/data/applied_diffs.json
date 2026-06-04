@@ -78,5 +78,13 @@
     "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -0,0 +1,10 @@\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n+      <h1>开发任务</h1>\n+      <button>Save item</button>\n+    </main>\n+  )\n+}\n",
     "path": "src/App.tsx",
     "applied_at": "2026-06-04T12:36:18.576646Z"
+  },
+  {
+    "id": "apply_fd1aeea0",
+    "workspace_id": "ws_19fa6c61",
+    "artifact_id": "artifact_diff_cb2153dd",
+    "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -0,0 +1,10 @@\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#7a5c22' }}>\n+      <h1>开发任务</h1>\n+      <button>Create todo</button>\n+    </main>\n+  )\n+}\n",
+    "path": "src/App.tsx",
+    "applied_at": "2026-06-04T13:11:11.722955Z"
   }
 ]

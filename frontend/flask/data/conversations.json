@@ -12,7 +12,7 @@
     "is_pinned": false,
     "workspace_id": "ws_001",
     "created_at": "2026-06-03T09:00:00Z",
-    "updated_at": "2026-06-03T09:13:00Z"
+    "updated_at": "2026-06-04T13:10:09.320753Z"
   },
   {
     "id": "conv_002",
@@ -69,7 +69,7 @@
     "is_pinned": false,
     "workspace_id": "ws_19fa6c61",
     "created_at": "2026-06-03T04:03:55.789533Z",
-    "updated_at": "2026-06-03T08:39:13.999276Z"
+    "updated_at": "2026-06-04T13:11:08.317053Z"
   },
   {
     "id": "conv_5dc6d395",
@@ -81,7 +81,7 @@
     "is_pinned": false,
     "workspace_id": "ws_378d5944",
     "created_at": "2026-06-03T07:57:25.850166Z",
-    "updated_at": "2026-06-03T09:31:15.161139Z"
+    "updated_at": "2026-06-04T14:28:19.402251Z"
   },
   {
     "id": "conv_b619b403",
@@ -110,21 +110,6 @@
     "workspace_id": "ws_c77e1bbf",
     "created_at": "2026-06-03T13:00:43.617429Z",
     "updated_at": "2026-06-03T13:33:31.479139Z"
-  },
-  {
-    "id": "conv_cf070004",
-    "title": "测试Orchestrator2222",
-    "mode": "group",
-    "agent_ids": [
-      "orchestrator",
-      "code-agent",
-      "review-agent",
-      "preview-agent"
-    ],
-    "is_pinned": false,
-    "workspace_id": "ws_a9b50f00",
-    "created_at": "2026-06-03T13:34:38.026792Z",
-    "updated_at": "2026-06-03T13:34:44.144110Z"
   },
   {
     "id": "conv_e3a654d5",

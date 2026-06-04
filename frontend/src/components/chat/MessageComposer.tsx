@@ -163,8 +163,8 @@ export function MessageComposer({
       {composerError ? (
         <Alert
           className="form-error"
-          message={composerError}
           showIcon
+          title={composerError}
           type="error"
         />
       ) : null}

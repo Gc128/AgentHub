@@ -9,4 +9,5 @@ class MessageRecord(SQLModel, table=True):
     role: str
     sender_id: str
     content: str
+    artifacts_json: str = "[]"
     created_at: datetime

@@ -149,8 +149,8 @@ export function ConversationMembersModal({
         {formError ? (
           <Alert
             className="form-error"
-            message={formError}
             showIcon
+            title={formError}
             type="error"
           />
         ) : null}

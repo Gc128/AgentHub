@@ -181,6 +181,7 @@ Artifact `data` 常见结构：
 | `workspace_id` | `string` | 是 | 所属 workspace id。 |
 | `artifact_id` | `string` | 是 | 被应用的 diff artifact id。 |
 | `diff` | `string` | 是 | 原始 unified diff 内容。 |
+| `path` | `string` | 否 | 实际被修改的 workspace 文件路径。旧历史数据可能没有该字段。 |
 | `applied_at` | `string` | 是 | 应用时间，UTC ISO 字符串。 |
 
 ## 4. 基础接口

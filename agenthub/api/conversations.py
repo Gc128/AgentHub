@@ -1,7 +1,13 @@
+from typing import Annotated
+
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from agenthub.api.deps import get_conversation_service
+from agenthub.schemas.conversation import Conversation, ConversationCreate, ConversationUpdate
+from agenthub.services.conversation_service import ConversationService
 
 from agenthub.schemas.conversation import (
     Conversation,
@@ -17,32 +23,33 @@ def infer_mode(agent_ids: list[str]) -> Literal["single", "group"]:
     return "group" if len(agent_ids) > 1 else "single"
 
 
-@router.get("/conversations")
-async def list_conversations() -> list[dict[str, str]]:
-    return []
+@router.get("/conversations", response_model=list[Conversation])
+async def list_conversations(
+    service: Annotated[ConversationService, Depends(get_conversation_service)],
+) -> list[Conversation]:
+    return await service.list_conversations()
 
 
-@router.patch("/conversations/{conversation_id}")
+@router.post("/conversations", response_model=Conversation, status_code=201)
+async def create_conversation(
+    request: ConversationCreate,
+    service: Annotated[ConversationService, Depends(get_conversation_service)],
+) -> Conversation:
+    return await service.create_conversation(request)
+
+
+@router.get("/conversations/{conversation_id}", response_model=Conversation)
+async def get_conversation(
+    conversation_id: str,
+    service: Annotated[ConversationService, Depends(get_conversation_service)],
+) -> Conversation:
+    return await service.get_conversation(conversation_id)
+
+
+@router.patch("/conversations/{conversation_id}", response_model=Conversation)
 async def update_conversation(
     conversation_id: str,
-    payload: ConversationUpdate,
+    request: ConversationUpdate,
+    service: Annotated[ConversationService, Depends(get_conversation_service)],
 ) -> Conversation:
-    # 当前后端还没有持久化层实现；这里返回 Conversation 形状，确保接口契约和前端 client/mock 对齐。
-    timestamp = datetime.now(UTC)
-    agent_ids = payload.agent_ids or ["orchestrator"]
-    return Conversation(
-        id=conversation_id,
-        title=payload.title or "Untitled Conversation",
-        mode=(infer_mode(agent_ids) if payload.agent_ids is not None else payload.mode or "group"),
-        agent_ids=agent_ids,
-        is_pinned=payload.is_pinned if payload.is_pinned is not None else False,
-        workspace_id=f"ws_{conversation_id}",
-        created_at=timestamp,
-        updated_at=timestamp,
-    )
-
-
-@router.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str) -> ConversationDeleteResult:
-    # 当前后端还没有真实删除逻辑；前端 mock 会先完成端到端体验。
-    return ConversationDeleteResult(id=conversation_id, deleted=True)
+    return await service.update_conversation(conversation_id, request)

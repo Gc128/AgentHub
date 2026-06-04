@@ -115,7 +115,7 @@ export function ChatPanel({
 
       <div className="message-list" ref={messageListRef}>
         {loading ? (
-          <Spin className="loading-state" tip="加载消息中..." />
+          <Spin className="loading-state" description="加载消息中..." />
         ) : messages.length === 0 ? (
           <Empty
             className="empty-chat-state"
