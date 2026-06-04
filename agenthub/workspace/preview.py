@@ -35,7 +35,6 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler
 from pathlib import Path
 from socketserver import TCPServer
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +85,7 @@ def resolve_preview_path(
     workspace_id: str,
     file_path: str = "index.html",
     *,
-    workspaces_root: Optional[Path] = None,
+    workspaces_root: Path | None = None,
 ) -> Path:
     """将 workspace_id + 相对文件路径解析为绝对路径，并做越权检查。
 
@@ -109,15 +108,11 @@ def resolve_preview_path(
 
     # workspace_dir 必须在 workspaces_root 下（防止 ../.. 绕过）
     if workspace_dir != root and not workspace_dir.is_relative_to(root):
-        raise PreviewPathError(
-            f"workspace_dir {workspace_dir} escapes workspaces root {root}"
-        )
+        raise PreviewPathError(f"workspace_dir {workspace_dir} escapes workspaces root {root}")
 
     # file_path 不允许绝对路径输入
     if Path(file_path).is_absolute():
-        raise PreviewPathError(
-            f"file_path must be relative, got absolute: {file_path!r}"
-        )
+        raise PreviewPathError(f"file_path must be relative, got absolute: {file_path!r}")
 
     target = (workspace_dir / file_path).resolve()
 
@@ -169,9 +164,7 @@ def get_preview_url(
 
     # 剥离前导斜杠后若 Path 仍被识别为绝对路径（如 Windows UNC 路径），才拒绝
     if Path(stripped).is_absolute():
-        raise PreviewPathError(
-            f"file_path must be relative, got absolute: {file_path!r}"
-        )
+        raise PreviewPathError(f"file_path must be relative, got absolute: {file_path!r}")
 
     # 规范化路径分隔符（Windows 路径也用 /）
     normalised = stripped.replace("\\", "/")
@@ -207,9 +200,7 @@ def find_free_port(
     for port in range(start, end + 1):
         if _is_port_free(host, port):
             return port
-    raise PreviewError(
-        f"No free port available in range [{start}, {end}] on {host}"
-    )
+    raise PreviewError(f"No free port available in range [{start}, {end}] on {host}")
 
 
 # ---------------------------------------------------------------------------
@@ -245,8 +236,8 @@ class PreviewServer:
         workspace_id: str,
         *,
         host: str = _DEFAULT_HOST,
-        port: Optional[int] = None,
-        workspaces_root: Optional[Path] = None,
+        port: int | None = None,
+        workspaces_root: Path | None = None,
     ) -> None:
         """
         Args:
@@ -272,8 +263,8 @@ class PreviewServer:
             )
 
         self.port: int = port if port is not None else 0
-        self._server: Optional[TCPServer] = None
-        self._thread: Optional[threading.Thread] = None
+        self._server: TCPServer | None = None
+        self._thread: threading.Thread | None = None
 
     # ------------------------------------------------------------------
     # 生命周期
@@ -282,9 +273,7 @@ class PreviewServer:
     def start(self) -> None:
         """在后台线程启动 HTTP 服务器。"""
         if self._server is not None:
-            raise PreviewError(
-                f"PreviewServer for {self.workspace_id!r} is already running"
-            )
+            raise PreviewError(f"PreviewServer for {self.workspace_id!r} is already running")
 
         if not self.workspace_dir.exists():
             raise PreviewError(
@@ -300,18 +289,18 @@ class PreviewServer:
         try:
             # 关键修改 1：传入 bind_and_activate=False，阻止它自动绑定
             server = TCPServer((self.host, self.port), handler, bind_and_activate=False)
-            
+
             # 关键修改 2：在真正绑定前，设置端口复用标志
             server.allow_reuse_address = True
-            
+
             # 关键修改 3：手动执行绑定和激活
             server.server_bind()
             server.server_activate()
-            
+
             # 关键修改 4：如果初始化时端口是 0，这里需要把系统实际分配的真实端口存下来
             # 否则 get_url() 拼出来的会是 http://127.0.0.1:0/...
             self.port = server.server_address[1]
-            
+
         except OSError as exc:
             raise PreviewError(
                 f"Failed to bind preview server on {self.host}:{self.port}: {exc}"
@@ -391,8 +380,8 @@ class PreviewServer:
 def make_static_files_app(
     workspace_id: str,
     *,
-    workspaces_root: Optional[Path] = None,
-) -> "starlette.staticfiles.StaticFiles":  # type: ignore[name-defined]  # noqa: F821
+    workspaces_root: Path | None = None,
+) -> starlette.staticfiles.StaticFiles:  # type: ignore[name-defined]  # noqa: F821
     """返回一个 Starlette StaticFiles 实例，供 FastAPI router.mount() 使用。
 
     调用示例（由成员 B 在 api/routes/workspaces.py 中完成）::
@@ -427,13 +416,9 @@ def make_static_files_app(
     workspace_dir = (root / workspace_id).resolve()
 
     if not workspace_dir.is_relative_to(root):
-        raise PreviewPathError(
-            f"workspace_id {workspace_id!r} resolves outside workspaces root"
-        )
+        raise PreviewPathError(f"workspace_id {workspace_id!r} resolves outside workspaces root")
 
     if not workspace_dir.exists():
-        raise PreviewError(
-            f"Workspace directory does not exist: {workspace_dir}"
-        )
+        raise PreviewError(f"Workspace directory does not exist: {workspace_dir}")
 
     return StaticFiles(directory=str(workspace_dir), html=True)

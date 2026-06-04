@@ -25,14 +25,13 @@ from agenthub.orchestrator.planner import (
     route_task,
 )
 
-
 # ---------------------------------------------------------------------------
 # 辅助工厂
 # ---------------------------------------------------------------------------
 
 
 def make_task(
-    agent_id: str = "code",
+    agent_id: str = "code-agent",
     instruction: str = "do something",
     task_id: str | None = None,
     depends_on: list[str] | None = None,
@@ -61,7 +60,7 @@ class TestAgentTask:
         assert task.task_id == "my-task-001"
 
     def test_valid_agent_ids(self) -> None:
-        for agent_id in ("code", "review", "preview", "orchestrator"):
+        for agent_id in ("code-agent", "review-agent", "preview-agent", "orchestrator"):
             task = make_task(agent_id=agent_id)
             assert task.agent_id == agent_id
 
@@ -95,8 +94,8 @@ class TestAgentTask:
 
     def test_task_is_immutable(self) -> None:
         task = make_task()
-        with pytest.raises(Exception):  # ValidationError or TypeError (frozen model)
-            task.agent_id = "review"  # type: ignore[misc]
+        with pytest.raises(ValidationError):
+            task.agent_id = "review-agent"  # type: ignore[misc]
 
     def test_two_tasks_with_same_content_have_different_task_ids(self) -> None:
         t1 = make_task()
@@ -126,7 +125,7 @@ class TestOrchestratorPlan:
 
     def test_valid_dependency_chain(self) -> None:
         t1 = make_task(task_id="t1")
-        t2 = make_task(task_id="t2", agent_id="review", depends_on=["t1"])
+        t2 = make_task(task_id="t2", agent_id="review-agent", depends_on=["t1"])
         plan = OrchestratorPlan(tasks=[t1, t2])
         assert plan.tasks[1].depends_on == ["t1"]
 
@@ -142,27 +141,37 @@ class TestOrchestratorPlan:
         assert plan.tasks[0].depends_on == ["t1"]
 
     def test_agent_ids_property_deduplicates(self) -> None:
-        t1 = make_task(task_id="t1", agent_id="code")
-        t2 = make_task(task_id="t2", agent_id="review")
-        t3 = make_task(task_id="t3", agent_id="code")  # 重复
+        t1 = make_task(task_id="t1", agent_id="code-agent")
+        t2 = make_task(task_id="t2", agent_id="review-agent")
+        t3 = make_task(task_id="t3", agent_id="code-agent")  # 重复
         plan = OrchestratorPlan(tasks=[t1, t2, t3])
-        assert plan.agent_ids == ["code", "review"]
+        assert plan.agent_ids == ["code-agent", "review-agent"]
 
     def test_agent_ids_property_preserves_order(self) -> None:
-        t1 = make_task(task_id="t1", agent_id="preview")
-        t2 = make_task(task_id="t2", agent_id="code")
+        t1 = make_task(task_id="t1", agent_id="preview-agent")
+        t2 = make_task(task_id="t2", agent_id="code-agent")
         plan = OrchestratorPlan(tasks=[t1, t2])
-        assert plan.agent_ids == ["preview", "code"]
+        assert plan.agent_ids == ["preview-agent", "code-agent"]
 
     def test_multiple_tasks_multi_agent(self) -> None:
         tasks = [
-            make_task(task_id="t1", agent_id="code", instruction="write component"),
-            make_task(task_id="t2", agent_id="review", depends_on=["t1"], instruction="review it"),
-            make_task(task_id="t3", agent_id="preview", depends_on=["t2"], instruction="preview"),
+            make_task(task_id="t1", agent_id="code-agent", instruction="write component"),
+            make_task(
+                task_id="t2",
+                agent_id="review-agent",
+                depends_on=["t1"],
+                instruction="review it",
+            ),
+            make_task(
+                task_id="t3",
+                agent_id="preview-agent",
+                depends_on=["t2"],
+                instruction="preview",
+            ),
         ]
         plan = OrchestratorPlan(summary="full pipeline", tasks=tasks)
         assert len(plan.tasks) == 3
-        assert plan.agent_ids == ["code", "review", "preview"]
+        assert plan.agent_ids == ["code-agent", "review-agent", "preview-agent"]
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +180,6 @@ class TestOrchestratorPlan:
 
 
 class TestRouteTask:
-
     # --- code agent ---
 
     def test_route_write_chinese(self) -> None:

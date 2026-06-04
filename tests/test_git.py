@@ -28,7 +28,6 @@ from agenthub.workspace.git import (
     git_status,
 )
 
-
 # ---------------------------------------------------------------------------
 # 辅助函数
 # ---------------------------------------------------------------------------
@@ -38,11 +37,15 @@ def _configure_git_identity(repo: Path) -> None:
     """为临时仓库设置最小化 git 用户信息，避免 CI 环境报错。"""
     subprocess.run(
         ["git", "config", "user.email", "test@agenthub.test"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "AgentHub Test"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
 
 
@@ -257,9 +260,9 @@ class TestGitLog:
         repo = _init_repo(tmp_path)
         _commit_file(repo, "a.txt", "x\n", "check fields")
         entry = git_log(repo)[0]
-        assert len(entry.hash) == 40          # SHA-1 full hash
+        assert len(entry.hash) == 40  # SHA-1 full hash
         assert "@" in entry.author or entry.author  # 作者名
-        assert entry.date                      # 日期不为空
+        assert entry.date  # 日期不为空
         assert entry.subject == "check fields"
 
     def test_multiple_commits_ordered_newest_first(self, tmp_path: Path) -> None:

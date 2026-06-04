@@ -238,9 +238,7 @@ async def _execute_task(
         )
     except Exception as exc:  # noqa: BLE001
         error_msg = f"{type(exc).__name__}: {exc}"
-        logger.exception(
-            "Task %r raised exception | agent=%s", task.task_id, task.agent_id
-        )
+        logger.exception("Task %r raised exception | agent=%s", task.task_id, task.agent_id)
         return TaskOutcome(
             task_id=task.task_id,
             agent_id=task.agent_id,

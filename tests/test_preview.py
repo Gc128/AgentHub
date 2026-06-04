@@ -20,7 +20,6 @@ from pathlib import Path
 
 import pytest
 
-import agenthub.workspace.preview as preview_mod
 from agenthub.workspace.preview import (
     PreviewError,
     PreviewPathError,
@@ -99,7 +98,9 @@ class TestResolvePreviewPath:
             resolve_preview_path("proj-001", "/etc/passwd", workspaces_root=workspaces_root)
 
     def test_dot_path_stays_in_workspace(self, workspaces_root: Path) -> None:
-        result = resolve_preview_path("proj-001", "sub/../index.html", workspaces_root=workspaces_root)
+        result = resolve_preview_path(
+            "proj-001", "sub/../index.html", workspaces_root=workspaces_root
+        )
         assert result == workspaces_root.resolve() / "proj-001" / "index.html"
 
     def test_path_error_is_value_error_subclass(self, workspaces_root: Path) -> None:
@@ -166,6 +167,7 @@ class TestFindFreePort:
     def test_no_port_available_raises(self) -> None:
         # 把整个范围的端口都绑定掉（只绑一个端口，范围设为单端口）
         import socket
+
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             occupied = s.getsockname()[1]
@@ -219,13 +221,17 @@ class TestPreviewServerLifecycle:
         srv.stop()
         srv.stop()  # 第二次 stop 不应抛异常
 
-    def test_context_manager_starts_and_stops(self, workspace_dir: Path, workspaces_root: Path) -> None:
+    def test_context_manager_starts_and_stops(
+        self, workspace_dir: Path, workspaces_root: Path
+    ) -> None:
         srv = PreviewServer("proj-001", workspaces_root=workspaces_root)
         with srv:
             assert srv.is_running
         assert not srv.is_running
 
-    def test_context_manager_stops_on_exception(self, workspace_dir: Path, workspaces_root: Path) -> None:
+    def test_context_manager_stops_on_exception(
+        self, workspace_dir: Path, workspaces_root: Path
+    ) -> None:
         srv = PreviewServer("proj-001", workspaces_root=workspaces_root)
         try:
             with srv:
@@ -272,9 +278,7 @@ class TestPreviewServerHTTP:
             assert resp.status_code == 200
             assert "hello preview" in resp.text
 
-    def test_missing_file_returns_404(
-        self, workspace_dir: Path, workspaces_root: Path
-    ) -> None:
+    def test_missing_file_returns_404(self, workspace_dir: Path, workspaces_root: Path) -> None:
         try:
             import httpx
         except ImportError:
@@ -286,9 +290,7 @@ class TestPreviewServerHTTP:
             resp = httpx.get(url, timeout=3.0)
             assert resp.status_code == 404
 
-    def test_subdirectory_file_served(
-        self, workspace_dir: Path, workspaces_root: Path
-    ) -> None:
+    def test_subdirectory_file_served(self, workspace_dir: Path, workspaces_root: Path) -> None:
         try:
             import httpx
         except ImportError:

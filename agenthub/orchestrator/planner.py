@@ -19,14 +19,13 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
 # ---------------------------------------------------------------------------
 # Agent ID 常量
 # ---------------------------------------------------------------------------
 
-AGENT_CODE = "code"
-AGENT_REVIEW = "review"
-AGENT_PREVIEW = "preview"
+AGENT_CODE = "code-agent"
+AGENT_REVIEW = "review-agent"
+AGENT_PREVIEW = "preview-agent"
 AGENT_ORCHESTRATOR = "orchestrator"
 
 # 所有合法的 agent_id（未来扩展在此维护）
@@ -62,8 +61,7 @@ class AgentTask(BaseModel):
         v = v.strip()
         if v not in KNOWN_AGENT_IDS:
             raise ValueError(
-                f"agent_id {v!r} is not recognised. "
-                f"Valid values: {sorted(KNOWN_AGENT_IDS)}"
+                f"agent_id {v!r} is not recognised. Valid values: {sorted(KNOWN_AGENT_IDS)}"
             )
         return v
 
@@ -169,11 +167,11 @@ def route_task(user_message: str) -> str:
 
     Examples:
         >>> route_task("帮我写一个登录页面")
-        'code'
+        'code-agent'
         >>> route_task("review 一下这段代码有没有 bug")
-        'review'
+        'review-agent'
         >>> route_task("预览一下当前效果")
-        'preview'
+        'preview-agent'
         >>> route_task("你好")
         'orchestrator'
     """

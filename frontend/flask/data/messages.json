@@ -1786,5 +1786,146 @@
       }
     ],
     "created_at": "2026-06-03T13:34:44.144110Z"
+  },
+  {
+    "id": "msg_010184a1",
+    "conversation_id": "conv_e3a654d5",
+    "role": "user",
+    "sender_id": "user",
+    "content": "@Orchestrator",
+    "artifacts": [],
+    "created_at": "2026-06-04T12:36:08.642461Z"
+  },
+  {
+    "id": "msg_b1d3da54",
+    "conversation_id": "conv_e3a654d5",
+    "role": "agent",
+    "sender_id": "orchestrator",
+    "content": "## “开发任务”任务拆解\n\n我会按多 Agent 协作链路推进：\n\n1. Code Agent 生成页面代码\n2. Review Agent 检查实现风险\n3. Preview Agent 准备预览状态\n\n> 结构化 artifacts 只用于执行动作，主要回复会以 Markdown 形式留在聊天记录里。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-04T12:36:08.666354Z",
+        "data": {
+          "agent_ids": [
+            "code-agent",
+            "review-agent",
+            "preview-agent"
+          ],
+          "estimated_minutes": 13,
+          "steps": [
+            "Code Agent 生成页面代码",
+            "Review Agent 检查实现风险",
+            "Preview Agent 准备预览状态"
+          ],
+          "summary": "Rule-based MVP plan",
+          "task_title": "开发任务",
+          "tasks": [
+            {
+              "agent_id": "code-agent",
+              "depends_on": [],
+              "instruction": "为“开发任务”生成代码和可应用 Diff",
+              "task_id": "plan-code"
+            },
+            {
+              "agent_id": "review-agent",
+              "depends_on": [
+                "plan-code"
+              ],
+              "instruction": "检查 Code Agent 产物的交互、稳定性和移动端风险",
+              "task_id": "plan-review"
+            },
+            {
+              "agent_id": "preview-agent",
+              "depends_on": [
+                "plan-review"
+              ],
+              "instruction": "刷新 workspace 预览状态并反馈右侧面板结果",
+              "task_id": "plan-preview"
+            }
+          ]
+        },
+        "id": "artifact_file_894886fd",
+        "title": "Task Breakdown",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-04T12:36:08.683275Z"
+  },
+  {
+    "id": "msg_b115b4f2",
+    "conversation_id": "conv_e3a654d5",
+    "role": "agent",
+    "sender_id": "code-agent",
+    "content": "## 已生成“开发任务”页面代码\n\n我先给出一个可直接进入 workspace 的 React 组件，并附上可应用 Diff。\n\n```tsx file=src/App.tsx\nconst initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n```\n\n下面是同一页面的静态 HTML 预览版，点击代码块右上角 **预览** 可以打开 Modal：\n\n```html file=index.html\n<main style=\"font-family: system-ui; padding: 32px; background: #f6f3ed;\">\n  <h1>开发任务</h1>\n  <p>这是 Code Agent 为聊天内 Modal 准备的静态 HTML 预览。</p>\n  <button>Save item</button>\n</main>\n```\n\n| 产物 | 用途 |\n| --- | --- |\n| Markdown 代码块 | 给用户阅读、复制和预览 |\n| diff artifact | 给系统执行 Apply Diff |\n\n下一步建议交给 Review Agent 检查交互和移动端风险。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-04T12:36:08.692054Z",
+        "data": {
+          "content": "const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n\nexport default function App() {\n  return (\n    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n      <h1>开发任务</h1>\n      <button>Save item</button>\n    </main>\n  )\n}\n",
+          "filename": "src/App.tsx",
+          "language": "tsx"
+        },
+        "id": "artifact_code_006407a7",
+        "title": "Todo App Component",
+        "type": "code"
+      },
+      {
+        "created_at": "2026-06-04T12:36:08.692071Z",
+        "data": {
+          "diff": "--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -0,0 +1,10 @@\n+const initialTodos = ['梳理需求', '生成代码', '检查 Diff']\n+\n+export default function App() {\n+  return (\n+    <main className=\"todo-app\" style={{ '--accent': '#3f6c8f' }}>\n+      <h1>开发任务</h1>\n+      <button>Save item</button>\n+    </main>\n+  )\n+}\n",
+          "filename": "src/App.tsx"
+        },
+        "id": "artifact_diff_ccc46798",
+        "title": "Todo App Diff",
+        "type": "diff"
+      }
+    ],
+    "created_at": "2026-06-04T12:36:08.699661Z"
+  },
+  {
+    "id": "msg_412d8d78",
+    "conversation_id": "conv_e3a654d5",
+    "role": "agent",
+    "sender_id": "review-agent",
+    "content": "## Review Agent 检查结果\n\n我重点检查了 Demo 稳定性、聊天可读性和 workspace 操作闭环。\n\n| 检查项 | 结论 |\n| --- | --- |\n| 主要风险 | Diff 应用失败要提示、输入框需要 trim、预览未就绪时不要展示空 iframe |\n| Apply Diff | 保持结构化 artifact 驱动，可靠 |\n| Markdown 回复 | 适合比赛展示和答辩讲解 |\n\n建议优先处理：\n- Diff 应用失败要提示\n- 输入框需要 trim\n- 预览未就绪时不要展示空 iframe",
+    "artifacts": [
+      {
+        "created_at": "2026-06-04T12:36:08.706537Z",
+        "data": {
+          "findings": [
+            "Diff 应用失败要提示",
+            "输入框需要 trim",
+            "预览未就绪时不要展示空 iframe"
+          ],
+          "risk_level": "medium"
+        },
+        "id": "artifact_file_837bb179",
+        "title": "Review Notes",
+        "type": "file"
+      }
+    ],
+    "created_at": "2026-06-04T12:36:08.727935Z"
+  },
+  {
+    "id": "msg_82d6580f",
+    "conversation_id": "conv_e3a654d5",
+    "role": "agent",
+    "sender_id": "preview-agent",
+    "content": "## Workspace Preview\n\n- Workspace: `ws_4cbceb33`\n- Status: `ready`\n- Preview URL: `http://127.0.0.1:5001/api/workspaces/ws_4cbceb33/preview-page`\n\n预览环境已就绪，右侧 Workspace 面板会显示 iframe、文件列表和变更历史。",
+    "artifacts": [
+      {
+        "created_at": "2026-06-04T12:36:08.734036Z",
+        "data": {
+          "checked_at": "2026-06-04T12:36:08.734012Z",
+          "preview_url": "http://127.0.0.1:5001/api/workspaces/ws_4cbceb33/preview-page",
+          "status": "ready",
+          "workspace_id": "ws_4cbceb33"
+        },
+        "id": "artifact_preview_a4889666",
+        "title": "Workspace Preview",
+        "type": "preview"
+      }
+    ],
+    "created_at": "2026-06-04T12:36:08.752204Z"
   }
 ]

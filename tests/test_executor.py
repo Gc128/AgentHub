@@ -12,9 +12,23 @@ AgentTask、OrchestratorPlan、route_task 的单元测试。
 
 from __future__ import annotations
 
+import asyncio
+import uuid as _uuid
+
 import pytest
 from pydantic import ValidationError
 
+from agenthub.agents.base import (
+    AgentRunInput,
+    AgentRunResult,
+    Artifact,
+    Message,
+)
+from agenthub.orchestrator.executor import (
+    ExecutionError,
+    ExecutionReport,
+    execute_plan,
+)
 from agenthub.orchestrator.planner import (
     AGENT_CODE,
     AGENT_ORCHESTRATOR,
@@ -25,14 +39,13 @@ from agenthub.orchestrator.planner import (
     route_task,
 )
 
-
 # ---------------------------------------------------------------------------
 # 辅助工厂
 # ---------------------------------------------------------------------------
 
 
 def make_task(
-    agent_id: str = "code",
+    agent_id: str = "code-agent",
     instruction: str = "do something",
     task_id: str | None = None,
     depends_on: list[str] | None = None,
@@ -61,7 +74,7 @@ class TestAgentTask:
         assert task.task_id == "my-task-001"
 
     def test_valid_agent_ids(self) -> None:
-        for agent_id in ("code", "review", "preview", "orchestrator"):
+        for agent_id in ("code-agent", "review-agent", "preview-agent", "orchestrator"):
             task = make_task(agent_id=agent_id)
             assert task.agent_id == agent_id
 
@@ -95,8 +108,8 @@ class TestAgentTask:
 
     def test_task_is_immutable(self) -> None:
         task = make_task()
-        with pytest.raises(Exception):  # ValidationError or TypeError (frozen model)
-            task.agent_id = "review"  # type: ignore[misc]
+        with pytest.raises(ValidationError):
+            task.agent_id = "review-agent"  # type: ignore[misc]
 
     def test_two_tasks_with_same_content_have_different_task_ids(self) -> None:
         t1 = make_task()
@@ -126,7 +139,7 @@ class TestOrchestratorPlan:
 
     def test_valid_dependency_chain(self) -> None:
         t1 = make_task(task_id="t1")
-        t2 = make_task(task_id="t2", agent_id="review", depends_on=["t1"])
+        t2 = make_task(task_id="t2", agent_id="review-agent", depends_on=["t1"])
         plan = OrchestratorPlan(tasks=[t1, t2])
         assert plan.tasks[1].depends_on == ["t1"]
 
@@ -142,27 +155,37 @@ class TestOrchestratorPlan:
         assert plan.tasks[0].depends_on == ["t1"]
 
     def test_agent_ids_property_deduplicates(self) -> None:
-        t1 = make_task(task_id="t1", agent_id="code")
-        t2 = make_task(task_id="t2", agent_id="review")
-        t3 = make_task(task_id="t3", agent_id="code")  # 重复
+        t1 = make_task(task_id="t1", agent_id="code-agent")
+        t2 = make_task(task_id="t2", agent_id="review-agent")
+        t3 = make_task(task_id="t3", agent_id="code-agent")  # 重复
         plan = OrchestratorPlan(tasks=[t1, t2, t3])
-        assert plan.agent_ids == ["code", "review"]
+        assert plan.agent_ids == ["code-agent", "review-agent"]
 
     def test_agent_ids_property_preserves_order(self) -> None:
-        t1 = make_task(task_id="t1", agent_id="preview")
-        t2 = make_task(task_id="t2", agent_id="code")
+        t1 = make_task(task_id="t1", agent_id="preview-agent")
+        t2 = make_task(task_id="t2", agent_id="code-agent")
         plan = OrchestratorPlan(tasks=[t1, t2])
-        assert plan.agent_ids == ["preview", "code"]
+        assert plan.agent_ids == ["preview-agent", "code-agent"]
 
     def test_multiple_tasks_multi_agent(self) -> None:
         tasks = [
-            make_task(task_id="t1", agent_id="code", instruction="write component"),
-            make_task(task_id="t2", agent_id="review", depends_on=["t1"], instruction="review it"),
-            make_task(task_id="t3", agent_id="preview", depends_on=["t2"], instruction="preview"),
+            make_task(task_id="t1", agent_id="code-agent", instruction="write component"),
+            make_task(
+                task_id="t2",
+                agent_id="review-agent",
+                depends_on=["t1"],
+                instruction="review it",
+            ),
+            make_task(
+                task_id="t3",
+                agent_id="preview-agent",
+                depends_on=["t2"],
+                instruction="preview",
+            ),
         ]
         plan = OrchestratorPlan(summary="full pipeline", tasks=tasks)
         assert len(plan.tasks) == 3
-        assert plan.agent_ids == ["code", "review", "preview"]
+        assert plan.agent_ids == ["code-agent", "review-agent", "preview-agent"]
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +194,6 @@ class TestOrchestratorPlan:
 
 
 class TestRouteTask:
-
     # --- code agent ---
 
     def test_route_write_chinese(self) -> None:
@@ -290,31 +312,6 @@ class TestRouteTask:
         assert route_task("IMPLEMENT a feature") == AGENT_CODE
 
 
-# ===========================================================================
-# executor.py 测试（append to existing test_orchestrator.py）
-# ===========================================================================
-
-import asyncio
-import uuid as _uuid
-
-import pytest
-
-from agenthub.agents.base import (
-    AgentAdapter,
-    AgentRunInput,
-    AgentRunResult,
-    Artifact,
-    Message,
-)
-from agenthub.orchestrator.executor import (
-    ExecutionError,
-    ExecutionReport,
-    TaskOutcome,
-    execute_plan,
-)
-from agenthub.orchestrator.planner import AgentTask, OrchestratorPlan
-
-
 # ---------------------------------------------------------------------------
 # Mock AgentAdapter 工厂
 # ---------------------------------------------------------------------------
@@ -325,7 +322,7 @@ def _artifact(title: str = "out", atype: str = "code") -> Artifact:
 
 
 def _task(
-    agent_id: str = "code",
+    agent_id: str = "code-agent",
     instruction: str = "do work",
     task_id: str | None = None,
     depends_on: list[str] | None = None,
@@ -458,7 +455,11 @@ async def test_execute_multiple_tasks_collects_all_artifacts() -> None:
             call_idx += 1
             return AgentRunResult(agent_id=self.id, content="ok", artifacts=[art])
 
-    plan = _plan(_task("code"), _task("review", "check it"), _task("preview", "show it"))
+    plan = _plan(
+        _task("code-agent"),
+        _task("review-agent", "check it"),
+        _task("preview-agent", "show it"),
+    )
     result = await execute_plan(plan, "c", "w", CyclingAgent())
     assert len(result) == 3
 
@@ -491,9 +492,7 @@ async def test_agent_run_receives_instruction_as_user_message() -> None:
 @pytest.mark.asyncio
 async def test_execute_plan_passes_history_to_agent() -> None:
     agent = SuccessAgent()
-    msg = Message(
-        id="m1", conversation_id="c", role="user", sender_id="user", content="hi"
-    )
+    msg = Message(id="m1", conversation_id="c", role="user", sender_id="user", content="hi")
     plan = _plan(_task())
     await execute_plan(plan, "c", "w", agent, history=[msg])
     assert agent.calls[0].history[0].id == "m1"
@@ -525,7 +524,7 @@ async def test_partial_failure_continues_remaining_tasks() -> None:
     art = _artifact("success-art")
     agent = PartialFailAgent(artifacts=[art])
     # 3 tasks: call 0 success, call 1 fail, call 2 success
-    plan = _plan(_task(), _task("review", "check"), _task("preview", "show"))
+    plan = _plan(_task(), _task("review-agent", "check"), _task("preview-agent", "show"))
     result = await execute_plan(plan, "c", "w", agent)
     # calls 0 and 2 succeed, each returning `art`
     assert len(result) == 2
@@ -542,7 +541,6 @@ async def test_timeout_task_treated_as_failure() -> None:
 @pytest.mark.asyncio
 async def test_subsequent_tasks_run_after_timeout() -> None:
     """超时任务后的正常任务仍应执行（fail_fast=False）。"""
-    slow = SlowAgent(delay=10.0)
     art = _artifact("after-timeout")
 
     call_n = 0
@@ -560,7 +558,7 @@ async def test_subsequent_tasks_run_after_timeout() -> None:
                 await asyncio.sleep(10.0)  # will timeout
             return AgentRunResult(agent_id=self.id, content="ok", artifacts=[art])
 
-    plan = _plan(_task(), _task("review", "check"))
+    plan = _plan(_task(), _task("review-agent", "check"))
     result = await execute_plan(plan, "c", "w", MixedAgent(), task_timeout=0.05)
     assert len(result) == 1
     assert result[0].title == "after-timeout"
@@ -606,7 +604,7 @@ async def test_fail_fast_stops_after_first_failure() -> None:
             call_count += 1
             raise RuntimeError("always fail")
 
-    plan = _plan(_task(), _task("review", "check"), _task("preview", "show"))
+    plan = _plan(_task(), _task("review-agent", "check"), _task("preview-agent", "show"))
     with pytest.raises(ExecutionError):
         await execute_plan(plan, "c", "w", CountingAgent(), fail_fast=True)
     assert call_count == 1  # 只调用了一次就中断了
@@ -653,7 +651,7 @@ async def test_prior_artifacts_passed_to_subsequent_tasks() -> None:
             recorder.received_contexts.append(dict(input.context))
             return AgentRunResult(agent_id=self.id, content="recorded")
 
-    plan = _plan(_task(task_id="t1"), _task("review", "check", task_id="t2"))
+    plan = _plan(_task(task_id="t1"), _task("review-agent", "check", task_id="t2"))
     await execute_plan(plan, "c", "w", DualAgent())
 
     assert len(recorder.received_contexts) == 1
@@ -678,7 +676,7 @@ async def test_history_grows_with_each_successful_task() -> None:
             HistoryCapture._n += 1
             return AgentRunResult(agent_id=self.id, content=f"reply {HistoryCapture._n}")
 
-    plan = _plan(_task(), _task("review", "check"), _task("preview", "show"))
+    plan = _plan(_task(), _task("review-agent", "check"), _task("preview-agent", "show"))
     await execute_plan(plan, "c", "w", HistoryCapture())
 
     # task 0 sees no agent history (only what was passed in)
@@ -698,14 +696,13 @@ async def test_history_grows_with_each_successful_task() -> None:
 async def test_execution_report_via_fail_fast_contains_all_data() -> None:
     arts = [_artifact("a1"), _artifact("a2")]
     agent = SuccessAgent(artifacts=arts)
-    plan = _plan(_task("code", "task1", task_id="t1"), _task("review", "task2", task_id="t2"))
 
     # 不走 fail_fast；通过捕获 ExecutionError.report 验证结构
     # 此处直接调用内部函数验证 report 结构（白盒测试）
     from agenthub.orchestrator.executor import _execute_task
 
     outcome = await _execute_task(
-        task=AgentTask(task_id="tx", agent_id="code", instruction="do it"),
+        task=AgentTask(task_id="tx", agent_id="code-agent", instruction="do it"),
         conversation_id="c",
         workspace_id="w",
         agent_service=agent,
@@ -724,7 +721,7 @@ async def test_task_outcome_on_failure_has_error_message() -> None:
 
     agent = FailingAgent(ValueError("bad input"))
     outcome = await _execute_task(
-        task=AgentTask(task_id="ty", agent_id="code", instruction="fail"),
+        task=AgentTask(task_id="ty", agent_id="code-agent", instruction="fail"),
         conversation_id="c",
         workspace_id="w",
         agent_service=agent,
@@ -743,7 +740,7 @@ async def test_task_outcome_on_timeout_has_error_message() -> None:
 
     agent = SlowAgent(delay=10.0)
     outcome = await _execute_task(
-        task=AgentTask(task_id="tz", agent_id="code", instruction="slow"),
+        task=AgentTask(task_id="tz", agent_id="code-agent", instruction="slow"),
         conversation_id="c",
         workspace_id="w",
         agent_service=agent,

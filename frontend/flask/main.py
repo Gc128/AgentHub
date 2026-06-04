@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import difflib
 import json
 import random
 from copy import deepcopy
@@ -23,6 +22,21 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from flask import Flask, Response, jsonify, request
+
+from agenthub.orchestrator.planner import (
+    AGENT_CODE,
+    AGENT_PREVIEW,
+    AGENT_REVIEW,
+    AgentTask,
+    OrchestratorPlan,
+)
+from agenthub.workspace.diff import (
+    DiffApplyError,
+    create_unified_diff,
+)
+from agenthub.workspace.diff import (
+    apply_diff as apply_workspace_diff,
+)
 
 # 当前 Flask 文件所在目录：`frontend/flask`。
 # 使用相对本文件的位置计算路径，避免硬编码用户机器上的绝对路径。
@@ -1071,14 +1085,7 @@ def create_workspace_unified_diff(old: str, new: str, filename: str) -> str:
     """按 workspace 文件内容生成 Git 风格 unified diff。"""
 
     normalized_filename = normalize_workspace_file_path(filename)
-    return "".join(
-        difflib.unified_diff(
-            old.splitlines(keepends=True),
-            new.splitlines(keepends=True),
-            fromfile=f"a/{normalized_filename}",
-            tofile=f"b/{normalized_filename}",
-        )
-    )
+    return create_unified_diff(old, new, normalized_filename)
 
 
 def extract_diff_target_path(diff: str) -> str:
@@ -1094,64 +1101,12 @@ def extract_diff_target_path(diff: str) -> str:
 
 
 def apply_unified_diff_to_content(old_content: str, diff: str) -> str:
-    """把单文件 unified diff 应用到旧内容，返回新内容。
+    """把单文件 unified diff 应用到旧内容，返回新内容。"""
 
-    支持标准 `@@ -old +new @@` hunk，也兼容当前 Demo 早期生成的裸 `@@` hunk。
-    """
-
-    old_lines = old_content.splitlines(keepends=True)
-    diff_lines = diff.splitlines()
-    result: list[str] = []
-    old_index = 0
-    saw_hunk = False
-    bare_hunk = False
-    index = 0
-
-    while index < len(diff_lines):
-        line = diff_lines[index]
-        if not line.startswith("@@"):
-            index += 1
-            continue
-
-        saw_hunk = True
-        hunk_parts = line.split()
-        if len(hunk_parts) >= 3 and hunk_parts[1].startswith("-"):
-            old_start_text = hunk_parts[1][1:].split(",", maxsplit=1)[0]
-            try:
-                old_start = max(int(old_start_text), 1)
-            except ValueError as error:
-                raise ValueError("Diff hunk 行号格式不正确") from error
-            target_old_index = old_start - 1
-            result.extend(old_lines[old_index:target_old_index])
-            old_index = target_old_index
-        else:
-            # 早期 mock diff 使用裸 @@，无法定位原文件行号；按整文件替换处理。
-            result = []
-            old_index = 0
-            bare_hunk = True
-
-        index += 1
-        while index < len(diff_lines) and not diff_lines[index].startswith("@@"):
-            hunk_line = diff_lines[index]
-            if hunk_line.startswith("+") and not hunk_line.startswith("+++"):
-                result.append(f"{hunk_line[1:]}\n")
-            elif hunk_line.startswith("-") and not hunk_line.startswith("---"):
-                if old_index < len(old_lines):
-                    old_index += 1
-            elif hunk_line.startswith(" "):
-                result.append(f"{hunk_line[1:]}\n")
-                if old_index < len(old_lines):
-                    old_index += 1
-            elif hunk_line.startswith("\\"):
-                # 暂不区分 no-newline 标记，MVP 统一按换行文本处理。
-                pass
-            index += 1
-
-    if not saw_hunk:
-        raise ValueError("Diff 缺少可应用的变更块")
-    if not bare_hunk:
-        result.extend(old_lines[old_index:])
-    return "".join(result)
+    try:
+        return apply_workspace_diff(old_content, diff)
+    except DiffApplyError as error:
+        raise ValueError(str(error)) from error
 
 
 def upsert_workspace_file(
@@ -1369,7 +1324,7 @@ def build_code_agent_result(input_data: dict[str, Any]) -> dict[str, Any]:
                 {"filename": filename, "diff": diff},
             ),
         ],
-        "next_actions": ["review", "preview"],
+        "next_actions": [AGENT_REVIEW, AGENT_PREVIEW],
     }
 
 
@@ -1409,7 +1364,7 @@ def build_review_agent_result() -> dict[str, Any]:
                 {"findings": findings, "risk_level": random.choice(["low", "medium"])},
             )
         ],
-        "next_actions": ["preview"],
+        "next_actions": [AGENT_PREVIEW],
     }
 
 
@@ -1465,8 +1420,29 @@ def build_orchestrator_result(input_data: dict[str, Any]) -> dict[str, Any]:
 
     task_title = get_task_title(str(input_data.get("user_message", "")))
 
-    # steps 会放进 file artifact 中，前端可渲染为“任务拆解”卡片。
     steps = ["Code Agent 生成页面代码", "Review Agent 检查实现风险", "Preview Agent 准备预览状态"]
+    code_task = AgentTask(
+        task_id="plan-code",
+        agent_id=AGENT_CODE,
+        instruction=f"为“{task_title}”生成代码和可应用 Diff",
+    )
+    review_task = AgentTask(
+        task_id="plan-review",
+        agent_id=AGENT_REVIEW,
+        instruction="检查 Code Agent 产物的交互、稳定性和移动端风险",
+        depends_on=[code_task.task_id],
+    )
+    preview_task = AgentTask(
+        task_id="plan-preview",
+        agent_id=AGENT_PREVIEW,
+        instruction="刷新 workspace 预览状态并反馈右侧面板结果",
+        depends_on=[review_task.task_id],
+    )
+    plan = OrchestratorPlan(
+        summary="Rule-based MVP plan",
+        tasks=[code_task, review_task, preview_task],
+    )
+
     markdown_content = (
         f"## “{task_title}”任务拆解\n\n"
         "我会按多 Agent 协作链路推进：\n\n"
@@ -1482,14 +1458,16 @@ def build_orchestrator_result(input_data: dict[str, Any]) -> dict[str, Any]:
                 "file",
                 "Task Breakdown",
                 {
-                    "summary": "Rule-based MVP plan",
+                    "summary": plan.summary,
                     "task_title": task_title,
                     "steps": steps,
+                    "tasks": [task.model_dump() for task in plan.tasks],
+                    "agent_ids": plan.agent_ids,
                     "estimated_minutes": random.randint(6, 14),
                 },
             )
         ],
-        "next_actions": ["code", "review", "preview"],
+        "next_actions": plan.agent_ids,
     }
 
 
@@ -1889,11 +1867,11 @@ def apply_diff(workspace_id: str) -> tuple[Response, int]:
 
     body = get_json_body()
     artifact_id = str(body.get("artifact_id", "")).strip()
-    diff = str(body.get("diff", "")).strip()
+    diff = str(body.get("diff", ""))
 
     if not artifact_id:
         return failure("artifact_id 不能为空", 400)
-    if not diff:
+    if not diff.strip():
         return failure("Diff 内容为空，无法应用", 400)
 
     try:

@@ -18,7 +18,6 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # 异常
 # ---------------------------------------------------------------------------
@@ -231,8 +230,8 @@ def git_log(
     #
     # tformat: (trailer format) appends the terminator after EACH record,
     # making splitting unambiguous even for empty bodies.
-    _RS = "\x1e"   # Record Separator (output side, after git expands %x1E)
-    _US = "\x1f"   # Unit Separator  (output side, after git expands %x1F)
+    _RS = "\x1e"  # Record Separator (output side, after git expands %x1E)
+    _US = "\x1f"  # Unit Separator  (output side, after git expands %x1F)
 
     fmt = "%H%x1E%an%x1E%ai%x1E%s%x1E%b%x1F"
 

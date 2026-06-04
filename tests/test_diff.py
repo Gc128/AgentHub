@@ -20,7 +20,6 @@ import pytest
 
 from agenthub.workspace.diff import DiffApplyError, apply_diff, create_unified_diff
 
-
 # ---------------------------------------------------------------------------
 # 辅助常量
 # ---------------------------------------------------------------------------
@@ -35,6 +34,7 @@ MULTILINE_NEW = "a\nB\nC\nd\nE\n"
 # ---------------------------------------------------------------------------
 # create_unified_diff：格式校验
 # ---------------------------------------------------------------------------
+
 
 class TestCreateUnifiedDiff:
     def test_header_from_file(self) -> None:
@@ -84,6 +84,7 @@ class TestCreateUnifiedDiff:
 # ---------------------------------------------------------------------------
 # apply_diff：闭环验证（核心场景）
 # ---------------------------------------------------------------------------
+
 
 class TestApplyDiffRoundtrip:
     def _roundtrip(self, old: str, new: str, filename: str = "f.py") -> None:
@@ -158,6 +159,7 @@ class TestApplyDiffRoundtrip:
 # ---------------------------------------------------------------------------
 # apply_diff：非法输入的错误处理
 # ---------------------------------------------------------------------------
+
 
 class TestApplyDiffErrors:
     def test_empty_diff_raises(self) -> None:

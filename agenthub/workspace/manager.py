@@ -52,8 +52,6 @@ def resolve_workspace_path(root: Path, relative_path: str) -> Path:
     # 核心越权检查：target 必须等于 root 本身，或是 root 的子路径
     # 使用 Path.is_relative_to()（Python 3.9+）确保严格包含关系
     if target != resolved_root and not target.is_relative_to(resolved_root):
-        raise WorkspacePathError(
-            f"Path {relative_path!r} escapes workspace root {resolved_root}"
-        )
+        raise WorkspacePathError(f"Path {relative_path!r} escapes workspace root {resolved_root}")
 
     return target

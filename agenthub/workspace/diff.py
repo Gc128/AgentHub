@@ -19,6 +19,7 @@ Workspace 文件差异生成与应用模块。
 from __future__ import annotations
 
 import difflib
+
 from unidiff import PatchSet
 
 

@@ -16,15 +16,16 @@ WorkspacePathError 和 resolve_workspace_path 的单元测试。
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 
-from agenthub.workspace.manager import WorkspacePathError, resolve_workspace_path
+import pytest
 
+from agenthub.workspace.manager import WorkspacePathError, resolve_workspace_path
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def workspace_root(tmp_path: Path) -> Path:
@@ -37,6 +38,7 @@ def workspace_root(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # 正常路径 —— 应该成功返回
 # ---------------------------------------------------------------------------
+
 
 class TestValidPaths:
     def test_simple_file(self, workspace_root: Path) -> None:
@@ -88,6 +90,7 @@ class TestValidPaths:
 # 路径穿越 —— 必须抛出 WorkspacePathError
 # ---------------------------------------------------------------------------
 
+
 class TestPathTraversalBlocked:
     def test_single_dotdot(self, workspace_root: Path) -> None:
         with pytest.raises(WorkspacePathError):
@@ -130,6 +133,7 @@ class TestPathTraversalBlocked:
 # ---------------------------------------------------------------------------
 # 异常信息可读性
 # ---------------------------------------------------------------------------
+
 
 class TestErrorMessages:
     def test_error_message_contains_path(self, workspace_root: Path) -> None:
