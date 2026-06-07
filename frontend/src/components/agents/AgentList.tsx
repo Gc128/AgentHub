@@ -1,14 +1,49 @@
-import { Avatar, Tag } from 'antd'
-import type { Agent } from '../../types/api'
+import {
+  ApartmentOutlined,
+  AuditOutlined,
+  CodeOutlined,
+  EyeOutlined,
+  ToolOutlined,
+} from '@ant-design/icons'
+import { Tag, Tooltip } from 'antd'
+import type { Agent, AgentRole } from '../../types/api'
 
-/** Agent 联系人列表组件的入参。 */
 type AgentListProps = {
-  /** 当前可用 Agent；来自 GET /api/agents。 */
   agents: Agent[]
 }
 
-/** Agent.role 到中文短标签的映射，用于联系人卡片右上角。 */
-const roleLabels: Record<Agent['role'], string> = {
+const ROLE_CONFIG: Record<
+  AgentRole,
+  { icon: React.ReactNode; color: string; bg: string }
+> = {
+  orchestrator: {
+    icon: <ApartmentOutlined />,
+    color: '#f0bb3f',
+    bg: 'rgba(240,187,63,0.15)',
+  },
+  code: {
+    icon: <CodeOutlined />,
+    color: '#5cb88a',
+    bg: 'rgba(92,184,138,0.15)',
+  },
+  review: {
+    icon: <AuditOutlined />,
+    color: '#6baad8',
+    bg: 'rgba(107,170,216,0.15)',
+  },
+  preview: {
+    icon: <EyeOutlined />,
+    color: '#b07ed4',
+    bg: 'rgba(176,126,212,0.15)',
+  },
+  custom: {
+    icon: <ToolOutlined />,
+    color: '#d4855a',
+    bg: 'rgba(212,133,90,0.15)',
+  },
+}
+
+const ROLE_LABELS: Record<AgentRole, string> = {
   orchestrator: '协调',
   code: '代码',
   review: '审查',
@@ -16,44 +51,68 @@ const roleLabels: Record<Agent['role'], string> = {
   custom: '自定义',
 }
 
+/** 悬浮卡片内容：名称 + 角色标签 + 描述 + 能力标签，无图标 */
+function AgentTooltipCard({ agent }: { agent: Agent }) {
+  return (
+    <div className="agent-card-tooltip">
+      <div className="agent-card-tooltip-header">
+        <span className="agent-card-tooltip-name">{agent.name}</span>
+        <Tag className="agent-card-tooltip-role">
+          {ROLE_LABELS[agent.role]}
+        </Tag>
+      </div>
+      <p className="agent-card-tooltip-desc">{agent.description}</p>
+      <div className="agent-card-tooltip-tags">
+        {agent.capabilities.slice(0, 4).map((cap) => (
+          <Tag className="agent-card-tooltip-tag" key={cap}>
+            {cap}
+          </Tag>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /**
- * 左侧 Agent 联系人列表。
- * 这个组件让用户一眼看到可 @ 的 Agent 及其能力，后续 MentionMenu 也会复用同一批数据。
+ * 左侧 Agent 图标区。
+ * 四个图标并排，hover 时在图标上方弹出卡片式说明。
  */
 export function AgentList({ agents }: AgentListProps) {
   return (
-    <section className="sidebar-section agent-section">
-      <div className="section-heading">
-        <span>Agents</span>
-      </div>
-
-      <div className="agent-list">
-        {agents.map((agent) => (
-          <article className="agent-item" key={agent.id}>
-            {/* 使用 Ant Design Avatar 提升联系人识别度；数据仍来自原 Agent.name。 */}
-            <Avatar className="agent-avatar" shape="square">
-              {agent.name.slice(0, 1)}
-            </Avatar>
-            <div className="agent-copy">
-              <div className="agent-row">
-                <span className="agent-name">{agent.name}</span>
-                {/* role 是结构化字段，显示时映射成短中文标签。 */}
-                <Tag className="agent-role" color="gold">
-                  {roleLabels[agent.role]}
-                </Tag>
-              </div>
-              <p>{agent.description}</p>
-              <div className="capability-row">
-                {/* 能力标签可能很多，列表卡片里只展示前三个以保持密度。 */}
-                {agent.capabilities.slice(0, 3).map((capability) => (
-                  <Tag className="capability-pill" key={capability}>
-                    {capability}
-                  </Tag>
-                ))}
-              </div>
-            </div>
-          </article>
-        ))}
+    <section className="agent-icon-section">
+      <span className="agent-icon-label">AGENTS</span>
+      <div className="agent-icon-row">
+        {agents.slice(0, 4).map((agent) => {
+          const cfg = ROLE_CONFIG[agent.role] ?? ROLE_CONFIG.custom
+          return (
+            <Tooltip
+              key={agent.id}
+              arrow={false}
+              placement="top"
+              title={<AgentTooltipCard agent={agent} />}
+              overlayClassName="agent-card-tooltip-overlay"
+              overlayInnerStyle={{
+                padding: 0,
+                background: 'transparent',
+                boxShadow: 'none',
+              }}
+            >
+              <button
+                aria-label={agent.name}
+                className="agent-icon-btn"
+                style={
+                  {
+                    '--agent-color': cfg.color,
+                    '--agent-bg': cfg.bg,
+                  } as React.CSSProperties
+                }
+                type="button"
+              >
+                {cfg.icon}
+              </button>
+            </Tooltip>
+          )
+        })}
       </div>
     </section>
   )

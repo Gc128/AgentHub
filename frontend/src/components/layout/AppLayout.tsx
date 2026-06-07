@@ -2,20 +2,20 @@ import type { ReactNode } from 'react'
 
 /**
  * 应用三栏布局的插槽参数。
- * sidebar 放会话和 Agent；main 放聊天主流程；aside 放 Artifact 和 Preview。
+ * sidebar 放品牌、会话、Agent 图标区；main 放聊天；aside 放产物和预览。
  */
 type AppLayoutProps = {
-  /** 左侧栏内容，当前包含品牌、会话列表和 Agent 列表。 */
+  /** 左侧栏完整内容 */
   sidebar: ReactNode
-  /** 中间主内容，当前是聊天头、消息流和输入区占位。 */
+  /** 中间主内容：聊天头、消息流和输入区 */
   main: ReactNode
-  /** 右侧栏内容，当前是 workspace preview 和 artifacts 聚合列表。 */
+  /** 右侧栏内容：workspace preview 和 artifacts 列表 */
   aside: ReactNode
 }
 
 /**
- * AgentHub 桌面端基础布局。
- * 这里只负责结构插槽，不关心数据来源，方便后续替换或扩展各区域组件。
+ * AgentHub 桌面端基础三栏布局。
+ * 只负责结构插槽，不关心数据来源。
  */
 export function AppLayout({ sidebar, main, aside }: AppLayoutProps) {
   return (
