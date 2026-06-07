@@ -1149,14 +1149,6 @@
   background: #ffffff;
 }
 
-.workspace-preview-frame {
-  width: 100%;
-  min-height: 260px;
-  border: 1px solid #d8d0c3;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
 .workspace-empty-panel {
   border: 1px dashed #cfc8bc;
   border-radius: 8px;
@@ -1166,10 +1158,39 @@
   font-size: 13px;
 }
 
+.workspace-preview-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px dashed #cfc8bc;
+  border-radius: 8px;
+  background: #fbfaf7;
+  color: #686e67;
+  padding: 10px;
+  font-size: 13px;
+}
+
+.workspace-preview-action > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workspace-section {
   display: grid;
   gap: 10px;
   min-height: 0;
+}
+
+.workspace-files-section {
+  flex: 0 0 auto;
+}
+
+.workspace-change-section {
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .workspace-section-title {
@@ -1206,12 +1227,27 @@
   gap: 10px;
 }
 
+.workspace-file-info {
+  flex: 1 1 auto;
+}
+
+.workspace-file-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.workspace-file-error {
+  font-size: 12px;
+}
+
 .workspace-change-row {
   display: grid;
   gap: 8px;
 }
 
-.workspace-file-row > div,
+.workspace-file-info,
 .workspace-change-summary > div {
   display: grid;
   min-width: 0;
@@ -1231,6 +1267,34 @@
 .workspace-change-summary span {
   color: #71766d;
   font-size: 12px;
+}
+
+.workspace-file-preview-frame,
+.workspace-modal-preview-frame,
+.workspace-source-preview {
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid #ddd8cd;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.workspace-modal-preview-frame {
+  min-height: min(72vh, 720px);
+}
+
+.workspace-source-preview {
+  max-height: 520px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  color: #202322;
+}
+
+.workspace-source-preview code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.65;
 }
 
 .workspace-change-summary {

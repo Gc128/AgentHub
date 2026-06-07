@@ -5,6 +5,8 @@ export type DiffLine = {
   kind: 'added' | 'removed' | 'meta' | 'context'
 }
 
+const NO_NEWLINE_MARKER = '\\ No newline at end of file'
+
 /** 根据 unified diff 行前缀判断行类型。 */
 export const getDiffLineKind = (line: string): DiffLine['kind'] => {
   if (
@@ -25,7 +27,10 @@ export const getDiffLineKind = (line: string): DiffLine['kind'] => {
 
 /** 把 unified diff 字符串拆成可渲染的行模型。 */
 export const parseDiffLines = (diff: string): DiffLine[] =>
-  diff.split('\n').map((line) => ({
-    content: line,
-    kind: getDiffLineKind(line),
-  }))
+  diff
+    .split('\n')
+    .filter((line) => line.trimEnd() !== NO_NEWLINE_MARKER)
+    .map((line) => ({
+      content: line,
+      kind: getDiffLineKind(line),
+    }))

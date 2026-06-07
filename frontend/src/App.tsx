@@ -17,6 +17,7 @@ import type {
   Message,
   ConversationMode,
   WorkspaceFile,
+  WorkspaceFileContent,
   WorkspacePreview,
 } from './types/api'
 import './App.css'
@@ -44,6 +45,10 @@ const hasPreviewArtifact = (items: Message[]) =>
   items.some((message) =>
     message.artifacts.some((artifact) => artifact.type === 'preview'),
   )
+
+/** 从 workspace 变更历史恢复已应用 diff id 集合，保证切换会话后按钮状态不丢。 */
+const getAppliedDiffIds = (records: AppliedDiffRecord[]) =>
+  new Set(records.map((record) => record.artifact_id))
 
 /** 会话模式由成员数量推导，避免 UI 手动选择后和 agent_ids 语义不一致。 */
 const inferConversationMode = (agentIds: string[]): ConversationMode =>
@@ -88,6 +93,10 @@ function App() {
   )
   // 当前正在应用的 diff artifact ID；用于让同一张卡片展示“应用中”。
   const [applyingDiffId, setApplyingDiffId] = useState<string | null>(null)
+  // 当前正在删除的 workspace 文件路径，用于文件行按钮 loading。
+  const [deletingWorkspaceFilePath, setDeletingWorkspaceFilePath] = useState<
+    string | null
+  >(null)
   // 页面级错误提示；首日先集中展示，后续可以拆成更细的错误状态。
   const [error, setError] = useState<string | null>(null)
 
@@ -167,6 +176,7 @@ function App() {
       setPreview(null)
       setWorkspaceFiles([])
       setAppliedDiffRecords([])
+      setAppliedDiffIds(new Set())
       return
     }
 
@@ -198,6 +208,7 @@ function App() {
         setPreview(nextPreview)
         setWorkspaceFiles(nextWorkspaceFiles)
         setAppliedDiffRecords(nextAppliedDiffRecords)
+        setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
         setError(null)
       } catch (caughtError) {
         if (!ignore) {
@@ -380,6 +391,7 @@ function App() {
       setPreview(nextPreview)
       setWorkspaceFiles(nextWorkspaceFiles)
       setAppliedDiffRecords(nextAppliedDiffRecords)
+      setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
       setError(null)
     } catch (caughtError) {
       const message =
@@ -388,6 +400,69 @@ function App() {
       throw new Error(message)
     } finally {
       setApplyingDiffId(null)
+    }
+  }
+
+  /**
+   * 读取当前 workspace 文件内容。
+   * WorkspacePanel 用它打开预览弹窗；后端仍负责路径安全校验。
+   */
+  const handlePreviewWorkspaceFile = async (
+    file: WorkspaceFile,
+  ): Promise<WorkspaceFileContent> => {
+    if (!selectedConversation) {
+      throw new Error('请先选择一个会话')
+    }
+
+    try {
+      const fileContent = await apiClient.getWorkspaceFileContent(
+        selectedConversation.workspace_id,
+        file.path,
+      )
+      setError(null)
+      return fileContent
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : '读取文件失败'
+      setError(message)
+      throw new Error(message)
+    }
+  }
+
+  /**
+   * 删除当前 workspace 文件。
+   * 删除成功后刷新 preview、文件列表和变更历史，保持右侧面板同步。
+   */
+  const handleDeleteWorkspaceFile = async (file: WorkspaceFile) => {
+    if (!selectedConversation) {
+      throw new Error('请先选择一个会话')
+    }
+
+    setDeletingWorkspaceFilePath(file.path)
+
+    try {
+      await apiClient.deleteWorkspaceFile(
+        selectedConversation.workspace_id,
+        file.path,
+      )
+      const [nextPreview, nextWorkspaceFiles, nextAppliedDiffRecords] =
+        await Promise.all([
+          apiClient.getWorkspacePreview(selectedConversation.workspace_id),
+          apiClient.listWorkspaceFiles(selectedConversation.workspace_id),
+          apiClient.listAppliedDiffs(selectedConversation.workspace_id),
+        ])
+      setPreview(nextPreview)
+      setWorkspaceFiles(nextWorkspaceFiles)
+      setAppliedDiffRecords(nextAppliedDiffRecords)
+      setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+      setError(null)
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : '删除文件失败'
+      setError(message)
+      throw new Error(message)
+    } finally {
+      setDeletingWorkspaceFilePath(null)
     }
   }
 
@@ -519,8 +594,11 @@ function App() {
           <WorkspacePanel
             appliedDiffs={appliedDiffRecords}
             conversation={selectedConversation}
+            deletingFilePath={deletingWorkspaceFilePath}
             files={workspaceFiles}
             preview={preview}
+            onDeleteFile={handleDeleteWorkspaceFile}
+            onPreviewFile={handlePreviewWorkspaceFile}
           />
         }
       />

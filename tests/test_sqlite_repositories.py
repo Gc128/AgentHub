@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from agenthub.core.errors import NotFoundError
 from agenthub.repositories.sqlite import (
     SqliteConversationRepository,
     SqliteMessageRepository,
@@ -109,6 +110,11 @@ async def test_sqlite_workspace_repository_persists_preview_files_and_diffs(
         "export default null\n"
     )
     assert [item.path for item in await repository.list_files("ws_sqlite")] == ["src/App.tsx"]
+
+    await repository.delete_file("ws_sqlite", "src/App.tsx")
+    assert await repository.list_files("ws_sqlite") == []
+    with pytest.raises(NotFoundError, match="Workspace file does not exist"):
+        await repository.get_file("ws_sqlite", "src/App.tsx")
 
     diff_record = AppliedDiffRecord(
         id="apply_sqlite",

@@ -2,7 +2,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agenthub.core.errors import BadRequestError
+from agenthub.core.errors import BadRequestError, NotFoundError
 from agenthub.repositories.workspace_repo import WorkspaceRepository
 from agenthub.schemas.workspace import (
     AppliedDiffRecord,
@@ -10,6 +10,7 @@ from agenthub.schemas.workspace import (
     ApplyDiffResponse,
     WorkspaceFile,
     WorkspaceFileContent,
+    WorkspaceFileDeleteResponse,
     WorkspaceFileWriteRequest,
     WorkspacePreviewResponse,
 )
@@ -76,6 +77,19 @@ class WorkspaceService:
             updated_at=datetime.fromtimestamp(file_path.stat().st_mtime, UTC),
         )
 
+    async def get_file_bytes(self, workspace_id: str, path: str) -> bytes:
+        normalized_path = self._normalize_path(path)
+        file_path = self._file_path(workspace_id, normalized_path)
+        if file_path.exists():
+            if not file_path.is_file():
+                raise BadRequestError(
+                    "invalid_workspace_path",
+                    f"Workspace path '{normalized_path}' is not a file.",
+                )
+            return file_path.read_bytes()
+        file_record = await self._repository.get_file(workspace_id, normalized_path)
+        return file_record.content.encode("utf-8")
+
     async def write_file(
         self,
         workspace_id: str,
@@ -91,6 +105,37 @@ class WorkspaceService:
         )
         self._write_file_to_disk(workspace_id, normalized_path, request.content, timestamp)
         return await self._repository.save_file(file_record)
+
+    async def delete_file(self, workspace_id: str, path: str) -> WorkspaceFileDeleteResponse:
+        deleted_at = datetime.now(UTC)
+        normalized_path = self._normalize_path(path)
+        file_path = self._file_path(workspace_id, normalized_path)
+        metadata_exists = await self._metadata_file_exists(workspace_id, normalized_path)
+        if not file_path.exists() and not metadata_exists:
+            raise NotFoundError(
+                "workspace_file_not_found",
+                f"Workspace file '{normalized_path}' does not exist.",
+            )
+        if file_path.exists() and not file_path.is_file():
+            raise BadRequestError(
+                "invalid_workspace_path",
+                f"Workspace path '{normalized_path}' is not a file.",
+            )
+
+        if file_path.exists():
+            file_path.unlink()
+            self._remove_empty_parent_dirs(file_path.parent, self._workspace_dir(workspace_id))
+        await self._repository.delete_file(workspace_id, normalized_path)
+        if normalized_path == "index.html":
+            await self._repository.save_preview(
+                WorkspacePreviewResponse(workspace_id=workspace_id, status="not_started")
+            )
+        return WorkspaceFileDeleteResponse(
+            workspace_id=workspace_id,
+            path=normalized_path,
+            deleted=True,
+            updated_at=deleted_at,
+        )
 
     async def list_applied_diffs(self, workspace_id: str) -> list[AppliedDiffRecord]:
         return await self._repository.list_applied_diffs(workspace_id)
@@ -182,3 +227,20 @@ class WorkspaceService:
     def _read_file_content_or_empty(self, workspace_id: str, path: str) -> str:
         file_path = self._file_path(workspace_id, path)
         return file_path.read_text(encoding="utf-8") if file_path.exists() else ""
+
+    async def _metadata_file_exists(self, workspace_id: str, path: str) -> bool:
+        try:
+            await self._repository.get_file(workspace_id, path)
+        except NotFoundError:
+            return False
+        return True
+
+    def _remove_empty_parent_dirs(self, start: Path, stop: Path) -> None:
+        current = start
+        stop = stop.resolve()
+        while current.resolve() != stop:
+            try:
+                current.rmdir()
+            except OSError:
+                break
+            current = current.parent

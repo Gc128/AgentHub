@@ -186,6 +186,30 @@ export type WorkspaceFile = {
   updated_at?: string
 }
 
+/** workspace 文件内容。 */
+export type WorkspaceFileContent = {
+  /** 所属 workspace。 */
+  workspace_id: string
+  /** workspace 内相对路径。 */
+  path: string
+  /** 文件文本内容。 */
+  content: string
+  /** 最近更新时间，使用 ISO 字符串。 */
+  updated_at: string
+}
+
+/** 删除 workspace 文件的响应体。 */
+export type WorkspaceFileDeleteResult = {
+  /** 所属 workspace。 */
+  workspace_id: string
+  /** 被删除的 workspace 内相对路径。 */
+  path: string
+  /** 是否删除成功。 */
+  deleted: boolean
+  /** 删除时间，使用 ISO 字符串。 */
+  updated_at: string
+}
+
 /** 已应用 Diff 的历史记录。 */
 export type AppliedDiffRecord = {
   /** 应用记录唯一 ID。 */

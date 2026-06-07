@@ -87,6 +87,83 @@ def test_workspace_file_write_list_read_and_apply_diff_flow(tmp_path, monkeypatc
     assert preview["preview_url"].endswith("/api/workspaces/ws_demo/preview-page")
 
 
+def test_workspace_file_content_reads_real_workspace_file(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    workspace_dir = tmp_path / "ws_real_file"
+    workspace_dir.mkdir()
+    (workspace_dir / "script.js").write_text("console.log('disk')\n", encoding="utf-8")
+    test_client = client()
+
+    response = test_client.get(
+        "/api/workspaces/ws_real_file/files/content",
+        params={"path": "script.js"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workspace_id"] == "ws_real_file"
+    assert payload["path"] == "script.js"
+    assert payload["content"] == "console.log('disk')\n"
+
+
+def test_workspace_delete_file_removes_real_file_and_metadata(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+    create_response = test_client.post(
+        "/api/workspaces/ws_delete/files",
+        json={"path": "index.html", "content": "<main>delete me</main>\n"},
+    )
+    assert create_response.status_code == 201
+    target_file = tmp_path / "ws_delete" / "index.html"
+    assert target_file.exists()
+
+    delete_response = test_client.delete(
+        "/api/workspaces/ws_delete/files",
+        params={"path": "index.html"},
+    )
+
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted"] is True
+    assert delete_response.json()["path"] == "index.html"
+    assert not target_file.exists()
+    list_response = test_client.get("/api/workspaces/ws_delete/files")
+    assert list_response.status_code == 200
+    assert list_response.json() == []
+    content_response = test_client.get(
+        "/api/workspaces/ws_delete/files/content",
+        params={"path": "index.html"},
+    )
+    assert content_response.status_code == 404
+
+
+def test_workspace_delete_missing_file_returns_readable_error(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+
+    response = test_client.delete(
+        "/api/workspaces/ws_delete_missing/files",
+        params={"path": "missing.html"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "workspace_file_not_found"
+    assert "missing.html" in response.json()["message"]
+
+
+def test_workspace_delete_rejects_path_traversal(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+
+    response = test_client.delete(
+        "/api/workspaces/ws_delete_escape/files",
+        params={"path": "../escape.txt"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_workspace_path"
+    assert not (tmp_path.parent / "escape.txt").exists()
+
+
 def test_apply_diff_writes_real_workspace_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
     test_client = client()
@@ -158,3 +235,83 @@ def test_workspace_preview_page_serves_index_html_when_present(tmp_path, monkeyp
 
     assert response.status_code == 200
     assert "<main>hello workspace</main>" in response.text
+
+
+def test_preview_page_rewrites_or_bases_relative_assets(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+    write_response = test_client.post(
+        "/api/workspaces/ws_assets/files",
+        json={
+            "path": "index.html",
+            "content": (
+                '<!doctype html><html><head><link rel="stylesheet" href="style.css">'
+                '</head><body><script src="script.js"></script></body></html>'
+            ),
+        },
+    )
+    assert write_response.status_code == 201
+
+    response = test_client.get("/api/workspaces/ws_assets/preview-page")
+
+    assert response.status_code == 200
+    assert '<base href="http://testserver/api/workspaces/ws_assets/preview-assets/">' in (
+        response.text
+    )
+    assert 'href="style.css"' in response.text
+    assert 'src="script.js"' in response.text
+
+
+def test_preview_asset_serves_workspace_javascript_with_content_type(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+    write_response = test_client.post(
+        "/api/workspaces/ws_assets/files",
+        json={"path": "script.js", "content": "window.todoReady = true;\n"},
+    )
+    assert write_response.status_code == 201
+
+    response = test_client.get("/api/workspaces/ws_assets/preview-assets/script.js")
+
+    assert response.status_code == 200
+    assert response.text == "window.todoReady = true;\n"
+    assert response.headers["content-type"].startswith("text/javascript")
+
+
+def test_preview_asset_serves_workspace_css_with_content_type(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+    write_response = test_client.post(
+        "/api/workspaces/ws_assets/files",
+        json={"path": "style.css", "content": "body { color: green; }\n"},
+    )
+    assert write_response.status_code == 201
+
+    response = test_client.get("/api/workspaces/ws_assets/preview-assets/style.css")
+
+    assert response.status_code == 200
+    assert response.text == "body { color: green; }\n"
+    assert response.headers["content-type"].startswith("text/css")
+
+
+def test_preview_asset_rejects_path_traversal(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+
+    response = test_client.get("/api/workspaces/ws_assets/preview-assets/%2E%2E/escape.js")
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_workspace_path"
+
+
+def test_preview_asset_missing_file_returns_404(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+
+    response = test_client.get("/api/workspaces/ws_assets/preview-assets/missing.js")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "workspace_file_not_found"

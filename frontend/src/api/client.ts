@@ -13,6 +13,8 @@ import type {
   MessageSendResponse,
   UpdateConversationInput,
   WorkspaceFile,
+  WorkspaceFileContent,
+  WorkspaceFileDeleteResult,
   WorkspacePreview,
 } from '../types/api'
 
@@ -236,6 +238,35 @@ export const apiClient = {
    */
   listWorkspaceFiles(workspaceId: string): Promise<WorkspaceFile[]> {
     return requestJson<WorkspaceFile[]>(`/api/workspaces/${workspaceId}/files`)
+  },
+
+  /**
+   * 读取 workspace 中某个真实文件的内容。
+   * 右侧 Workspace 面板用它做文件预览弹窗。
+   */
+  getWorkspaceFileContent(
+    workspaceId: string,
+    path: string,
+  ): Promise<WorkspaceFileContent> {
+    return requestJson<WorkspaceFileContent>(
+      `/api/workspaces/${workspaceId}/files/content?path=${encodeURIComponent(path)}`,
+    )
+  },
+
+  /**
+   * 删除 workspace 中某个真实文件。
+   * 后端会做路径越权检查，并清理对应文件元数据。
+   */
+  deleteWorkspaceFile(
+    workspaceId: string,
+    path: string,
+  ): Promise<WorkspaceFileDeleteResult> {
+    return requestJson<WorkspaceFileDeleteResult>(
+      `/api/workspaces/${workspaceId}/files?path=${encodeURIComponent(path)}`,
+      {
+        method: 'DELETE',
+      },
+    )
   },
 
   /**

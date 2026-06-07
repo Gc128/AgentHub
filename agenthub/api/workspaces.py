@@ -1,8 +1,10 @@
+import mimetypes
+import re
 from html import escape
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from agenthub.api.deps import get_workspace_service
 from agenthub.core.errors import NotFoundError
@@ -12,6 +14,7 @@ from agenthub.schemas.workspace import (
     ApplyDiffResponse,
     WorkspaceFile,
     WorkspaceFileContent,
+    WorkspaceFileDeleteResponse,
     WorkspaceFileWriteRequest,
     WorkspacePreviewResponse,
 )
@@ -31,11 +34,13 @@ async def get_workspace_preview(
 @router.get("/workspaces/{workspace_id}/preview-page", response_class=HTMLResponse)
 async def get_workspace_preview_page(
     workspace_id: str,
+    request: Request,
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
 ) -> HTMLResponse:
     try:
         index_file = await service.get_file_content(workspace_id, "index.html")
-        return HTMLResponse(index_file.content)
+        asset_base_url = _preview_asset_base_url(request, workspace_id)
+        return HTMLResponse(_inject_preview_asset_base(index_file.content, asset_base_url))
     except NotFoundError:
         preview = await service.get_preview(workspace_id)
         status = escape(preview.status)
@@ -52,6 +57,17 @@ async def get_workspace_preview_page(
             "<p>当前 workspace 尚未生成 index.html，先展示预览状态页。</p>"
             "</section></body></html>"
         )
+
+
+@router.get("/workspaces/{workspace_id}/preview-assets/{path:path}")
+async def get_workspace_preview_asset(
+    workspace_id: str,
+    path: str,
+    service: Annotated[WorkspaceService, Depends(get_workspace_service)],
+) -> Response:
+    content = await service.get_file_bytes(workspace_id, path)
+    media_type = _media_type_for_path(path)
+    return Response(content=content, media_type=media_type)
 
 
 @router.get("/workspaces/{workspace_id}/files", response_model=list[WorkspaceFile])
@@ -84,6 +100,15 @@ async def write_workspace_file(
     return await service.write_file(workspace_id, request)
 
 
+@router.delete("/workspaces/{workspace_id}/files", response_model=WorkspaceFileDeleteResponse)
+async def delete_workspace_file(
+    workspace_id: str,
+    path: str,
+    service: Annotated[WorkspaceService, Depends(get_workspace_service)],
+) -> WorkspaceFileDeleteResponse:
+    return await service.delete_file(workspace_id, path)
+
+
 @router.get("/workspaces/{workspace_id}/applied-diffs", response_model=list[AppliedDiffRecord])
 async def list_applied_diffs(
     workspace_id: str,
@@ -101,3 +126,33 @@ async def apply_diff(
 ) -> ApplyDiffResponse:
     preview_url = str(request.url_for("get_workspace_preview_page", workspace_id=workspace_id))
     return await service.apply_diff(workspace_id, request_data, preview_url=preview_url)
+
+
+def _preview_asset_base_url(request: Request, workspace_id: str) -> str:
+    placeholder = "__agenthub_asset__"
+    asset_url = str(
+        request.url_for(
+            "get_workspace_preview_asset",
+            workspace_id=workspace_id,
+            path=placeholder,
+        )
+    )
+    return asset_url.rsplit(placeholder, 1)[0]
+
+
+def _inject_preview_asset_base(html: str, asset_base_url: str) -> str:
+    if re.search(r"<base\b", html, flags=re.IGNORECASE):
+        return html
+
+    base_tag = f'<base href="{escape(asset_base_url, quote=True)}">'
+    head_match = re.search(r"<head\b[^>]*>", html, flags=re.IGNORECASE)
+    if head_match:
+        return html[: head_match.end()] + base_tag + html[head_match.end() :]
+    return base_tag + html
+
+
+def _media_type_for_path(path: str) -> str:
+    media_type, _encoding = mimetypes.guess_type(path)
+    if path.lower().endswith(".js"):
+        return "text/javascript"
+    return media_type or "application/octet-stream"
