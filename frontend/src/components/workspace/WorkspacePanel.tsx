@@ -7,7 +7,7 @@ import {
   HistoryOutlined,
 } from '@ant-design/icons'
 import { Alert, Badge, Button, Empty, Modal, Popconfirm, Tabs, Tag, Tooltip } from 'antd'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type {
@@ -28,6 +28,8 @@ type WorkspacePanelProps = {
   files: WorkspaceFile[]
   /** 当前 workspace 已应用 Diff 历史。 */
   appliedDiffs: AppliedDiffRecord[]
+  /** 当前 workspace 刷新版本号，用于强制 iframe 重新加载最新内容。 */
+  workspaceRefreshToken: number
   /** 当前正在删除的文件路径。 */
   deletingFilePath: string | null
   /** 读取文件内容，用于打开预览弹窗。 */
@@ -54,6 +56,16 @@ const getPreviewBadgeStatus = (
   return 'default'
 }
 
+const getPreviewStatusLabel = (
+  status: WorkspacePreview['status'] | undefined,
+) =>
+  ({
+    error: '异常',
+    not_started: '未开始',
+    ready: '就绪',
+    running: '运行中',
+  })[status ?? 'not_started'] ?? status ?? '未开始'
+
 const formatTime = (value: string | undefined) => {
   if (!value) {
     return '未记录'
@@ -76,6 +88,15 @@ const getDiffSummary = (diff: string) => {
 }
 
 const isHtmlFile = (path: string) => path.toLowerCase().endsWith('.html')
+
+const withRefreshToken = (url: string | undefined, token: number) => {
+  if (!url) {
+    return undefined
+  }
+
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}agenthub_refresh=${token}`
+}
 
 const getSourceLanguage = (path: string) => {
   const extension = path.split('.').pop()?.toLowerCase()
@@ -126,6 +147,7 @@ const renderFilePreview = (
             previewUrl ? (
               <iframe
                 className="workspace-file-preview-frame"
+                key={previewUrl}
                 sandbox="allow-scripts allow-forms"
                 src={previewUrl}
                 title={`${file.path} preview`}
@@ -156,12 +178,18 @@ export function WorkspacePanel({
   preview,
   files,
   appliedDiffs,
+  workspaceRefreshToken,
   deletingFilePath,
   onPreviewFile,
   onDeleteFile,
 }: WorkspacePanelProps) {
   const workspaceId = conversation?.workspace_id ?? '未选择'
   const previewStatus = preview?.status ?? 'not_started'
+  const previewStatusLabel = getPreviewStatusLabel(previewStatus)
+  const refreshedPreviewUrl = withRefreshToken(
+    preview?.preview_url,
+    workspaceRefreshToken,
+  )
   const [previewFile, setPreviewFile] = useState<WorkspaceFileContent | null>(
     null,
   )
@@ -199,6 +227,44 @@ export function WorkspacePanel({
     }
   }
 
+  useEffect(() => {
+    if (!previewFile) {
+      return
+    }
+
+    const currentFile = files.find((file) => file.path === previewFile.path)
+    if (!currentFile) {
+      setPreviewFile(null)
+      return
+    }
+
+    let ignore = false
+    setPreviewLoadingPath(currentFile.path)
+    setFileActionError(null)
+    void onPreviewFile(currentFile)
+      .then((fileContent) => {
+        if (!ignore) {
+          setPreviewFile(fileContent)
+        }
+      })
+      .catch((caughtError) => {
+        if (!ignore) {
+          setFileActionError(
+            caughtError instanceof Error ? caughtError.message : '读取文件失败',
+          )
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setPreviewLoadingPath(null)
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [workspaceRefreshToken])
+
   return (
     <section className="workspace-panel">
       <header className="panel-header">
@@ -206,20 +272,26 @@ export function WorkspacePanel({
         <h2>预览与变更</h2>
       </header>
 
-      <div className="preview-card">
-        <div>
+      <div className="preview-card workspace-status-card">
+        <div className="workspace-status-info">
           <span className="preview-label">Workspace</span>
-          <strong>{workspaceId}</strong>
+          <strong title={workspaceId}>{workspaceId}</strong>
         </div>
         <Badge
           className={`status-pill status-${previewStatus}`}
           status={getPreviewBadgeStatus(preview?.status)}
-          text={previewStatus}
+          text={previewStatusLabel}
         />
       </div>
 
       <div className="workspace-preview-action">
-        <span>
+        <span
+          title={
+            preview?.preview_url
+              ? '预览已就绪'
+              : '当前 workspace 还没有 preview_url。'
+          }
+        >
           {preview?.preview_url
             ? '预览已就绪'
             : '当前 workspace 还没有 preview_url。'}
@@ -345,7 +417,7 @@ export function WorkspacePanel({
         title={previewFile?.path}
         width={860}
       >
-        {previewFile ? renderFilePreview(previewFile, preview?.preview_url) : null}
+        {previewFile ? renderFilePreview(previewFile, refreshedPreviewUrl) : null}
       </Modal>
       <Modal
         footer={null}
@@ -354,11 +426,12 @@ export function WorkspacePanel({
         title={`${workspaceId} 预览`}
         width={1040}
       >
-        {preview?.preview_url ? (
+        {refreshedPreviewUrl ? (
           <iframe
             className="workspace-modal-preview-frame"
+            key={refreshedPreviewUrl}
             sandbox="allow-scripts allow-forms"
-            src={preview.preview_url}
+            src={refreshedPreviewUrl}
             title={`${workspaceId} full preview`}
           />
         ) : null}

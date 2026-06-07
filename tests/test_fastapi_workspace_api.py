@@ -234,6 +234,7 @@ def test_workspace_preview_page_serves_index_html_when_present(tmp_path, monkeyp
     response = test_client.get("/api/workspaces/ws_demo/preview-page")
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
     assert "<main>hello workspace</main>" in response.text
 
 
@@ -255,6 +256,7 @@ def test_preview_page_rewrites_or_bases_relative_assets(tmp_path, monkeypatch) -
     response = test_client.get("/api/workspaces/ws_assets/preview-page")
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
     assert '<base href="http://testserver/api/workspaces/ws_assets/preview-assets/">' in (
         response.text
     )
@@ -278,6 +280,7 @@ def test_preview_asset_serves_workspace_javascript_with_content_type(
 
     assert response.status_code == 200
     assert response.text == "window.todoReady = true;\n"
+    assert response.headers["cache-control"] == "no-store"
     assert response.headers["content-type"].startswith("text/javascript")
 
 
@@ -294,6 +297,7 @@ def test_preview_asset_serves_workspace_css_with_content_type(tmp_path, monkeypa
 
     assert response.status_code == 200
     assert response.text == "body { color: green; }\n"
+    assert response.headers["cache-control"] == "no-store"
     assert response.headers["content-type"].startswith("text/css")
 
 

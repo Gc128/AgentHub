@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, ConfigProvider, theme } from 'antd'
 import { apiClient } from './api/client'
 import { AgentList } from './components/agents/AgentList'
@@ -73,6 +73,8 @@ function App() {
   const [preview, setPreview] = useState<WorkspacePreview | null>(null)
   // 当前 workspace 文件列表。
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([])
+  // 当前 workspace 展示刷新版本号，用于让 iframe 预览在应用内变更后重新挂载。
+  const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0)
   // 当前 workspace 已应用 Diff 历史。
   const [appliedDiffRecords, setAppliedDiffRecords] = useState<
     AppliedDiffRecord[]
@@ -99,6 +101,10 @@ function App() {
   >(null)
   // 页面级错误提示；首日先集中展示，后续可以拆成更细的错误状态。
   const [error, setError] = useState<string | null>(null)
+
+  const bumpWorkspaceRefreshToken = () => {
+    setWorkspaceRefreshToken((currentToken) => currentToken + 1)
+  }
 
   useEffect(() => {
     // ignore 用于避免组件卸载后异步请求继续 setState。
@@ -177,6 +183,7 @@ function App() {
       setWorkspaceFiles([])
       setAppliedDiffRecords([])
       setAppliedDiffIds(new Set())
+      bumpWorkspaceRefreshToken()
       return
     }
 
@@ -209,6 +216,7 @@ function App() {
         setWorkspaceFiles(nextWorkspaceFiles)
         setAppliedDiffRecords(nextAppliedDiffRecords)
         setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+        bumpWorkspaceRefreshToken()
         setError(null)
       } catch (caughtError) {
         if (!ignore) {
@@ -392,6 +400,7 @@ function App() {
       setWorkspaceFiles(nextWorkspaceFiles)
       setAppliedDiffRecords(nextAppliedDiffRecords)
       setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+      bumpWorkspaceRefreshToken()
       setError(null)
     } catch (caughtError) {
       const message =
@@ -407,7 +416,7 @@ function App() {
    * 读取当前 workspace 文件内容。
    * WorkspacePanel 用它打开预览弹窗；后端仍负责路径安全校验。
    */
-  const handlePreviewWorkspaceFile = async (
+  const handlePreviewWorkspaceFile = useCallback(async (
     file: WorkspaceFile,
   ): Promise<WorkspaceFileContent> => {
     if (!selectedConversation) {
@@ -427,7 +436,7 @@ function App() {
       setError(message)
       throw new Error(message)
     }
-  }
+  }, [selectedConversation])
 
   /**
    * 删除当前 workspace 文件。
@@ -455,6 +464,7 @@ function App() {
       setWorkspaceFiles(nextWorkspaceFiles)
       setAppliedDiffRecords(nextAppliedDiffRecords)
       setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+      bumpWorkspaceRefreshToken()
       setError(null)
     } catch (caughtError) {
       const message =
@@ -596,7 +606,9 @@ function App() {
             conversation={selectedConversation}
             deletingFilePath={deletingWorkspaceFilePath}
             files={workspaceFiles}
+            key={selectedConversation?.workspace_id ?? 'no-workspace'}
             preview={preview}
+            workspaceRefreshToken={workspaceRefreshToken}
             onDeleteFile={handleDeleteWorkspaceFile}
             onPreviewFile={handlePreviewWorkspaceFile}
           />
