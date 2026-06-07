@@ -98,11 +98,128 @@
 }
 
 .conversation-section {
-  flex: 0 1 280px;
+  flex: 1 1 0;
 }
 
-.agent-section {
+/* ── Agent 图标区（sidebar 底部固定）──────────────────────── */
+.agent-icon-section {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid #e6e0d6;
+  padding-top: 12px;
+}
+
+.agent-icon-label {
+  color: #9da49a;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+/* 图标一行并排，平分寻读宽度 */
+.agent-icon-row {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-icon-btn {
+  display: grid;
+  place-items: center;
   flex: 1 1 0;
+  height: 40px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--agent-bg, #f0ece5);
+  color: var(--agent-color, #5e6861);
+  font-size: 17px;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.12s ease, border-color 0.15s ease;
+}
+
+.agent-icon-btn:hover {
+  filter: brightness(1.12);
+  transform: translateY(-2px);
+  border-color: var(--agent-color, #b8cbc5);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 8%);
+}
+
+.agent-icon-btn:active {
+  transform: translateY(0);
+}
+
+/* ── Agent 悬浮卡片（placement=top，暖米色卡片形式）───────────── */
+
+/* 覆写 antd tooltip 外层底色（清除默认黑色）*/
+.agent-card-tooltip-overlay .ant-tooltip-inner {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.agent-card-tooltip {
+  width: 220px;
+  border: 1px solid #e0d9cf;
+  border-radius: 12px;
+  background: #f7f4ee;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgb(60 50 30 / 12%), 0 2px 6px rgb(60 50 30 / 6%);
+}
+
+.agent-card-tooltip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.agent-card-tooltip-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e2921;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-card-tooltip-role.ant-tag {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #f2d88f;
+  color: #624814;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+}
+
+.agent-card-tooltip-desc {
+  margin: 0 0 10px;
+  color: #6b7168;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-card-tooltip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.agent-card-tooltip-tag.ant-tag {
+  margin-inline-end: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #ede8df;
+  color: #5a6057;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
 }
 
 .section-heading,
