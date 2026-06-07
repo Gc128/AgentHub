@@ -143,6 +143,13 @@ class SqliteWorkspaceRepository(_SqliteRepositoryMixin, WorkspaceRepository):
             session.commit()
             return file_record
 
+    async def delete_file(self, workspace_id: str, path: str) -> None:
+        with Session(self._engine) as session:
+            record = session.get(WorkspaceFileRecord, _workspace_file_id(workspace_id, path))
+            if record is not None:
+                session.delete(record)
+                session.commit()
+
     async def list_applied_diffs(self, workspace_id: str) -> list[AppliedDiffRecord]:
         with Session(self._engine) as session:
             records = session.exec(

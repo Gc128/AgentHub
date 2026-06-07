@@ -1,3 +1,5 @@
+import hashlib
+import re
 from pathlib import Path
 
 from agenthub.agents.base import AgentAdapter
@@ -34,15 +36,21 @@ class CodeAgent:
         if not artifact_types and not _looks_like_code_task(input_data.user_message):
             return result
         result = _ensure_content_includes_code_artifacts(result)
-        if "code" in artifact_types and "diff" not in artifact_types:
-            diff_artifact = _build_diff_artifact(
+        if "code" in artifact_types:
+            diff_artifacts = _build_missing_diff_artifacts(
                 result.artifacts,
                 workspace_id=input_data.workspace_id,
                 workspace_root=self._workspace_root,
             )
-            if diff_artifact is not None:
-                result = result.model_copy(update={"artifacts": [*result.artifacts, diff_artifact]})
-                artifact_types.add("diff")
+            if diff_artifacts:
+                result = result.model_copy(
+                    update={"artifacts": [*result.artifacts, *diff_artifacts]}
+                )
+                artifact_types = {artifact.type for artifact in result.artifacts}
+        result = result.model_copy(
+            update={"artifacts": _normalize_diff_artifact_ids(result.artifacts)}
+        )
+        artifact_types = {artifact.type for artifact in result.artifacts}
         if not {"code", "diff"}.issubset(artifact_types):
             raise AgentExecutionError("Code Agent must return code and diff artifacts.")
         return result
@@ -100,36 +108,102 @@ def _ensure_content_includes_code_artifacts(result: AgentRunResult) -> AgentRunR
     return result.model_copy(update={"content": next_content})
 
 
-def _build_diff_artifact(
+def _build_missing_diff_artifacts(
     artifacts: list[Artifact],
     *,
     workspace_id: str,
     workspace_root: Path,
-) -> Artifact | None:
-    code_artifact = next((artifact for artifact in artifacts if artifact.type == "code"), None)
-    if code_artifact is None:
-        return None
+) -> list[Artifact]:
+    existing_diff_filenames = {
+        filename
+        for artifact in artifacts
+        if artifact.type == "diff" and (filename := _diff_artifact_filename(artifact))
+    }
+    diff_artifacts: list[Artifact] = []
+    for code_artifact in artifacts:
+        if code_artifact.type != "code":
+            continue
+        filename_value = code_artifact.data.get("filename")
+        content_value = code_artifact.data.get("content")
+        filename = (
+            filename_value if isinstance(filename_value, str) and filename_value else "index.html"
+        )
+        if filename in existing_diff_filenames:
+            continue
+        if not isinstance(content_value, str) or not content_value:
+            continue
+        old_content = _read_existing_workspace_content(workspace_root, workspace_id, filename)
+        if old_content is None:
+            continue
+        diff_artifacts.append(
+            Artifact(
+                id=f"{code_artifact.id}-diff",
+                type="diff",
+                title=f"{filename} diff",
+                data={
+                    "filename": filename,
+                    "source_artifact_id": code_artifact.id,
+                    "diff": create_unified_diff(
+                        old_content,
+                        _normalize_generated_file_content(content_value),
+                        filename,
+                    ),
+                },
+            )
+        )
+        existing_diff_filenames.add(filename)
+    return diff_artifacts
 
-    filename_value = code_artifact.data.get("filename")
-    content_value = code_artifact.data.get("content")
-    filename = (
-        filename_value if isinstance(filename_value, str) and filename_value else "index.html"
-    )
-    if not isinstance(content_value, str) or not content_value:
-        return None
-    old_content = _read_existing_workspace_content(workspace_root, workspace_id, filename)
-    if old_content is None:
-        return None
 
-    return Artifact(
-        id=f"{code_artifact.id}-diff",
-        type="diff",
-        title=f"{filename} diff",
-        data={
-            "filename": filename,
-            "diff": create_unified_diff(old_content, content_value, filename),
-        },
-    )
+def _normalize_diff_artifact_ids(artifacts: list[Artifact]) -> list[Artifact]:
+    normalized_artifacts: list[Artifact] = []
+    for artifact in artifacts:
+        if artifact.type != "diff":
+            normalized_artifacts.append(artifact)
+            continue
+
+        diff_value = artifact.data.get("diff")
+        if not isinstance(diff_value, str) or not diff_value:
+            normalized_artifacts.append(artifact)
+            continue
+
+        filename = _diff_artifact_filename(artifact) or "diff"
+        next_id = _content_addressed_diff_artifact_id(filename, diff_value)
+        next_data = {**artifact.data, "filename": filename}
+        if artifact.id != next_id and "source_artifact_id" not in next_data:
+            next_data["source_artifact_id"] = artifact.id
+
+        normalized_artifacts.append(artifact.model_copy(update={"id": next_id, "data": next_data}))
+
+    return normalized_artifacts
+
+
+def _content_addressed_diff_artifact_id(filename: str, diff: str) -> str:
+    slug = _slugify_artifact_filename(filename)
+    digest = hashlib.sha256(f"{filename}\0{diff}".encode()).hexdigest()[:12]
+    return f"artifact-code-agent-diff-{slug}-{digest}"
+
+
+def _slugify_artifact_filename(filename: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", filename.lower()).strip("-")
+    return slug or "file"
+
+
+def _diff_artifact_filename(artifact: Artifact) -> str | None:
+    filename_value = artifact.data.get("filename")
+    if isinstance(filename_value, str) and filename_value:
+        return filename_value
+
+    diff_value = artifact.data.get("diff")
+    if not isinstance(diff_value, str):
+        return None
+    for line in diff_value.splitlines():
+        if line.startswith("+++ "):
+            target = line[4:].strip()
+            if target.startswith("b/"):
+                return target[2:]
+            return target
+    return None
 
 
 def _read_existing_workspace_content(
@@ -154,6 +228,10 @@ def _code_fence_language(artifact: Artifact) -> str:
     return language_value.strip().split()[0].lower()
 
 
+def _normalize_generated_file_content(content: str) -> str:
+    return content.rstrip("\n") + "\n"
+
+
 CODE_AGENT_SYSTEM_PROMPT = """
 You are AgentHub Code Agent.
 Return one JSON object matching AgentRunResult exactly:
@@ -164,6 +242,8 @@ Rules:
 - Put the full user-facing answer in content as Markdown.
 - Include generated code in content as fenced code blocks.
 - Add filename metadata to each code fence, e.g. ```tsx filename="src/App.tsx".
+- When the user asks for separate HTML, CSS, and JS files, output each file as
+  its own fenced code block or code artifact with its own filename.
 - You may also include code artifacts with data.filename, data.language, data.content.
 - If you omit artifacts, AgentHub will extract code artifacts from Markdown fences.
 - Diff paths must stay inside the workspace and use a/ and b/ headers.

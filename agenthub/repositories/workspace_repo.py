@@ -44,6 +44,11 @@ class WorkspaceRepository:
         files[file_record.path] = file_record
         return file_record
 
+    async def delete_file(self, workspace_id: str, path: str) -> None:
+        files = self._files.get(workspace_id)
+        if files is not None:
+            files.pop(path, None)
+
     async def list_applied_diffs(self, workspace_id: str) -> list[AppliedDiffRecord]:
         return list(self._applied_diffs.get(workspace_id, []))
 

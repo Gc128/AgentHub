@@ -382,6 +382,422 @@ async def test_code_agent_generates_diff_against_existing_workspace_file(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_code_agent_generates_diff_for_each_code_artifact() -> None:
+    class MultiFileAdapter:
+        id = "llm"
+        name = "LLM"
+        capabilities = ["llm"]
+
+        async def run(self, input_data: AgentRunInput) -> object:
+            from agenthub.schemas.agent import AgentRunResult
+            from agenthub.schemas.artifact import Artifact
+
+            return AgentRunResult(
+                agent_id="code-agent",
+                content="Generated split files",
+                artifacts=[
+                    Artifact(
+                        id="artifact-html",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": '<link rel="stylesheet" href="style.css">\n',
+                        },
+                    ),
+                    Artifact(
+                        id="artifact-css",
+                        type="code",
+                        title="style.css",
+                        data={
+                            "filename": "style.css",
+                            "language": "css",
+                            "content": "body { color: #123; }",
+                        },
+                    ),
+                    Artifact(
+                        id="artifact-js",
+                        type="code",
+                        title="script.js",
+                        data={
+                            "filename": "script.js",
+                            "language": "javascript",
+                            "content": "console.log('ready')",
+                        },
+                    ),
+                ],
+                next_actions=[],
+            )
+
+    result = await CodeAgent(MultiFileAdapter()).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成 html css js 分开输出的页面",
+        )
+    )
+
+    diff_artifacts = [artifact for artifact in result.artifacts if artifact.type == "diff"]
+    assert [artifact.data["filename"] for artifact in diff_artifacts] == [
+        "index.html",
+        "style.css",
+        "script.js",
+    ]
+    assert all(
+        "\\ No newline at end of file" not in artifact.data["diff"] for artifact in diff_artifacts
+    )
+
+
+@pytest.mark.asyncio
+async def test_code_agent_generates_missing_diffs_without_duplicating_existing_diff() -> None:
+    class PartialDiffAdapter:
+        id = "llm"
+        name = "LLM"
+        capabilities = ["llm"]
+
+        async def run(self, input_data: AgentRunInput) -> object:
+            from agenthub.schemas.agent import AgentRunResult
+            from agenthub.schemas.artifact import Artifact
+
+            return AgentRunResult(
+                agent_id="code-agent",
+                content="Generated split files",
+                artifacts=[
+                    Artifact(
+                        id="artifact-html",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": "<main>ok</main>\n",
+                        },
+                    ),
+                    Artifact(
+                        id="artifact-css",
+                        type="code",
+                        title="style.css",
+                        data={
+                            "filename": "style.css",
+                            "language": "css",
+                            "content": "body { color: #123; }\n",
+                        },
+                    ),
+                    Artifact(
+                        id="artifact-html-diff",
+                        type="diff",
+                        title="index.html diff",
+                        data={
+                            "filename": "index.html",
+                            "diff": (
+                                "--- a/index.html\n"
+                                "+++ b/index.html\n"
+                                "@@ -0,0 +1 @@\n"
+                                "+<main>ok</main>\n"
+                            ),
+                        },
+                    ),
+                ],
+                next_actions=[],
+            )
+
+    result = await CodeAgent(PartialDiffAdapter()).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成 html css 分开输出的页面",
+        )
+    )
+
+    diff_filenames = [
+        artifact.data["filename"] for artifact in result.artifacts if artifact.type == "diff"
+    ]
+    assert diff_filenames == ["index.html", "style.css"]
+
+
+@pytest.mark.asyncio
+async def test_code_agent_multifile_diffs_use_existing_workspace_content(tmp_path) -> None:
+    workspace_dir = tmp_path / "ws_001"
+    workspace_dir.mkdir()
+    (workspace_dir / "style.css").write_text("body { color: red; }\n", encoding="utf-8")
+
+    class MultiFileAdapter:
+        id = "llm"
+        name = "LLM"
+        capabilities = ["llm"]
+
+        async def run(self, input_data: AgentRunInput) -> object:
+            from agenthub.schemas.agent import AgentRunResult
+            from agenthub.schemas.artifact import Artifact
+
+            return AgentRunResult(
+                agent_id="code-agent",
+                content="Generated split files",
+                artifacts=[
+                    Artifact(
+                        id="artifact-html",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": "<main>ok</main>\n",
+                        },
+                    ),
+                    Artifact(
+                        id="artifact-css",
+                        type="code",
+                        title="style.css",
+                        data={
+                            "filename": "style.css",
+                            "language": "css",
+                            "content": "body { color: green; }\n",
+                        },
+                    ),
+                ],
+                next_actions=[],
+            )
+
+    result = await CodeAgent(MultiFileAdapter(), workspace_root=tmp_path).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成 html css 分开输出的页面",
+        )
+    )
+
+    css_diff = next(
+        artifact.data["diff"]
+        for artifact in result.artifacts
+        if artifact.type == "diff" and artifact.data["filename"] == "style.css"
+    )
+    assert "-body { color: red; }" in css_diff
+    assert "+body { color: green; }" in css_diff
+
+
+@pytest.mark.asyncio
+async def test_code_agent_diff_ids_change_when_diff_content_changes_for_same_filename() -> None:
+    class CodeOnlyAdapter:
+        id = "llm"
+        name = "LLM"
+        capabilities = ["llm"]
+
+        def __init__(self, content: str) -> None:
+            self._content = content
+
+        async def run(self, input_data: AgentRunInput) -> object:
+            from agenthub.schemas.agent import AgentRunResult
+            from agenthub.schemas.artifact import Artifact
+
+            return AgentRunResult(
+                agent_id="code-agent",
+                content="Generated code",
+                artifacts=[
+                    Artifact(
+                        id="artifact-html",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": self._content,
+                        },
+                    )
+                ],
+                next_actions=[],
+            )
+
+    first_result = await CodeAgent(CodeOnlyAdapter("<main>first</main>\n")).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+    second_result = await CodeAgent(CodeOnlyAdapter("<main>second</main>\n")).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    first_diff_id = next(
+        artifact.id for artifact in first_result.artifacts if artifact.type == "diff"
+    )
+    second_diff_id = next(
+        artifact.id for artifact in second_result.artifacts if artifact.type == "diff"
+    )
+    assert first_diff_id != second_diff_id
+
+
+@pytest.mark.asyncio
+async def test_code_agent_diff_ids_are_stable_for_same_filename_and_diff() -> None:
+    class CodeOnlyAdapter:
+        id = "llm"
+        name = "LLM"
+        capabilities = ["llm"]
+
+        async def run(self, input_data: AgentRunInput) -> object:
+            from agenthub.schemas.agent import AgentRunResult
+            from agenthub.schemas.artifact import Artifact
+
+            return AgentRunResult(
+                agent_id="code-agent",
+                content="Generated code",
+                artifacts=[
+                    Artifact(
+                        id="artifact-html",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": "<main>stable</main>\n",
+                        },
+                    )
+                ],
+                next_actions=[],
+            )
+
+    first_result = await CodeAgent(CodeOnlyAdapter()).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+    second_result = await CodeAgent(CodeOnlyAdapter()).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    first_diff_id = next(
+        artifact.id for artifact in first_result.artifacts if artifact.type == "diff"
+    )
+    second_diff_id = next(
+        artifact.id for artifact in second_result.artifacts if artifact.type == "diff"
+    )
+    assert first_diff_id == second_diff_id
+    assert first_diff_id.startswith("artifact-code-agent-diff-index-html-")
+
+
+@pytest.mark.asyncio
+async def test_code_agent_normalizes_model_supplied_diff_artifact_ids() -> None:
+    class ModelDiffAdapter:
+        id = "llm"
+        name = "LLM"
+        capabilities = ["llm"]
+
+        async def run(self, input_data: AgentRunInput) -> object:
+            from agenthub.schemas.agent import AgentRunResult
+            from agenthub.schemas.artifact import Artifact
+
+            return AgentRunResult(
+                agent_id="code-agent",
+                content="Generated code",
+                artifacts=[
+                    Artifact(
+                        id="artifact-html",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": "<main>ok</main>\n",
+                        },
+                    ),
+                    Artifact(
+                        id="model-diff-1",
+                        type="diff",
+                        title="index.html diff",
+                        data={
+                            "filename": "index.html",
+                            "diff": (
+                                "--- a/index.html\n"
+                                "+++ b/index.html\n"
+                                "@@ -0,0 +1 @@\n"
+                                "+<main>ok</main>\n"
+                            ),
+                        },
+                    ),
+                ],
+                next_actions=[],
+            )
+
+    result = await CodeAgent(ModelDiffAdapter()).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    diff_artifact = next(artifact for artifact in result.artifacts if artifact.type == "diff")
+    assert diff_artifact.id != "model-diff-1"
+    assert diff_artifact.id.startswith("artifact-code-agent-diff-index-html-")
+
+
+@pytest.mark.asyncio
+async def test_code_agent_preserves_source_artifact_id_when_rewriting_diff_id() -> None:
+    class ModelDiffAdapter:
+        id = "llm"
+        name = "LLM"
+        capabilities = ["llm"]
+
+        async def run(self, input_data: AgentRunInput) -> object:
+            from agenthub.schemas.agent import AgentRunResult
+            from agenthub.schemas.artifact import Artifact
+
+            return AgentRunResult(
+                agent_id="code-agent",
+                content="Generated code",
+                artifacts=[
+                    Artifact(
+                        id="artifact-html",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": "<main>ok</main>\n",
+                        },
+                    ),
+                    Artifact(
+                        id="model-diff-1",
+                        type="diff",
+                        title="index.html diff",
+                        data={
+                            "filename": "index.html",
+                            "diff": (
+                                "--- a/index.html\n"
+                                "+++ b/index.html\n"
+                                "@@ -0,0 +1 @@\n"
+                                "+<main>ok</main>\n"
+                            ),
+                        },
+                    ),
+                ],
+                next_actions=[],
+            )
+
+    result = await CodeAgent(ModelDiffAdapter()).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    diff_artifact = next(artifact for artifact in result.artifacts if artifact.type == "diff")
+    assert diff_artifact.data["source_artifact_id"] == "model-diff-1"
+
+
+@pytest.mark.asyncio
 async def test_code_agent_allows_non_code_greeting_without_artifacts() -> None:
     class TextOnlyAdapter:
         id = "llm"

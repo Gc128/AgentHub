@@ -26,6 +26,13 @@ class WorkspaceFileWriteRequest(BaseModel):
     content: str = ""
 
 
+class WorkspaceFileDeleteResponse(BaseModel):
+    workspace_id: str
+    path: str
+    deleted: bool
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class ApplyDiffRequest(BaseModel):
     artifact_id: str = Field(min_length=1)
     diff: str = Field(min_length=1)
