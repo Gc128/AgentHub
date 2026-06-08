@@ -18,9 +18,10 @@ new demo work should run against `VITE_API_BASE_URL=http://127.0.0.1:8000`.
 | `DELETE /api/conversations/{id}` | Supported | Supported | Returns `{ id, deleted }`; FastAPI also clears in-memory messages. |
 | `GET /api/conversations/{id}/messages` | Supported | Supported | Returns `Message[]`. |
 | `POST /api/conversations/{id}/messages` | Supported | Supported | Saves one message and returns one `Message`; it does not auto-run Agents. |
-| `POST /api/conversations/{id}/messages/run` | Not used by Flask React demo | Supported | Primary current React send path; FastAPI saves the user message and all Agent messages. |
+| `POST /api/conversations/{id}/messages/run` | Not used by Flask React demo | Supported | Non-streaming compatibility path; FastAPI saves the user message and all Agent messages. |
+| `POST /api/conversations/{id}/messages/stream` | Not supported | Supported | Primary React send path. Returns SSE events: `user_message`, `agent_started`, `agent_delta`, `agent_done`, `artifact`, `harness_step`, `error`, `done`. |
 | `GET /api/agents` | Supported | Supported | Lists stable ids: `orchestrator`, `code-agent`, `review-agent`, `preview-agent`. |
-| `POST /api/agents/run` | Supported | Supported | Debug/single-Agent helper. `context.agent_id=orchestrator` returns a plan artifact only. |
+| `POST /api/agents/run` | Supported | Supported | Debug/single-Agent helper. `context.agent_id=orchestrator` returns a plan message without a fake file artifact. |
 | `GET /api/workspaces/{id}/preview` | Supported | Supported | Uses `preview_url`, not `url`. |
 | `GET /api/workspaces/{id}/files` | Supported | Supported | Returns file path and `updated_at`, not file content. |
 | `GET /api/workspaces/{id}/files/content?path=...` | Supported | Supported | Returns one workspace file with content. |
@@ -30,15 +31,58 @@ new demo work should run against `VITE_API_BASE_URL=http://127.0.0.1:8000`.
 
 ## Agents
 
-All Agent execution goes through the `AgentAdapter` protocol. The production
-path registers Code/Review/Preview wrappers around an OpenAI-compatible LLM
-adapter. Each wrapper asks for a structured `AgentRunResult` JSON object and
-validates required artifact types before returning.
+All Agent execution goes through the `AgentAdapter` protocol. It is AgentHub's
+unified protocol layer for LLM and tool backends: business services depend on
+`AgentRunInput` and `AgentRunResult`, not on OpenAI, Claude, Mock, Codex, or a
+future coding agent directly. Adapters keep provider details, auth, streaming,
+timeouts, and response parsing outside the orchestration code.
 
-`USE_MOCK_AGENTS=false` is the production/default `.env.example` setting. Tests
-explicitly enable mock mode so CI remains offline and deterministic. Real LLM
-settings are declared through environment variables, and no key should be
-committed.
+`AgentAdapter.run()` remains the stable non-streaming method. Adapters may also
+implement `stream()` as a `StreamingAgentAdapter`; `RealAgent` uses
+OpenAI-compatible `stream: true` and `MockAgent` emits deterministic chunks for
+offline tests.
+
+The production path registers Orchestrator/Code/Review/Preview wrappers around
+an OpenAI-compatible LLM adapter. Orchestrator returns an `OrchestratorDecision`
+(`chat` or `plan`); child Agents return structured `AgentRunResult` objects and
+validate required artifact types before returning.
+
+When a user sends a message without `@Agent`, `MessageService` now uses
+Orchestrator as the default LLM assistant entry. Greetings, ordinary chat, and
+development planning all go through Orchestrator LLM. Rule-based `create_plan()`
+remains only as a mock/legacy fallback.
+
+The Orchestrator harness lifecycle is:
+
+```txt
+plan -> run step -> verify artifacts -> retry once on failure -> stop or continue
+```
+
+Each stage emits `harness_step` SSE events so the frontend can show live
+progress while waiting for LLM responses. Structured JSON is buffered server-side;
+only safe Markdown `content` is sent as `agent_delta` chunks. The plan message
+uses role-specific instructions for Code, Review, and Preview Agents and does
+not create a fake workspace file artifact.
+
+If a model returns malformed JSON or a response that does not match the expected
+schema, `RealAgent` silently asks the model to repair the output once. It also
+normalizes common LLM shapes such as wrapped `result/data`, artifact maps,
+Markdown code fences, raw HTML documents, JSON string-list findings, and
+Markdown Orchestrator task plans. Code Agent remains strict: it must recover a
+real model-produced code artifact and diff, otherwise the step fails. Review and
+Preview can recover from schema errors by validating prior artifacts/workspace
+context so their formatting problems do not block code preview.
+
+Preview Agent is retained as a verification role. It checks workspace and
+preview context, returns an honest preview artifact/status, and never claims to
+have applied a diff or written files.
+
+`USE_MOCK_AGENTS=false` and `AGENT_ALLOW_FALLBACKS=false` are the
+production/default `.env.example` settings. Tests explicitly enable mock mode so
+CI remains offline and deterministic. Real LLM settings are declared through
+environment variables, and no key should be committed. The external smoke script
+`scripts/verify_real_agent_tasks.py` runs ten real Orchestrator development
+tasks through API, Apply Diff, and preview-page consistency checks.
 
 ## Workspace
 

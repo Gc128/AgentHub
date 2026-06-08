@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 
 from agenthub.api.deps import get_message_service
 from agenthub.schemas.message import Message, MessageCreate, MessageSendResponse
@@ -41,3 +42,15 @@ async def send_message_with_agent(
     service: Annotated[MessageService, Depends(get_message_service)],
 ) -> MessageSendResponse:
     return await service.send_message(conversation_id, request)
+
+
+@router.post("/conversations/{conversation_id}/messages/stream")
+async def stream_message_with_agent(
+    conversation_id: str,
+    request: MessageCreate,
+    service: Annotated[MessageService, Depends(get_message_service)],
+) -> StreamingResponse:
+    return StreamingResponse(
+        service.stream_message(conversation_id, request),
+        media_type="text/event-stream",
+    )

@@ -1,13 +1,23 @@
+import json
+
 import httpx
 import pytest
 
 from agenthub.agents.code_agent import CodeAgent
 from agenthub.agents.mock_agent import MockAgent
-from agenthub.agents.real_agent import RealAgent, RealAgentUnavailableError
-from agenthub.agents.registry import AgentRegistry, create_default_registry
-from agenthub.core.errors import NotFoundError
-from agenthub.schemas.agent import AgentRunInput
+from agenthub.agents.real_agent import RealAgent, RealAgentSchemaError, RealAgentUnavailableError
+from agenthub.agents.registry import AgentRegistry, OrchestratorAdapter, create_default_registry
+from agenthub.core.errors import AgentExecutionError, NotFoundError
+from agenthub.orchestrator.planner import AgentTask, OrchestratorDecision, OrchestratorPlan
+from agenthub.schemas.agent import AgentRunInput, AgentRunResult
+from agenthub.schemas.artifact import Artifact
 from agenthub.services.agent_service import AgentService
+
+
+def json_body(request: httpx.Request) -> dict[str, object]:
+    payload = json.loads(request.content.decode())
+    assert isinstance(payload, dict)
+    return payload
 
 
 @pytest.mark.asyncio
@@ -59,6 +69,7 @@ async def test_preview_agent_uses_preview_url_field() -> None:
     assert result.artifacts[0].type == "preview"
     assert "preview_url" in result.artifacts[0].data
     assert "url" not in result.artifacts[0].data
+    assert "Preview 状态为 ready" in result.content
 
 
 @pytest.mark.asyncio
@@ -137,6 +148,939 @@ async def test_real_agent_parses_structured_artifacts() -> None:
 
 
 @pytest.mark.asyncio
+async def test_real_agent_streams_openai_compatible_deltas() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        assert json_body(request)["stream"] is True
+        return httpx.Response(
+            200,
+            content=(
+                b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
+                b'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+                b"data: [DONE]\n\n"
+            ),
+        )
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    chunks = [
+        chunk
+        async for chunk in agent.stream(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="hello",
+            )
+        )
+    ]
+
+    assert chunks == ["hello", " world"]
+
+
+@pytest.mark.asyncio
+async def test_real_agent_repairs_structured_agent_result_once() -> None:
+    calls: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json_body(request)
+        calls.append(payload)
+        if len(calls) == 1:
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "[1, 2]"}}]},
+            )
+        assert "repair" in str(payload["messages"][0]["content"]).lower()
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"agent_id":"review-agent","content":"fixed",'
+                                '"artifacts":[],"next_actions":[]}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    agent = RealAgent(
+        agent_id="review-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="review",
+        )
+    )
+
+    assert result.content == "fixed"
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_real_agent_schema_failure_after_repair_is_specific() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "[1, 2]"}}]},
+        )
+
+    agent = RealAgent(
+        agent_id="review-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(RealAgentSchemaError, match="AgentRunResult"):
+        await agent.run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="review",
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_real_agent_repairs_malformed_json_response() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        content = (
+            '{"agent_id":"code-agent","content":"fixed","artifacts":[],"next_actions":[]}'
+            if calls == 2
+            else '{"agent_id":"code-agent","content":'
+        )
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    assert result.content == "fixed"
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_llm_orchestrator_handles_plain_chat() -> None:
+    requests: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json_body(request))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"mode":"chat","content":"你好，我是大模型 Orchestrator。",'
+                                '"plan":null}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    orchestrator = OrchestratorAdapter(
+        RealAgent(
+            agent_id="orchestrator",
+            api_key="test-key",
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+    )
+    service = AgentService(registry=AgentRegistry([orchestrator]))
+
+    results = await service.run_for_message(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="你好",
+        )
+    )
+
+    assert results[0].agent_id == "orchestrator"
+    assert results[0].content == "你好，我是大模型 Orchestrator。"
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_llm_orchestrator_accepts_markdown_plan_text() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "## 任务拆解\n\n"
+                                "1. code-agent: 实现页面。\n"
+                                "2. review-agent: 审查代码。\n"
+                                "3. preview-agent: 验证预览。"
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    orchestrator = OrchestratorAdapter(
+        RealAgent(
+            agent_id="orchestrator",
+            api_key="test-key",
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+    )
+
+    decision = await orchestrator.decide(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="@Orchestrator 做一个页面",
+        )
+    )
+
+    assert decision.mode == "plan"
+    assert decision.plan is not None
+    assert decision.plan.agent_ids == ["code-agent", "review-agent", "preview-agent"]
+
+
+@pytest.mark.asyncio
+async def test_llm_orchestrator_accepts_top_level_task_list_json() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                [
+                                    {
+                                        "agent": "code-agent",
+                                        "task": "实现页面并输出 code/diff。",
+                                    }
+                                ]
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    orchestrator = OrchestratorAdapter(
+        RealAgent(
+            agent_id="orchestrator",
+            api_key="test-key",
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+    )
+
+    decision = await orchestrator.decide(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="@Orchestrator 做一个页面",
+        )
+    )
+
+    assert decision.mode == "plan"
+    assert decision.plan is not None
+    assert decision.plan.tasks[0].agent_id == "code-agent"
+
+
+@pytest.mark.asyncio
+async def test_llm_orchestrator_plan_drives_harness_without_copying_user_request() -> None:
+    user_message = "@Orchestrator 帮我做一个 Todo 页面"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "mode": "plan",
+                                    "content": "## 任务拆解\n\n由 LLM 生成的任务分工。",
+                                    "plan": {
+                                        "summary": "llm plan",
+                                        "tasks": [
+                                            {
+                                                "task_id": "task-code",
+                                                "agent_id": "code-agent",
+                                                "instruction": (
+                                                    "实现 Todo 页面并输出 code/diff artifact。"
+                                                ),
+                                                "depends_on": [],
+                                            },
+                                            {
+                                                "task_id": "task-review",
+                                                "agent_id": "review-agent",
+                                                "instruction": (
+                                                    "审查前序 diff 并输出 findings/risk_level。"
+                                                ),
+                                                "depends_on": ["task-code"],
+                                            },
+                                            {
+                                                "task_id": "task-preview",
+                                                "agent_id": "preview-agent",
+                                                "instruction": (
+                                                    "验证 preview 状态并输出 preview artifact。"
+                                                ),
+                                                "depends_on": ["task-review"],
+                                            },
+                                        ],
+                                    },
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    registry = AgentRegistry(
+        [
+            OrchestratorAdapter(
+                RealAgent(
+                    agent_id="orchestrator",
+                    api_key="test-key",
+                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                )
+            ),
+            MockAgent(agent_id="code-agent"),
+            MockAgent(agent_id="review-agent"),
+            MockAgent(agent_id="preview-agent"),
+        ]
+    )
+    service = AgentService(registry=registry)
+
+    results = await service.run_for_message(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message=user_message,
+        )
+    )
+
+    assert [result.agent_id for result in results] == [
+        "orchestrator",
+        "code-agent",
+        "review-agent",
+        "preview-agent",
+    ]
+    assert user_message not in results[0].content
+    assert results[0].content == "## 任务拆解\n\n由 LLM 生成的任务分工。"
+
+
+@pytest.mark.asyncio
+async def test_llm_orchestrator_code_plan_is_guarded_with_review_and_preview() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "mode": "plan",
+                                    "content": "## 任务拆解\n\n先写代码。",
+                                    "plan": {
+                                        "summary": "llm partial plan",
+                                        "tasks": [
+                                            {
+                                                "task_id": "task-code",
+                                                "agent_id": "code-agent",
+                                                "instruction": (
+                                                    "实现页面并输出 code/diff artifact。"
+                                                ),
+                                                "depends_on": [],
+                                            }
+                                        ],
+                                    },
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    registry = AgentRegistry(
+        [
+            OrchestratorAdapter(
+                RealAgent(
+                    agent_id="orchestrator",
+                    api_key="test-key",
+                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                )
+            ),
+            MockAgent(agent_id="code-agent"),
+            MockAgent(agent_id="review-agent"),
+            MockAgent(agent_id="preview-agent"),
+        ]
+    )
+    service = AgentService(registry=registry)
+
+    results = await service.run_for_message(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="@Orchestrator 帮我做一个计数器网页",
+        )
+    )
+
+    assert [result.agent_id for result in results] == [
+        "orchestrator",
+        "code-agent",
+        "review-agent",
+        "preview-agent",
+    ]
+    assert "review-agent" in results[0].content
+    assert "preview-agent" in results[0].content
+    assert "兜底" not in results[0].content
+
+
+@pytest.mark.asyncio
+async def test_code_agent_repairs_static_todo_before_fallback(tmp_path) -> None:
+    class StaticTodoAdapter:
+        id = "real-code"
+        name = "Real Code"
+        capabilities = ["code"]
+        calls = 0
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            self.calls += 1
+            if self.calls == 2:
+                return AgentRunResult(
+                    agent_id="code-agent",
+                    content="已修复 Todo 交互并保留优先级字段。",
+                    artifacts=[
+                        Artifact(
+                            id="repaired-todo",
+                            type="code",
+                            title="index.html",
+                            data={
+                                "filename": "index.html",
+                                "language": "html",
+                                "content": (
+                                    '<form id="todo-form"><input id="todo-input">'
+                                    '<select id="priority"></select><button>添加</button></form>'
+                                    '<ul id="todo-list"></ul><script>'
+                                    'document.querySelector("#todo-form").addEventListener'
+                                    '("submit", (event) => { event.preventDefault(); });'
+                                    "</script>"
+                                ),
+                            },
+                        )
+                    ],
+                )
+            return AgentRunResult(
+                agent_id="code-agent",
+                content="静态 Todo 页面",
+                artifacts=[
+                    Artifact(
+                        id="static-todo",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": "<button>添加</button><ul><li>Todo</li></ul>",
+                        },
+                    )
+                ],
+            )
+
+    workspace_id = "ws_001"
+    (tmp_path / workspace_id).mkdir()
+    adapter = StaticTodoAdapter()
+    agent = CodeAgent(adapter, workspace_root=tmp_path)
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id=workspace_id,
+            user_message="帮我做一个带优先级的 Todo List 网页",
+        )
+    )
+
+    code_artifact = next(artifact for artifact in result.artifacts if artifact.type == "code")
+    diff_artifact = next(artifact for artifact in result.artifacts if artifact.type == "diff")
+    content = str(code_artifact.data["content"])
+    assert adapter.calls == 2
+    assert "addEventListener" in content
+    assert "priority" in content
+    assert diff_artifact.data["filename"] == "index.html"
+
+
+@pytest.mark.asyncio
+async def test_code_agent_todo_fallback_is_request_aware(tmp_path) -> None:
+    class EmptyCodeAdapter:
+        id = "real-code"
+        name = "Real Code"
+        capabilities = ["code"]
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            return AgentRunResult(agent_id="code-agent", content="没有代码", artifacts=[])
+
+    workspace_id = "ws_001"
+    (tmp_path / workspace_id).mkdir()
+    agent = CodeAgent(EmptyCodeAdapter(), workspace_root=tmp_path, allow_fallbacks=True)
+
+    minimal = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id=workspace_id,
+            user_message="帮我做一个极简 Todo List 网页",
+        )
+    )
+    detailed = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_002",
+            workspace_id=workspace_id,
+            user_message="帮我做一个带优先级、截止日期和筛选的 Todo List 网页",
+        )
+    )
+
+    minimal_code = next(artifact for artifact in minimal.artifacts if artifact.type == "code")
+    detailed_code = next(artifact for artifact in detailed.artifacts if artifact.type == "code")
+    assert minimal_code.data["content"] != detailed_code.data["content"]
+    assert detailed_code.data["features"] == {
+        "priority": True,
+        "due_date": True,
+        "filter": True,
+    }
+    assert minimal_code.data["features"] == {
+        "priority": False,
+        "due_date": False,
+        "filter": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_code_agent_grade_request_does_not_use_todo_fallback(tmp_path) -> None:
+    class SchemaFailingAdapter:
+        id = "real-code"
+        name = "Real Code"
+        capabilities = ["code"]
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            raise RealAgentSchemaError("bad code schema")
+
+    workspace_id = "ws_001"
+    (tmp_path / workspace_id).mkdir()
+    agent = CodeAgent(SchemaFailingAdapter(), workspace_root=tmp_path, allow_fallbacks=True)
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id=workspace_id,
+            user_message=(
+                "根据 context.user_request 实现代码。\n\n"
+                "用户原始需求如下：@Orchestrator 我想你重新输出 todolist 代码，"
+                "用来展示一个班各个学生的成绩，自己写模拟生成10个，"
+                "用户可以添加和删除某个数据，添加排序按钮按照成绩排序"
+            ),
+            context={
+                "user_request": (
+                    "@Orchestrator 我想你重新输出 todolist 代码，完成用来展示一个班"
+                    "各个学生的成绩，模拟生成10个，用户可以添加和删除某个数据，"
+                    "添加排序按钮按照成绩排序"
+                )
+            },
+        )
+    )
+
+    code_artifact = next(artifact for artifact in result.artifacts if artifact.type == "code")
+    content = str(code_artifact.data["content"])
+    assert "学生成绩管理" in content
+    assert "学生 10" in content
+    assert "按成绩排序" in content
+    assert "todo-form" not in content
+
+
+@pytest.mark.asyncio
+async def test_code_agent_schema_failure_does_not_fallback_by_default(tmp_path) -> None:
+    class SchemaFailingAdapter:
+        id = "real-code"
+        name = "Real Code"
+        capabilities = ["code"]
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            raise RealAgentSchemaError("bad code schema")
+
+    workspace_id = "ws_001"
+    (tmp_path / workspace_id).mkdir()
+    agent = CodeAgent(SchemaFailingAdapter(), workspace_root=tmp_path)
+
+    with pytest.raises(AgentExecutionError, match="could not be parsed"):
+        await agent.run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id=workspace_id,
+                user_message="帮我做一个 Todo List 网页",
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_code_step_passes_original_request_to_code_agent() -> None:
+    captured_user_messages: list[str] = []
+
+    class CapturingCodeAdapter:
+        id = "code-agent"
+        name = "Code Agent"
+        capabilities = ["code"]
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            captured_user_messages.append(input_data.user_message)
+            return AgentRunResult(
+                agent_id="code-agent",
+                content="ok",
+                artifacts=[
+                    Artifact(
+                        id="code",
+                        type="code",
+                        title="index.html",
+                        data={"filename": "index.html", "content": "<main></main>"},
+                    ),
+                    Artifact(
+                        id="diff",
+                        type="diff",
+                        title="index.html diff",
+                        data={"filename": "index.html", "diff": "--- a/index.html\n"},
+                    ),
+                ],
+            )
+
+    service = AgentService(registry=AgentRegistry([CapturingCodeAdapter()]))
+    plan = OrchestratorPlan(
+        summary="one code step",
+        tasks=[
+            AgentTask(
+                task_id="task-code",
+                agent_id="code-agent",
+                instruction="根据 context.user_request 设计并实现可运行的代码变更。",
+            )
+        ],
+    )
+    original_request = (
+        "@Orchestrator 我想你重新输出 todolist 代码，展示学生成绩，"
+        "模拟生成10个，支持添加、删除和按成绩排序"
+    )
+
+    results = await service._run_orchestrator_pipeline(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message=original_request,
+        ),
+        plan=plan,
+        plan_content="计划",
+    )
+
+    assert [result.agent_id for result in results] == ["orchestrator", "code-agent"]
+    assert captured_user_messages
+    assert original_request in captured_user_messages[0]
+    assert "Code Agent 必须以这段需求为实现依据" in captured_user_messages[0]
+
+
+@pytest.mark.asyncio
+async def test_review_agent_schema_failure_returns_findings_artifact() -> None:
+    from agenthub.agents.review_agent import ReviewAgent
+
+    class SchemaFailingAdapter:
+        id = "real-review"
+        name = "Real Review"
+        capabilities = ["review"]
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            raise RealAgentSchemaError("bad review schema")
+
+    result = await ReviewAgent(SchemaFailingAdapter(), allow_fallbacks=True).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="检查 Todo 页面",
+            context={
+                "prior_artifacts": [
+                    {"type": "code"},
+                    {"type": "diff"},
+                ]
+            },
+        )
+    )
+
+    assert result.agent_id == "review-agent"
+    assert result.artifacts[0].type == "file"
+    assert "findings" in result.artifacts[0].data
+    assert "risk_level" in result.artifacts[0].data
+
+
+@pytest.mark.asyncio
+async def test_review_agent_schema_failure_recovers_by_default() -> None:
+    from agenthub.agents.review_agent import ReviewAgent
+
+    class SchemaFailingAdapter:
+        id = "real-review"
+        name = "Real Review"
+        capabilities = ["review"]
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            raise RealAgentSchemaError("bad review schema")
+
+    result = await ReviewAgent(SchemaFailingAdapter()).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="检查 Todo 页面",
+            context={"prior_artifacts": [{"type": "code"}, {"type": "diff"}]},
+        )
+    )
+
+    assert result.agent_id == "review-agent"
+    assert result.artifacts[0].type == "file"
+    assert result.artifacts[0].data["source"] == "schema-recovery-review"
+    assert "fallback" not in str(result.model_dump(mode="json")).lower()
+
+
+@pytest.mark.asyncio
+async def test_preview_agent_schema_failure_returns_preview_artifact() -> None:
+    from agenthub.agents.preview_agent import PreviewAgent
+
+    class SchemaFailingAdapter:
+        id = "real-preview"
+        name = "Real Preview"
+        capabilities = ["preview"]
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            raise RealAgentSchemaError("bad preview schema")
+
+    result = await PreviewAgent(SchemaFailingAdapter(), allow_fallbacks=True).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="预览 Todo 页面",
+            context={"preview_status": "ready", "preview_url": "http://127.0.0.1:18000"},
+        )
+    )
+
+    assert result.agent_id == "preview-agent"
+    assert result.artifacts[0].type == "preview"
+    assert result.artifacts[0].data["status"] == "ready"
+    assert "Preview 状态为 ready" in result.content
+
+
+@pytest.mark.asyncio
+async def test_preview_agent_schema_failure_recovers_by_default() -> None:
+    from agenthub.agents.preview_agent import PreviewAgent
+
+    class SchemaFailingAdapter:
+        id = "real-preview"
+        name = "Real Preview"
+        capabilities = ["preview"]
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            raise RealAgentSchemaError("bad preview schema")
+
+    result = await PreviewAgent(SchemaFailingAdapter()).run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="预览 Todo 页面",
+            context={"preview_status": "ready", "preview_url": "http://127.0.0.1:18000"},
+        )
+    )
+
+    assert result.agent_id == "preview-agent"
+    assert result.artifacts[0].type == "preview"
+    assert result.artifacts[0].data["status"] == "ready"
+    assert "fallback" not in str(result.model_dump(mode="json")).lower()
+
+
+def test_orchestrator_decision_normalizes_common_llm_plan_shape() -> None:
+    decision = OrchestratorDecision.model_validate(
+        {
+            "mode": "plan",
+            "content": "## 任务拆解",
+            "plan": {
+                "summary": "todo page",
+                "tasks": [
+                    {
+                        "agent": "Code Agent",
+                        "description": "实现 Todo List 网页并输出代码。",
+                        "depends_on": "none",
+                    },
+                    {
+                        "agent": "review",
+                        "task": "检查实现风险。",
+                        "depends_on": "code-agent",
+                    },
+                    {
+                        "agent_name": "Preview Agent",
+                        "objective": "验证预览是否可用。",
+                        "depends_on": ["task_review"],
+                    },
+                ],
+            },
+        }
+    )
+
+    assert decision.plan is not None
+    assert [task.agent_id for task in decision.plan.tasks] == [
+        "code-agent",
+        "review-agent",
+        "preview-agent",
+    ]
+    assert [task.task_id for task in decision.plan.tasks] == [
+        "task-code",
+        "task-review",
+        "task-preview",
+    ]
+    assert decision.plan.tasks[1].depends_on == ["task-code"]
+    assert decision.plan.tasks[2].depends_on == ["task-review"]
+
+
+def test_orchestrator_decision_accepts_top_level_tasks() -> None:
+    decision = OrchestratorDecision.model_validate(
+        {
+            "content": "## 任务拆解",
+            "tasks": [
+                {
+                    "agent": "Code Agent",
+                    "task": "根据 context.user_request 实现页面并输出 code/diff。",
+                    "depends_on": "none",
+                }
+            ],
+        }
+    )
+
+    assert decision.mode == "plan"
+    assert decision.plan is not None
+    assert decision.plan.tasks[0].agent_id == "code-agent"
+    assert decision.plan.tasks[0].task_id == "task-code"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_schema_failure_falls_back_to_executable_plan() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"mode":"plan","content":"bad"'}}]},
+        )
+
+    registry = AgentRegistry(
+        [
+            OrchestratorAdapter(
+                RealAgent(
+                    agent_id="orchestrator",
+                    api_key="test-key",
+                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                )
+            ),
+            MockAgent(agent_id="code-agent"),
+            MockAgent(agent_id="review-agent"),
+            MockAgent(agent_id="preview-agent"),
+        ]
+    )
+    service = AgentService(registry=registry)
+
+    results = await service.run_for_message(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="@Orchestrator 帮我做一个简洁的 Todo List 网页",
+        )
+    )
+
+    assert calls == 2
+    assert [result.agent_id for result in results] == [
+        "orchestrator",
+        "code-agent",
+        "review-agent",
+        "preview-agent",
+    ]
+    assert "安全兜底计划继续执行" in results[0].content
+    assert "不符合结构要求" not in results[0].content
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_schema_failure_falls_back_to_chat_for_greeting() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"mode":"chat","content":'}}]},
+        )
+
+    registry = AgentRegistry(
+        [
+            OrchestratorAdapter(
+                RealAgent(
+                    agent_id="orchestrator",
+                    api_key="test-key",
+                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                )
+            )
+        ]
+    )
+    service = AgentService(registry=registry)
+
+    results = await service.run_for_message(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="你好",
+        )
+    )
+
+    assert calls == 2
+    assert len(results) == 1
+    assert results[0].agent_id == "orchestrator"
+    assert "你好，我是 AgentHub Orchestrator" in results[0].content
+    assert "Agent orchestrator failed" not in results[0].content
+    assert "不符合结构要求" not in results[0].content
+
+
+@pytest.mark.asyncio
 async def test_real_agent_normalizes_loose_code_artifacts() -> None:
     payload = {
         "choices": [
@@ -173,6 +1117,85 @@ async def test_real_agent_normalizes_loose_code_artifacts() -> None:
     assert result.artifacts[0].type == "code"
     assert result.artifacts[0].title == "todo.html"
     assert result.artifacts[0].data["filename"] == "todo.html"
+
+
+@pytest.mark.asyncio
+async def test_real_agent_normalizes_artifact_mapping_without_repair() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"agent_id":"code-agent","content":"Generated code",'
+                                '"artifacts":{"html":"<main>ok</main>"},'
+                                '"next_actions":[]}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    assert calls == 1
+    assert result.artifacts[0].type == "code"
+    assert result.artifacts[0].data["filename"] == "index.html"
+    assert result.artifacts[0].data["content"] == "<main>ok</main>"
+
+
+@pytest.mark.asyncio
+async def test_real_agent_normalizes_string_list_as_content() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": '["交互完整。", "建议确认空输入提示。"]',
+                        }
+                    }
+                ]
+            },
+        )
+
+    agent = RealAgent(
+        agent_id="review-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="检查页面",
+        )
+    )
+
+    assert result.agent_id == "review-agent"
+    assert "交互完整" in result.content
+    assert "建议确认空输入提示" in result.content
 
 
 @pytest.mark.asyncio
@@ -213,6 +1236,125 @@ async def test_real_agent_infers_type_from_nested_artifact_data() -> None:
 
 
 @pytest.mark.asyncio
+async def test_real_agent_extracts_json_object_from_wrapped_response() -> None:
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": (
+                        "Here is the result:\n"
+                        '{"agent_id":"code-agent","content":"Generated code",'
+                        '"files":[{"path":"todo.html","content":"<main>ok</main>"}]}'
+                        "\nDone."
+                    )
+                }
+            }
+        ]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    assert result.content == "Generated code"
+    assert result.artifacts[0].type == "code"
+    assert result.artifacts[0].data["filename"] == "todo.html"
+    assert result.artifacts[0].data["content"] == "<main>ok</main>"
+
+
+@pytest.mark.asyncio
+async def test_real_agent_normalizes_top_level_code_fields() -> None:
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": (
+                        '{"agent_id":"code-agent","summary":"Generated",'
+                        '"filename":"index.html","code":"<main>ok</main>"}'
+                    )
+                }
+            }
+        ]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    assert result.content == "Generated"
+    assert result.artifacts[0].type == "code"
+    assert result.artifacts[0].data["filename"] == "index.html"
+    assert result.artifacts[0].data["content"] == "<main>ok</main>"
+
+
+@pytest.mark.asyncio
+async def test_real_agent_keeps_markdown_with_css_braces_as_markdown() -> None:
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": (
+                        "已生成页面。\n\n"
+                        '```html filename="index.html"\n'
+                        "<style>body { color: red; }</style>\n"
+                        "<main>ok</main>\n"
+                        "```"
+                    )
+                }
+            }
+        ]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    assert result.content.startswith("已生成页面")
+    assert result.artifacts[0].type == "code"
+    assert result.artifacts[0].data["filename"] == "index.html"
+    assert "body { color: red; }" in result.artifacts[0].data["content"]
+
+
+@pytest.mark.asyncio
 async def test_real_agent_extracts_code_artifacts_from_markdown_content() -> None:
     markdown = (
         "已生成页面代码。\n\n"
@@ -248,6 +1390,46 @@ async def test_real_agent_extracts_code_artifacts_from_markdown_content() -> Non
         "language": "tsx",
         "content": "export default function App() { return <main>ok</main> }",
     }
+
+
+@pytest.mark.asyncio
+async def test_real_agent_salvages_html_document_after_repair_failure() -> None:
+    html = "<!doctype html><html><body><main>ok</main></body></html>"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                f'{{"agent_id":"code-agent","content":"Generated","html":"{html}"'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    assert result.agent_id == "code-agent"
+    assert result.artifacts[0].type == "code"
+    assert result.artifacts[0].data["filename"] == "index.html"
+    assert result.artifacts[0].data["content"] == html
 
 
 @pytest.mark.asyncio
@@ -939,6 +2121,30 @@ async def test_agent_service_does_not_duplicate_agent_failure_prefix() -> None:
 
     assert results[0].content.count("Agent code-agent failed") == 1
     assert "provider unavailable" in results[0].content
+
+
+@pytest.mark.asyncio
+async def test_agent_service_schema_failure_message_does_not_blame_env() -> None:
+    class SchemaFailingAdapter:
+        id = "review-agent"
+        name = "Review Agent"
+        capabilities = ["review"]
+
+        async def run(self, input_data: AgentRunInput) -> object:
+            raise RealAgentSchemaError("模型连续返回了不符合 AgentRunResult 结构的内容。")
+
+    service = AgentService(registry=AgentRegistry([SchemaFailingAdapter()]))
+
+    results = await service.run_for_message(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="@ReviewAgent 检查代码",
+        )
+    )
+
+    assert "不符合结构要求" in results[0].content
+    assert ".env" not in results[0].content
 
 
 def test_unknown_agent_raises_not_found() -> None:

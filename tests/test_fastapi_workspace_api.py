@@ -24,6 +24,7 @@ def test_workspace_preview_uses_preview_url_field() -> None:
         "workspace_id": "ws_demo",
         "status": "not_started",
         "preview_url": None,
+        "entry_path": None,
     }
 
 
@@ -85,6 +86,7 @@ def test_workspace_file_write_list_read_and_apply_diff_flow(tmp_path, monkeypatc
     preview = preview_response.json()
     assert preview["status"] == "ready"
     assert preview["preview_url"].endswith("/api/workspaces/ws_demo/preview-page")
+    assert preview["entry_path"] is None
 
 
 def test_workspace_file_content_reads_real_workspace_file(tmp_path, monkeypatch) -> None:
@@ -209,6 +211,37 @@ def test_workspace_file_is_created_only_after_apply_diff(tmp_path, monkeypatch) 
     assert target_file.read_text(encoding="utf-8") == "<main>created after apply</main>\n"
 
 
+def test_apply_diff_sets_html_preview_entry_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+
+    diff = create_unified_diff("", "<main>todo preview</main>\n", "todo.html")
+    apply_response = test_client.post(
+        "/api/workspaces/ws_todo_preview/apply-diff",
+        json={"artifact_id": "artifact_diff_todo", "diff": diff},
+    )
+
+    assert apply_response.status_code == 200
+    applied = apply_response.json()
+    assert applied["path"] == "todo.html"
+    assert applied["entry_path"] == "todo.html"
+    assert applied["preview_url"].endswith(
+        "/api/workspaces/ws_todo_preview/preview-page?path=todo.html"
+    )
+
+    preview_response = test_client.get("/api/workspaces/ws_todo_preview/preview")
+    assert preview_response.status_code == 200
+    assert preview_response.json()["entry_path"] == "todo.html"
+    assert preview_response.json()["preview_url"] == applied["preview_url"]
+
+    page_response = test_client.get(
+        "/api/workspaces/ws_todo_preview/preview-page",
+        params={"path": "todo.html"},
+    )
+    assert page_response.status_code == 200
+    assert "<main>todo preview</main>" in page_response.text
+
+
 def test_workspace_path_traversal_is_rejected(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
     test_client = client()
@@ -258,6 +291,37 @@ def test_preview_page_rewrites_or_bases_relative_assets(tmp_path, monkeypatch) -
     assert '<base href="http://testserver/api/workspaces/ws_assets/preview-assets/">' in (
         response.text
     )
+    assert 'href="style.css"' in response.text
+    assert 'src="script.js"' in response.text
+
+
+def test_preview_page_uses_nested_entry_directory_for_relative_assets(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+    write_response = test_client.post(
+        "/api/workspaces/ws_nested_assets/files",
+        json={
+            "path": "pages/demo.html",
+            "content": (
+                '<!doctype html><html><head><link rel="stylesheet" href="style.css">'
+                '</head><body><script src="script.js"></script></body></html>'
+            ),
+        },
+    )
+    assert write_response.status_code == 201
+
+    response = test_client.get(
+        "/api/workspaces/ws_nested_assets/preview-page",
+        params={"path": "pages/demo.html"},
+    )
+
+    assert response.status_code == 200
+    assert (
+        '<base href="http://testserver/api/workspaces/ws_nested_assets/preview-assets/pages/">'
+    ) in response.text
     assert 'href="style.css"' in response.text
     assert 'src="script.js"' in response.text
 

@@ -36,15 +36,17 @@ async def get_workspace_preview_page(
     workspace_id: str,
     request: Request,
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
+    path: str = "index.html",
 ) -> HTMLResponse:
     try:
-        index_file = await service.get_file_content(workspace_id, "index.html")
-        asset_base_url = _preview_asset_base_url(request, workspace_id)
-        return HTMLResponse(_inject_preview_asset_base(index_file.content, asset_base_url))
+        preview_file = await service.get_file_content(workspace_id, path)
+        asset_base_url = _preview_asset_base_url(request, workspace_id, preview_file.path)
+        return HTMLResponse(_inject_preview_asset_base(preview_file.content, asset_base_url))
     except NotFoundError:
         preview = await service.get_preview(workspace_id)
         status = escape(preview.status)
         safe_workspace_id = escape(workspace_id)
+        safe_path = escape(path)
         return HTMLResponse(
             '<!doctype html><html><head><meta charset="utf-8">'
             "<style>body{font-family:Inter,system-ui,sans-serif;margin:0;"
@@ -54,7 +56,7 @@ async def get_workspace_preview_page(
             "code{background:#eef5f2;border-radius:6px;padding:2px 6px}</style>"
             f'</head><body><section class="card"><h1>{safe_workspace_id}</h1>'
             f"<p>Preview status: <code>{status}</code></p>"
-            "<p>当前 workspace 尚未生成 index.html，先展示预览状态页。</p>"
+            f"<p>当前 workspace 尚未生成 <code>{safe_path}</code>，先展示预览状态页。</p>"
             "</section></body></html>"
         )
 
@@ -124,17 +126,23 @@ async def apply_diff(
     request: Request,
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
 ) -> ApplyDiffResponse:
-    preview_url = str(request.url_for("get_workspace_preview_page", workspace_id=workspace_id))
-    return await service.apply_diff(workspace_id, request_data, preview_url=preview_url)
+    preview_page_url = str(request.url_for("get_workspace_preview_page", workspace_id=workspace_id))
+    return await service.apply_diff(
+        workspace_id,
+        request_data,
+        preview_page_url=preview_page_url,
+    )
 
 
-def _preview_asset_base_url(request: Request, workspace_id: str) -> str:
+def _preview_asset_base_url(request: Request, workspace_id: str, entry_path: str) -> str:
     placeholder = "__agenthub_asset__"
+    entry_dir = entry_path.rsplit("/", 1)[0] if "/" in entry_path else ""
+    placeholder_path = f"{entry_dir}/{placeholder}" if entry_dir else placeholder
     asset_url = str(
         request.url_for(
             "get_workspace_preview_asset",
             workspace_id=workspace_id,
-            path=placeholder,
+            path=placeholder_path,
         )
     )
     return asset_url.rsplit(placeholder, 1)[0]

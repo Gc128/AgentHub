@@ -1,8 +1,10 @@
+import json
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 from agenthub.repositories.conversation_repo import ConversationRepository
 from agenthub.repositories.message_repo import MessageRepository
-from agenthub.schemas.agent import AgentRunInput
+from agenthub.schemas.agent import AgentRunInput, AgentRunResult
 from agenthub.schemas.message import Message, MessageCreate, MessageSendResponse
 from agenthub.services.agent_service import AgentService
 from agenthub.utils.ids import new_id
@@ -83,5 +85,69 @@ class MessageService:
         await self._conversation_repository.save(updated)
         return MessageSendResponse(user_message=user_message, agent_messages=agent_messages)
 
+    async def stream_message(
+        self,
+        conversation_id: str,
+        request: MessageCreate,
+    ) -> AsyncIterator[str]:
+        conversation = await self._conversation_repository.get(conversation_id)
+        user_message = await self.create_message(
+            conversation_id,
+            request.model_copy(update={"sender_id": "user", "artifacts": []}),
+        )
+        yield _format_sse("user_message", {"message": user_message.model_dump(mode="json")})
+
+        if not request.run_agent:
+            yield _format_sse("done", {"agent_messages": []})
+            return
+
+        history = await self._message_repository.list_by_conversation(conversation_id)
+        agent_messages: list[Message] = []
+        stream_input = AgentRunInput(
+            conversation_id=conversation_id,
+            workspace_id=conversation.workspace_id,
+            user_message=request.content,
+            history=history,
+        )
+        async for event, data in self._agent_service.stream_for_message(stream_input):
+            if event == "agent_done":
+                result_payload = data.get("result")
+                if isinstance(result_payload, dict):
+                    agent_result = self._agent_result_from_payload(result_payload)
+                    agent_message = Message(
+                        id=new_id("msg"),
+                        conversation_id=conversation_id,
+                        role="agent",
+                        sender_id=agent_result.agent_id,
+                        content=agent_result.content,
+                        artifacts=agent_result.artifacts,
+                        created_at=datetime.now(UTC),
+                    )
+                    await self._message_repository.save(agent_message)
+                    agent_messages.append(agent_message)
+                    yield _format_sse(
+                        "agent_done",
+                        {
+                            "message": agent_message.model_dump(mode="json"),
+                            "result": agent_result.model_dump(mode="json"),
+                        },
+                    )
+                    continue
+            yield _format_sse(event, data)
+
+        updated = conversation.model_copy(update={"updated_at": datetime.now(UTC)})
+        await self._conversation_repository.save(updated)
+        yield _format_sse(
+            "done",
+            {"agent_messages": [message.model_dump(mode="json") for message in agent_messages]},
+        )
+
     async def delete_messages_for_conversation(self, conversation_id: str) -> None:
         await self._message_repository.delete_by_conversation(conversation_id)
+
+    def _agent_result_from_payload(self, payload: dict[str, object]) -> AgentRunResult:
+        return AgentRunResult.model_validate(payload)
+
+
+def _format_sse(event: str, data: object) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"

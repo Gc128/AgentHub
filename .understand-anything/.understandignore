@@ -1,0 +1,50 @@
+# .understandignore - patterns for files/dirs to exclude from analysis
+# Syntax: same as .gitignore (globs, # comments, ! negation, trailing / for dirs)
+# Lines below are active for this AgentHub analysis.
+#
+# Built-in defaults also exclude common generated directories and binary assets.
+
+# Local tool clone, not part of the AgentHub product codebase.
+Understand-Anything/
+
+# Local agent/app state.
+.codex/
+
+# Python/runtime caches and local environments.
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Frontend dependencies and generated output.
+node_modules/
+frontend/node_modules/
+.next/
+dist/
+build/
+out/
+coverage/
+.turbo/
+.vite/
+*.tsbuildinfo
+
+# Secrets, local data, and generated runtime artifacts.
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+workspaces/
+previews/
+artifacts/
+logs/
+tmp/
+temp/
+
+# OS/editor noise.
+.DS_Store
+.idea/
+.vscode/

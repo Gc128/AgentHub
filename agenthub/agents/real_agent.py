@@ -1,10 +1,11 @@
 import json
 import re
 import shlex
-from typing import Any
+from collections.abc import AsyncIterator
+from typing import Any, TypeVar
 
 import httpx
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from agenthub.schemas.agent import AgentRunInput, AgentRunResult
 from agenthub.schemas.artifact import Artifact
@@ -12,6 +13,21 @@ from agenthub.schemas.artifact import Artifact
 
 class RealAgentUnavailableError(RuntimeError):
     pass
+
+
+class RealAgentConfigurationError(RealAgentUnavailableError):
+    pass
+
+
+class RealAgentTransportError(RealAgentUnavailableError):
+    pass
+
+
+class RealAgentSchemaError(RealAgentUnavailableError):
+    pass
+
+
+StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
 
 
 class RealAgent:
@@ -49,14 +65,50 @@ class RealAgent:
         self._http_client = http_client
 
     async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+        content = await self._request_content(input_data)
+        return await self._parse_agent_result_with_repair(input_data, content)
+
+    async def run_structured(
+        self,
+        input_data: AgentRunInput,
+        model: type[StructuredModel],
+        *,
+        schema_name: str,
+    ) -> StructuredModel:
+        content = await self._request_content(input_data)
+        try:
+            return _parse_structured_model(content, model)
+        except RealAgentSchemaError as exc:
+            repaired_content = await self._request_repair(
+                input_data,
+                original_content=content,
+                validation_error=str(exc),
+                schema_name=schema_name,
+            )
+            try:
+                return _parse_structured_model(repaired_content, model)
+            except RealAgentSchemaError as repaired_exc:
+                raise RealAgentSchemaError(
+                    f"模型连续返回了不符合 {schema_name} 结构的内容。"
+                ) from repaired_exc
+
+    async def _request_content(self, input_data: AgentRunInput) -> str:
         if not self.api_key:
-            raise RealAgentUnavailableError("Real agent integration is not configured yet.")
+            raise RealAgentConfigurationError("Real agent integration is not configured yet.")
         if self.provider not in {"openai", "openai-compatible"}:
-            raise RealAgentUnavailableError(f"Provider {self.provider!r} is not supported yet.")
+            raise RealAgentConfigurationError(f"Provider {self.provider!r} is not supported yet.")
 
         payload = self._build_payload(input_data)
         headers = {"Authorization": f"Bearer {self.api_key}"}
+        response = await self._post_chat_completion(payload, headers)
+        content = self._extract_content(response.json())
+        return content
 
+    async def _post_chat_completion(
+        self,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+    ) -> httpx.Response:
         try:
             if self._http_client is not None:
                 response = await self._http_client.post(
@@ -72,21 +124,128 @@ class RealAgent:
                         json=payload,
                     )
             response.raise_for_status()
+            return response
         except httpx.HTTPStatusError as exc:
-            raise RealAgentUnavailableError(self._status_error_message(exc)) from exc
+            if exc.response.status_code in {401, 403}:
+                raise RealAgentConfigurationError(self._status_error_message(exc)) from exc
+            raise RealAgentTransportError(self._status_error_message(exc)) from exc
         except httpx.TimeoutException as exc:
-            raise RealAgentUnavailableError(
+            raise RealAgentTransportError(
                 f"LLM request timed out after {self.timeout_seconds:g} seconds "
                 f"({type(exc).__name__}). Increase AGENT_REQUEST_TIMEOUT_SECONDS, "
                 "disable provider-side thinking, or check provider latency."
             ) from exc
         except httpx.HTTPError as exc:
-            raise RealAgentUnavailableError(
+            raise RealAgentTransportError(
                 f"LLM request failed before completion ({type(exc).__name__})."
             ) from exc
 
-        content = self._extract_content(response.json())
-        return self._parse_result(content)
+    async def _request_repair(
+        self,
+        input_data: AgentRunInput,
+        *,
+        original_content: str,
+        validation_error: str,
+        schema_name: str,
+    ) -> str:
+        if not self.api_key:
+            raise RealAgentConfigurationError("Real agent integration is not configured yet.")
+        repair_payload = self._build_payload(input_data)
+        repair_payload["messages"] = [
+            {
+                "role": "system",
+                "content": (
+                    "You repair malformed structured JSON for AgentHub. "
+                    f"Return only one valid JSON object matching {schema_name}. "
+                    "Do not include markdown fences or explanation."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "schema_name": schema_name,
+                        "validation_error": validation_error,
+                        "original_output": original_content,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        response = await self._post_chat_completion(repair_payload, headers)
+        return self._extract_content(response.json())
+
+    async def _parse_agent_result_with_repair(
+        self,
+        input_data: AgentRunInput,
+        content: str,
+    ) -> AgentRunResult:
+        try:
+            return self._parse_result(content)
+        except RealAgentSchemaError as exc:
+            repaired_content = await self._request_repair(
+                input_data,
+                original_content=content,
+                validation_error=str(exc),
+                schema_name="AgentRunResult",
+            )
+            try:
+                return self._parse_result(repaired_content)
+            except RealAgentSchemaError as repaired_exc:
+                salvaged = _salvage_unstructured_agent_result(content, self.id)
+                if salvaged is not None:
+                    return salvaged
+                salvaged = _salvage_unstructured_agent_result(repaired_content, self.id)
+                if salvaged is not None:
+                    return salvaged
+                raise RealAgentSchemaError(
+                    "模型连续返回了不符合 AgentRunResult 结构的内容。"
+                ) from repaired_exc
+
+    async def stream(self, input_data: AgentRunInput) -> AsyncIterator[str]:
+        if not self.api_key:
+            raise RealAgentConfigurationError("Real agent integration is not configured yet.")
+        if self.provider not in {"openai", "openai-compatible"}:
+            raise RealAgentConfigurationError(f"Provider {self.provider!r} is not supported yet.")
+
+        payload = {**self._build_payload(input_data), "stream": True}
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+
+        try:
+            if self._http_client is not None:
+                async with self._http_client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    async for chunk in _iter_stream_deltas(response):
+                        yield chunk
+            else:
+                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    ) as response:
+                        response.raise_for_status()
+                        async for chunk in _iter_stream_deltas(response):
+                            yield chunk
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in {401, 403}:
+                raise RealAgentConfigurationError(self._status_error_message(exc)) from exc
+            raise RealAgentTransportError(self._status_error_message(exc)) from exc
+        except httpx.TimeoutException as exc:
+            raise RealAgentTransportError(
+                f"LLM streaming request timed out after {self.timeout_seconds:g} seconds."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise RealAgentTransportError(
+                f"LLM streaming request failed before completion ({type(exc).__name__})."
+            ) from exc
 
     def _build_payload(self, input_data: AgentRunInput) -> dict[str, Any]:
         history_messages = [
@@ -153,19 +312,39 @@ class RealAgent:
         payload_text = _strip_json_fence(content)
         try:
             payload = json.loads(payload_text)
-        except json.JSONDecodeError:
-            return AgentRunResult(
-                agent_id=self.id,
-                content=content,
-                artifacts=_extract_markdown_code_artifacts(content, self.id),
-                next_actions=[],
-            )
+        except json.JSONDecodeError as exc:
+            extracted_payload = _extract_json_object(payload_text)
+            if extracted_payload and not _looks_like_json(payload_text):
+                try:
+                    payload = json.loads(extracted_payload)
+                except json.JSONDecodeError:
+                    return AgentRunResult(
+                        agent_id=self.id,
+                        content=content,
+                        artifacts=_extract_markdown_code_artifacts(content, self.id),
+                        next_actions=[],
+                    )
+            elif _looks_like_json(payload_text):
+                raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
+            else:
+                return AgentRunResult(
+                    agent_id=self.id,
+                    content=content,
+                    artifacts=_extract_markdown_code_artifacts(content, self.id),
+                    next_actions=[],
+                )
 
+        if isinstance(payload, list):
+            payload = _payload_from_json_list(payload, self.id)
         if not isinstance(payload, dict):
-            raise RealAgentUnavailableError("Structured LLM response must be a JSON object.")
+            raise RealAgentSchemaError("Structured LLM response must be a JSON object.")
+        payload = _unwrap_agent_result_payload(payload)
+        payload = _normalize_agent_result_payload(payload, self.id)
         payload.setdefault("agent_id", self.id)
         payload.setdefault("artifacts", [])
         payload.setdefault("next_actions", [])
+        if not isinstance(payload["artifacts"], list):
+            raise RealAgentSchemaError("Structured LLM artifacts field must be a list.")
         payload["artifacts"] = [
             self._normalize_artifact(artifact, index)
             for index, artifact in enumerate(payload["artifacts"])
@@ -179,7 +358,7 @@ class RealAgent:
         try:
             return AgentRunResult.model_validate(payload)
         except ValidationError as exc:
-            raise RealAgentUnavailableError(
+            raise RealAgentSchemaError(
                 "Structured LLM response did not match AgentRunResult schema."
             ) from exc
 
@@ -225,6 +404,482 @@ def _strip_json_fence(content: str) -> str:
     return value
 
 
+def _parse_structured_model(content: str, model: type[StructuredModel]) -> StructuredModel:
+    payload_text = _strip_json_fence(content)
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        extracted_payload = _extract_json_object(payload_text)
+        if not extracted_payload:
+            if _looks_like_json(payload_text):
+                raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
+            salvaged = _salvage_structured_model_payload(content, None, model)
+            if salvaged is not None:
+                return model.model_validate(salvaged)
+            raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
+        if _looks_like_json(payload_text):
+            raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
+        try:
+            payload = json.loads(extracted_payload)
+        except json.JSONDecodeError as extracted_exc:
+            salvaged = _salvage_structured_model_payload(content, None, model)
+            if salvaged is not None:
+                return model.model_validate(salvaged)
+            raise RealAgentSchemaError(
+                "Structured LLM response was not valid JSON."
+            ) from extracted_exc
+    if not isinstance(payload, dict):
+        salvaged = _salvage_structured_model_payload(content, payload, model)
+        if salvaged is not None:
+            return model.model_validate(salvaged)
+        raise RealAgentSchemaError("Structured LLM response must be a JSON object.")
+    try:
+        return model.model_validate(payload)
+    except ValidationError as exc:
+        salvaged = _salvage_structured_model_payload(content, payload, model)
+        if salvaged is not None:
+            return model.model_validate(salvaged)
+        raise RealAgentSchemaError(
+            f"Structured LLM response did not match {model.__name__} schema."
+        ) from exc
+
+
+def _salvage_structured_model_payload(
+    content: str,
+    payload: object,
+    model: type[StructuredModel],
+) -> dict[str, Any] | None:
+    if model.__name__ != "OrchestratorDecision":
+        return None
+    if isinstance(payload, list) and payload and all(isinstance(item, dict) for item in payload):
+        return {
+            "mode": "plan",
+            "content": "## 任务拆解",
+            "plan": {"summary": "LLM task list", "tasks": payload},
+        }
+    if isinstance(payload, dict):
+        for key in ("steps", "tasks", "subtasks", "agents"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return {
+                    "mode": "plan",
+                    "content": str(
+                        payload.get("content") or payload.get("summary") or "## 任务拆解"
+                    ),
+                    "plan": {"summary": str(payload.get("summary") or ""), "tasks": value},
+                }
+        content_value = payload.get("content")
+        if isinstance(content_value, str):
+            return _salvage_orchestrator_decision_from_text(content_value, chat_if_no_tasks=False)
+        return None
+    return _salvage_orchestrator_decision_from_text(content)
+
+
+def _salvage_orchestrator_decision_from_text(
+    content: str,
+    *,
+    chat_if_no_tasks: bool = True,
+) -> dict[str, Any] | None:
+    text = content.strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    tasks: list[dict[str, object]] = []
+    if "code-agent" in lowered or "code agent" in lowered:
+        tasks.append(
+            {
+                "task_id": "task-code",
+                "agent_id": "code-agent",
+                "instruction": (
+                    "根据 context.user_request 实现用户需求，并输出 code artifact "
+                    "和 diff artifact。"
+                ),
+                "depends_on": [],
+            }
+        )
+    if "review-agent" in lowered or "review agent" in lowered:
+        tasks.append(
+            {
+                "task_id": "task-review",
+                "agent_id": "review-agent",
+                "instruction": "审查前序代码和 diff，输出 findings 与 risk_level。",
+                "depends_on": ["task-code"] if tasks else [],
+            }
+        )
+    if "preview-agent" in lowered or "preview agent" in lowered:
+        depends_on = (
+            ["task-review"] if any(task["agent_id"] == "review-agent" for task in tasks) else []
+        )
+        tasks.append(
+            {
+                "task_id": "task-preview",
+                "agent_id": "preview-agent",
+                "instruction": "验证 workspace preview 状态，输出 preview artifact。",
+                "depends_on": depends_on,
+            }
+        )
+    if tasks:
+        return {
+            "mode": "plan",
+            "content": text,
+            "plan": {"summary": "LLM text plan", "tasks": tasks},
+        }
+    if not chat_if_no_tasks:
+        return None
+    return {"mode": "chat", "content": text, "plan": None}
+
+
+def _salvage_unstructured_agent_result(content: str, agent_id: str) -> AgentRunResult | None:
+    artifacts = _extract_markdown_code_artifacts(content, agent_id)
+    if not artifacts:
+        artifacts = _extract_html_document_artifacts(content, agent_id)
+    if not artifacts:
+        return None
+    return AgentRunResult(
+        agent_id=agent_id,
+        content=content,
+        artifacts=artifacts,
+        next_actions=[],
+    )
+
+
+def _looks_like_json(content: str) -> bool:
+    stripped = content.lstrip()
+    return stripped.startswith("{") or stripped.startswith("[")
+
+
+def _extract_json_object(content: str) -> str | None:
+    start = content.find("{")
+    if start < 0:
+        return None
+
+    in_string = False
+    escaped = False
+    depth = 0
+    for index in range(start, len(content)):
+        char = content[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+            continue
+        if char == "}":
+            depth -= 1
+            if depth == 0:
+                return content[start : index + 1].strip()
+
+    return None
+
+
+def _normalize_agent_result_payload(payload: dict[str, Any], agent_id: str) -> dict[str, Any]:
+    values = dict(payload)
+    if not isinstance(values.get("agent_id"), str) or not values.get("agent_id"):
+        values["agent_id"] = agent_id
+
+    if "content" not in values or not isinstance(values.get("content"), str):
+        for key in ("summary", "message", "reply", "description"):
+            value = values.get(key)
+            if isinstance(value, str) and value.strip():
+                values["content"] = value
+                break
+    if "content" not in values or not isinstance(values.get("content"), str):
+        values["content"] = _content_from_loose_payload(values)
+
+    artifacts = values.get("artifacts")
+    if isinstance(artifacts, dict):
+        if _looks_like_loose_artifact(artifacts):
+            artifacts = [artifacts]
+        else:
+            artifacts = _coerce_artifact_mapping(artifacts, agent_id)
+    elif not isinstance(artifacts, list):
+        artifacts = []
+    values["artifacts"] = [
+        *_coerce_loose_artifacts(artifacts),
+        *_artifacts_from_loose_payload(values, agent_id),
+    ]
+
+    next_actions = values.get("next_actions", [])
+    if isinstance(next_actions, str):
+        values["next_actions"] = [next_actions]
+    elif not isinstance(next_actions, list):
+        values["next_actions"] = []
+
+    return values
+
+
+def _unwrap_agent_result_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    for key in ("result", "data", "response", "agent_result"):
+        value = payload.get(key)
+        if isinstance(value, dict) and _looks_like_agent_result_payload(value):
+            merged = dict(value)
+            for outer_key in ("agent_id", "next_actions"):
+                if outer_key not in merged and outer_key in payload:
+                    merged[outer_key] = payload[outer_key]
+            return merged
+    return payload
+
+
+def _payload_from_json_list(payload: list[object], agent_id: str) -> dict[str, Any] | object:
+    if all(isinstance(item, str) and item.strip() for item in payload):
+        lines = [str(item).strip() for item in payload]
+        return {
+            "agent_id": agent_id,
+            "content": "\n".join(f"- {line}" for line in lines),
+            "artifacts": [],
+            "next_actions": [],
+        }
+    if payload and all(isinstance(item, dict) for item in payload):
+        artifact_like_items = [
+            item for item in payload if isinstance(item, dict) and _looks_like_loose_artifact(item)
+        ]
+        if artifact_like_items:
+            return {
+                "agent_id": agent_id,
+                "content": _content_from_loose_payload({"artifacts": artifact_like_items}),
+                "artifacts": artifact_like_items,
+                "next_actions": [],
+            }
+    return payload
+
+
+def _looks_like_agent_result_payload(payload: dict[str, Any]) -> bool:
+    return any(
+        key in payload
+        for key in {
+            "agent_id",
+            "content",
+            "summary",
+            "message",
+            "reply",
+            "artifacts",
+            "files",
+            "file_changes",
+            "generated_files",
+            "filename",
+            "code",
+            "html",
+        }
+    )
+
+
+def _content_from_loose_payload(payload: dict[str, Any]) -> str:
+    content_parts: list[str] = []
+    for artifact in _artifacts_from_loose_payload(payload, "agent"):
+        if not isinstance(artifact, dict):
+            continue
+        artifact_payload = _artifact_payload(artifact)
+        filename = artifact_payload.get("filename")
+        code_content = artifact_payload.get("content")
+        if not isinstance(code_content, str) or not code_content:
+            continue
+        language = str(artifact_payload.get("language") or _language_from_filename(str(filename)))
+        if not isinstance(filename, str) or not filename:
+            filename = _default_filename_for_language(language, len(content_parts) + 1)
+        content_parts.append(f'```{language} filename="{filename}"\n{code_content.rstrip()}\n```')
+    if content_parts:
+        return "已生成代码。\n\n" + "\n\n".join(content_parts)
+    return "已生成结果。"
+
+
+def _coerce_loose_artifacts(artifacts: list[object]) -> list[object]:
+    coerced: list[object] = []
+    for index, artifact in enumerate(artifacts, start=1):
+        if isinstance(artifact, dict):
+            coerced.extend(_coerce_one_loose_artifact(artifact))
+        elif isinstance(artifact, str) and artifact.strip():
+            coerced.append(
+                {
+                    "id": f"artifact-file-{index}",
+                    "type": "file",
+                    "title": f"Artifact {index}",
+                    "data": {"content": artifact.strip()},
+                }
+            )
+    return coerced
+
+
+def _coerce_artifact_mapping(artifacts: dict[str, Any], agent_id: str) -> list[object]:
+    coerced: list[object] = []
+    for key, value in artifacts.items():
+        if isinstance(value, dict):
+            artifact = dict(value)
+            artifact.setdefault("title", key)
+            if key in {"code", "html", "css", "javascript", "js", "typescript", "tsx"}:
+                artifact.setdefault("type", "code")
+            elif key in {"diff", "patch"}:
+                artifact.setdefault("type", "diff")
+            coerced.extend(_coerce_one_loose_artifact(artifact))
+            continue
+
+        if isinstance(value, str) and value.strip():
+            filename = _filename_from_mapping_key(key)
+            if filename:
+                coerced.append(
+                    {
+                        "id": f"artifact-{agent_id}-{key}",
+                        "type": "code",
+                        "title": filename,
+                        "data": {
+                            "filename": filename,
+                            "language": _language_from_filename(filename),
+                            "content": value,
+                        },
+                    }
+                )
+            else:
+                coerced.append(
+                    {
+                        "id": f"artifact-{agent_id}-{key}",
+                        "type": "file",
+                        "title": key,
+                        "data": {"content": value},
+                    }
+                )
+    return coerced
+
+
+def _artifacts_from_loose_payload(payload: dict[str, Any], agent_id: str) -> list[object]:
+    artifacts: list[object] = []
+    for key in ("files", "file_changes", "generated_files"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    artifacts.extend(_coerce_one_loose_artifact(item))
+
+    for key in ("code", "html", "css", "javascript", "js", "typescript", "tsx"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            filename = _filename_from_loose_payload(payload, key)
+            artifacts.append(
+                {
+                    "id": f"artifact-{agent_id}-{key}",
+                    "type": "code",
+                    "title": filename,
+                    "data": {
+                        "filename": filename,
+                        "language": _language_from_loose_key_or_filename(key, filename),
+                        "content": value,
+                    },
+                }
+            )
+
+    if {"filename", "content"}.issubset(payload):
+        artifacts.extend(_coerce_one_loose_artifact(payload))
+
+    artifact = payload.get("artifact")
+    if isinstance(artifact, dict):
+        artifacts.extend(_coerce_one_loose_artifact(artifact))
+
+    return artifacts
+
+
+def _coerce_one_loose_artifact(artifact: dict[str, Any]) -> list[object]:
+    payload = _artifact_payload(artifact)
+    filename = _string_value(payload, "filename", "file", "path", "name")
+    code_content = _string_value(payload, "content", "code", "source")
+    diff = _string_value(payload, "diff", "patch")
+
+    if filename and code_content:
+        return [
+            {
+                **artifact,
+                "type": artifact.get("type") or "code",
+                "title": artifact.get("title") or filename,
+                "data": {
+                    **payload,
+                    "filename": filename,
+                    "language": payload.get("language") or _language_from_filename(filename),
+                    "content": code_content,
+                },
+            }
+        ]
+    if filename and diff:
+        return [
+            {
+                **artifact,
+                "type": artifact.get("type") or "diff",
+                "title": artifact.get("title") or f"{filename} diff",
+                "data": {
+                    **payload,
+                    "filename": filename,
+                    "diff": diff,
+                },
+            }
+        ]
+    return [artifact]
+
+
+def _looks_like_loose_artifact(artifact: dict[str, Any]) -> bool:
+    payload = _artifact_payload(artifact)
+    if any(key in artifact for key in {"id", "type", "title", "data"}):
+        return True
+    if any(
+        _string_value(payload, key)
+        for key in {"filename", "file", "path", "content", "code", "source", "diff", "patch"}
+    ):
+        return True
+    return False
+
+
+def _filename_from_loose_payload(payload: dict[str, Any], key: str) -> str:
+    filename = _string_value(payload, "filename", "file", "path", "name")
+    if filename:
+        return filename
+    return {
+        "html": "index.html",
+        "css": "style.css",
+        "javascript": "script.js",
+        "js": "script.js",
+        "typescript": "src/App.ts",
+        "tsx": "src/App.tsx",
+        "code": "index.html",
+    }.get(key, "index.html")
+
+
+def _filename_from_mapping_key(key: str) -> str | None:
+    if _looks_like_filename(key):
+        return key
+    return {
+        "html": "index.html",
+        "code": "index.html",
+        "css": "style.css",
+        "javascript": "script.js",
+        "js": "script.js",
+        "typescript": "src/App.ts",
+        "tsx": "src/App.tsx",
+    }.get(key)
+
+
+def _language_from_loose_key_or_filename(key: str, filename: str) -> str:
+    return {
+        "html": "html",
+        "css": "css",
+        "javascript": "javascript",
+        "js": "javascript",
+        "typescript": "typescript",
+        "tsx": "tsx",
+    }.get(key, _language_from_filename(filename))
+
+
+def _string_value(payload: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
 def _message_role_for_llm(role: str) -> str:
     if role == "agent":
         return "assistant"
@@ -243,6 +898,32 @@ def _safe_response_excerpt(response: httpx.Response) -> str:
     sanitized = re.sub(r"Bearer\s+[A-Za-z0-9._-]+", "Bearer ***", text)
     sanitized = re.sub(r"sk-[A-Za-z0-9._-]+", "sk-***", sanitized)
     return sanitized[:300]
+
+
+async def _iter_stream_deltas(response: httpx.Response) -> AsyncIterator[str]:
+    async for line in response.aiter_lines():
+        value = line.strip()
+        if not value or not value.startswith("data:"):
+            continue
+        data = value.removeprefix("data:").strip()
+        if data == "[DONE]":
+            break
+        try:
+            payload = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            continue
+        first = choices[0]
+        if not isinstance(first, dict):
+            continue
+        delta = first.get("delta")
+        if not isinstance(delta, dict):
+            continue
+        content = delta.get("content")
+        if isinstance(content, str) and content:
+            yield content
 
 
 def _infer_artifact_type(artifact: dict[str, Any]) -> str:
@@ -295,6 +976,30 @@ def _extract_markdown_code_artifacts(content: str, agent_id: str) -> list[Artifa
             )
         )
     return artifacts
+
+
+def _extract_html_document_artifacts(content: str, agent_id: str) -> list[Artifact]:
+    match = re.search(
+        r"(?is)(<!doctype\s+html[^<]*>\s*)?<html\b.*?</html>",
+        content,
+    )
+    if match is None:
+        return []
+    html = match.group(0).strip()
+    if not html:
+        return []
+    return [
+        Artifact(
+            id=f"artifact-{agent_id}-html-document",
+            type="code",
+            title="index.html",
+            data={
+                "filename": "index.html",
+                "language": "html",
+                "content": html,
+            },
+        )
+    ]
 
 
 def _parse_code_fence_metadata(meta: str, index: int) -> dict[str, str]:

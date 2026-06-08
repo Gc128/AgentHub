@@ -1,5 +1,6 @@
 import type {
   Agent,
+  AgentRuntimeInfo,
   AgentRunInput,
   AgentRunResult,
   AppliedDiffRecord,
@@ -11,6 +12,7 @@ import type {
   DeleteConversationResult,
   Message,
   MessageSendResponse,
+  MessageStreamEvent,
   UpdateConversationInput,
   WorkspaceFile,
   WorkspaceFileContent,
@@ -110,6 +112,82 @@ const requestJson = async <T>(
   return payload as T
 }
 
+const parseSseBlock = (block: string): MessageStreamEvent | null => {
+  const lines = block.split(/\r?\n/)
+  let event = 'message'
+  const dataLines: string[] = []
+
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      event = line.slice('event:'.length).trim()
+      continue
+    }
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice('data:'.length).trim())
+    }
+  }
+
+  if (dataLines.length === 0) {
+    return null
+  }
+
+  return {
+    event,
+    data: JSON.parse(dataLines.join('\n')) as unknown,
+  } as MessageStreamEvent
+}
+
+const requestSse = async (
+  path: string,
+  init: RequestInit,
+  onEvent: (event: MessageStreamEvent) => void,
+) => {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...init.headers,
+    },
+    ...init,
+  })
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as unknown
+    throw new Error(
+      getErrorMessage(payload) ??
+        `Request failed: ${response.status} ${response.statusText}`,
+    )
+  }
+  if (!response.body) {
+    throw new Error('当前浏览器不支持流式响应')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) {
+      break
+    }
+    buffer += decoder.decode(value, { stream: true })
+    const blocks = buffer.split(/\r?\n\r?\n/)
+    buffer = blocks.pop() ?? ''
+    for (const block of blocks) {
+      const parsed = parseSseBlock(block)
+      if (parsed) {
+        onEvent(parsed)
+      }
+    }
+  }
+
+  buffer += decoder.decode()
+  const parsed = parseSseBlock(buffer)
+  if (parsed) {
+    onEvent(parsed)
+  }
+}
+
 export const apiClient = {
   /**
    * 获取会话列表。
@@ -203,12 +281,31 @@ export const apiClient = {
     )
   },
 
+  streamMessage(
+    conversationId: string,
+    input: CreateMessageInput,
+    onEvent: (event: MessageStreamEvent) => void,
+  ): Promise<void> {
+    return requestSse(
+      `/api/conversations/${conversationId}/messages/stream`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+      onEvent,
+    )
+  },
+
   /**
    * 获取 Agent 联系人列表。
    * 由 FastAPI 后端返回可用 Agent 列表。
    */
   listAgents(): Promise<Agent[]> {
     return requestJson<Agent[]>('/api/agents')
+  },
+
+  getAgentRuntime(): Promise<AgentRuntimeInfo> {
+    return requestJson<AgentRuntimeInfo>('/api/agents/runtime')
   },
 
   /**
@@ -230,6 +327,13 @@ export const apiClient = {
     return requestJson<WorkspacePreview>(
       `/api/workspaces/${workspaceId}/preview`,
     )
+  },
+
+  getWorkspacePreviewPageUrl(workspaceId: string, path?: string): string {
+    const query = path
+      ? `?path=${path.split('/').map(encodeURIComponent).join('/')}`
+      : ''
+    return `${API_BASE_URL}/api/workspaces/${encodeURIComponent(workspaceId)}/preview-page${query}`
   },
 
   /**

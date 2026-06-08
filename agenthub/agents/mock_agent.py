@@ -1,4 +1,5 @@
 import json
+from collections.abc import AsyncIterator
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
@@ -76,3 +77,12 @@ class MockAgent:
                 )
             ),
         )
+
+    async def stream(self, input_data: AgentRunInput) -> AsyncIterator[str]:
+        result = await self.run(input_data)
+        words = result.content.split()
+        if not words:
+            return
+        for index, word in enumerate(words):
+            separator = "" if index == 0 else " "
+            yield f"{separator}{word}"

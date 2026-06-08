@@ -32,6 +32,8 @@ type WorkspacePanelProps = {
   deletingFilePath: string | null
   /** 读取文件内容，用于打开预览弹窗。 */
   onPreviewFile: (file: WorkspaceFile) => Promise<WorkspaceFileContent>
+  /** 生成某个 workspace 文件对应的 HTML 预览 URL。 */
+  getFilePreviewUrl: (path: string) => string
   /** 删除真实 workspace 文件。 */
   onDeleteFile: (file: WorkspaceFile) => Promise<void>
 }
@@ -110,7 +112,7 @@ const renderSourcePreview = (file: WorkspaceFileContent) => (
 
 const renderFilePreview = (
   file: WorkspaceFileContent,
-  previewUrl: string | undefined,
+  filePreviewUrl: string,
 ) => {
   if (!isHtmlFile(file.path)) {
     return renderSourcePreview(file)
@@ -123,11 +125,11 @@ const renderFilePreview = (
           key: 'preview',
           label: '预览',
           children: (
-            previewUrl ? (
+            filePreviewUrl ? (
               <iframe
                 className="workspace-file-preview-frame"
                 sandbox="allow-scripts allow-forms"
-                src={previewUrl}
+                src={filePreviewUrl}
                 title={`${file.path} preview`}
               />
             ) : (
@@ -158,6 +160,7 @@ export function WorkspacePanel({
   appliedDiffs,
   deletingFilePath,
   onPreviewFile,
+  getFilePreviewUrl,
   onDeleteFile,
 }: WorkspacePanelProps) {
   const workspaceId = conversation?.workspace_id ?? '未选择'
@@ -345,7 +348,9 @@ export function WorkspacePanel({
         title={previewFile?.path}
         width={860}
       >
-        {previewFile ? renderFilePreview(previewFile, preview?.preview_url) : null}
+        {previewFile
+          ? renderFilePreview(previewFile, getFilePreviewUrl(previewFile.path))
+          : null}
       </Modal>
       <Modal
         footer={null}

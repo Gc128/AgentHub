@@ -10,7 +10,7 @@ type GenericArtifactCardProps = {
 
 /**
  * 通用 Artifact 卡片。
- * Orchestrator 的任务拆解和 Review notes 当前都使用 file artifact，因此需要一个不丢信息的兜底渲染器。
+ * Review notes、harness report 和未知 artifact 使用这里兜底展示，避免丢失结构化信息。
  */
 export function GenericArtifactCard({ artifact }: GenericArtifactCardProps) {
   const steps = getArtifactStringList(artifact, 'steps')

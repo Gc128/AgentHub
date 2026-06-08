@@ -32,6 +32,14 @@ export type AgentAdapterType =
   | 'opencode'
   | 'custom'
 
+export type AgentRuntimeInfo = {
+  agent_mode: 'mock' | 'real'
+  provider: string
+  model: string
+  base_url_host: string
+  api_key_configured: boolean
+}
+
 /**
  * 结构化产物类型，对齐后端 ArtifactType。
  * code/diff/preview 是 Demo 主链路优先展示的三类产物。
@@ -114,6 +122,28 @@ export type MessageSendResponse = {
   agent_messages: Message[]
 }
 
+export type MessageStreamEvent =
+  | { event: 'user_message'; data: { message: Message } }
+  | { event: 'agent_started'; data: { agent_id: string } }
+  | { event: 'agent_delta'; data: { agent_id: string; delta: string } }
+  | { event: 'artifact'; data: { agent_id: string; artifact: Artifact } }
+  | {
+      event: 'agent_done'
+      data: { message: Message; result?: AgentRunResult }
+    }
+  | {
+      event: 'harness_step'
+      data: {
+        status: string
+        message?: string
+        task_id?: string
+        agent_id?: string
+        issues?: string[]
+      }
+    }
+  | { event: 'error'; data: { message: string } }
+  | { event: 'done'; data: { agent_messages?: Message[] } }
+
 /**
  * Agent 联系人对象，对齐后端 schemas/agent.py。
  * 前端用它展示 Agent 列表、能力标签和 @Agent 候选项。
@@ -167,7 +197,7 @@ export type AgentRunResult = {
 
 /**
  * workspace 预览状态。
- * 后端当前只返回 workspace_id/status；preview_url 是文档未明确但预览 iframe 需要的可选字段。
+ * preview_url 指向当前可打开的预览入口；entry_path 是该入口在 workspace 内的相对路径。
  */
 export type WorkspacePreview = {
   /** workspace 唯一 ID。 */
@@ -175,7 +205,9 @@ export type WorkspacePreview = {
   /** 预览生命周期状态：未开始、运行中、已就绪或失败。 */
   status: 'not_started' | 'running' | 'ready' | 'error'
   /** 可选预览 URL；后端补充后可直接用于 iframe。 */
-  preview_url?: string
+  preview_url?: string | null
+  /** 当前 preview_url 对应的 workspace 内 HTML 入口。 */
+  entry_path?: string | null
 }
 
 /** workspace 文件列表项。 */
@@ -313,6 +345,10 @@ export type ApplyDiffResult = {
   applied_artifact_id: string
   /** 实际修改的 workspace 文件路径。 */
   path?: string
+  /** 本次应用后可打开的预览 URL。 */
+  preview_url?: string | null
+  /** 本次应用后预览 URL 对应的 HTML 入口文件。 */
+  entry_path?: string | null
   /** 应用时间，使用 ISO 字符串。 */
   applied_at: string
 }

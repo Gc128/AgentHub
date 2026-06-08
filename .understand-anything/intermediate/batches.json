@@ -1,0 +1,221 @@
+{
+  "batches": [
+    {
+      "batchIndex": 1,
+      "name": "前端 IM 工作台",
+      "files": [
+        "frontend/.gitignore",
+        "frontend/eslint.config.js",
+        "frontend/flask/API.md",
+        "frontend/flask/data/agents.json",
+        "frontend/flask/data/applied_diffs.json",
+        "frontend/flask/data/conversations.json",
+        "frontend/flask/data/messages.json",
+        "frontend/flask/data/previews.json",
+        "frontend/flask/data/users.json",
+        "frontend/flask/data/workspace_files.json",
+        "frontend/flask/main.py",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/PLAN.md",
+        "frontend/README.md",
+        "frontend/src/api/client.ts",
+        "frontend/src/App.css",
+        "frontend/src/App.tsx",
+        "frontend/src/components/agents/AgentList.tsx",
+        "frontend/src/components/artifactCards/artifactData.ts",
+        "frontend/src/components/artifactCards/ArtifactPanel.tsx",
+        "frontend/src/components/artifactCards/ArtifactRenderer.tsx",
+        "frontend/src/components/artifactCards/CodeArtifactCard.tsx",
+        "frontend/src/components/artifactCards/DiffArtifactCard.tsx",
+        "frontend/src/components/artifactCards/diffLines.ts",
+        "frontend/src/components/artifactCards/GenericArtifactCard.tsx",
+        "frontend/src/components/artifactCards/PreviewArtifactCard.tsx",
+        "frontend/src/components/chat/ChatPanel.tsx",
+        "frontend/src/components/chat/MarkdownMessage.tsx",
+        "frontend/src/components/chat/MentionMenu.tsx",
+        "frontend/src/components/chat/MessageArtifactActions.tsx",
+        "frontend/src/components/chat/MessageComposer.tsx",
+        "frontend/src/components/conversations/ConversationList.tsx",
+        "frontend/src/components/conversations/ConversationMembersModal.tsx",
+        "frontend/src/components/conversations/NewConversationModal.tsx",
+        "frontend/src/components/layout/AppLayout.tsx",
+        "frontend/src/components/workspace/WorkspacePanel.tsx",
+        "frontend/src/index.css",
+        "frontend/src/main.tsx",
+        "frontend/src/types/api.ts",
+        "frontend/src/types/react-syntax-highlighter.d.ts",
+        "frontend/src/utils/agentRouting.ts",
+        "frontend/src/vite-env.d.ts",
+        "frontend/tsconfig.app.json",
+        "frontend/tsconfig.json",
+        "frontend/tsconfig.node.json",
+        "frontend/vite.config.ts"
+      ],
+      "batchImportData": {},
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 2,
+      "name": "FastAPI API 入口",
+      "files": [
+        "agenthub/api/__init__.py",
+        "agenthub/api/agents.py",
+        "agenthub/api/conversations.py",
+        "agenthub/api/deps.py",
+        "agenthub/api/messages.py",
+        "agenthub/api/workspaces.py",
+        "agenthub/main.py"
+      ],
+      "batchImportData": {},
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 3,
+      "name": "业务服务层",
+      "files": [
+        "agenthub/services/__init__.py",
+        "agenthub/services/agent_service.py",
+        "agenthub/services/conversation_service.py",
+        "agenthub/services/message_service.py",
+        "agenthub/services/workspace_service.py"
+      ],
+      "batchImportData": {},
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 4,
+      "name": "Agent 与 Orchestrator",
+      "files": [
+        "agenthub/agents/__init__.py",
+        "agenthub/agents/base.py",
+        "agenthub/agents/code_agent.py",
+        "agenthub/agents/mock_agent.py",
+        "agenthub/agents/preview_agent.py",
+        "agenthub/agents/real_agent.py",
+        "agenthub/agents/registry.py",
+        "agenthub/agents/review_agent.py",
+        "agenthub/orchestrator/__init__.py",
+        "agenthub/orchestrator/executor.py",
+        "agenthub/orchestrator/planner.py",
+        "agenthub/orchestrator/router.py"
+      ],
+      "batchImportData": {},
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 5,
+      "name": "Workspace 与变更应用",
+      "files": [
+        "agenthub/workspace/__init__.py",
+        "agenthub/workspace/diff.py",
+        "agenthub/workspace/git.py",
+        "agenthub/workspace/manager.py",
+        "agenthub/workspace/preview.py"
+      ],
+      "batchImportData": {},
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 6,
+      "name": "持久化层",
+      "files": [
+        "agenthub/models/__init__.py",
+        "agenthub/models/conversation.py",
+        "agenthub/models/message.py",
+        "agenthub/models/workspace.py",
+        "agenthub/repositories/__init__.py",
+        "agenthub/repositories/conversation_repo.py",
+        "agenthub/repositories/message_repo.py",
+        "agenthub/repositories/sqlite.py",
+        "agenthub/repositories/workspace_repo.py"
+      ],
+      "batchImportData": {},
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 7,
+      "name": "契约与配置",
+      "files": [
+        "agenthub/__init__.py",
+        "agenthub/config.py",
+        "agenthub/core/__init__.py",
+        "agenthub/core/errors.py",
+        "agenthub/schemas/__init__.py",
+        "agenthub/schemas/agent.py",
+        "agenthub/schemas/artifact.py",
+        "agenthub/schemas/conversation.py",
+        "agenthub/schemas/message.py",
+        "agenthub/schemas/workspace.py",
+        "agenthub/utils/__init__.py",
+        "agenthub/utils/ids.py",
+        "agenthub/utils/security.py"
+      ],
+      "batchImportData": {},
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 8,
+      "name": "测试与演示数据",
+      "files": [
+        "mock/demo_responses/agents.json",
+        "mock/demo_responses/README.md",
+        "tests/test_agents.py",
+        "tests/test_api.py",
+        "tests/test_config.py",
+        "tests/test_diff.py",
+        "tests/test_executor.py",
+        "tests/test_fastapi_workspace_api.py",
+        "tests/test_flask_workspace_api.py",
+        "tests/test_git.py",
+        "tests/test_orchestrator.py",
+        "tests/test_preview.py",
+        "tests/test_sqlite_repositories.py",
+        "tests/test_workspace.py"
+      ],
+      "batchImportData": {},
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 9,
+      "name": "文档与协作规则",
+      "files": [
+        ".github/pull_request_template.md",
+        "AgentHub- 多Agent协作平台设计.md",
+        "AGENTS.md",
+        "AI_COLLABORATION_RULES.md",
+        "CODEX_REVIEW_CHECKLIST.md",
+        "CODEX_TASK_TEMPLATE.md",
+        "CONTRIBUTING.md",
+        "DECISION_LOG.md",
+        "DEV_STATUS.md",
+        "docs/ai-rules.md",
+        "docs/demo-script.md",
+        "docs/dev-guide.md",
+        "docs/product-spec.md",
+        "docs/project-architecture.md",
+        "docs/prompt-log.md",
+        "docs/tech-design.md",
+        "MODULE_OWNERS.md",
+        "PROMPT_LOG.md",
+        "PYTHON_PROJECT_GUIDE.md",
+        "README_Codex_Docs.md",
+        "README.md"
+      ],
+      "batchImportData": {},
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 10,
+      "name": "工程配置",
+      "files": [
+        ".gitignore",
+        "install.sh",
+        "PYPROJECT_TEMPLATE.toml",
+        "pyproject.toml"
+      ],
+      "batchImportData": {},
+      "neighborMap": {}
+    }
+  ]
+}

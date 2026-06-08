@@ -1,6 +1,6 @@
 # AgentHub 项目整体架构与代码解读
 
-最后更新：2026-06-05
+最后更新：2026-06-07
 
 本文面向第一次接触 AgentHub 的开发者。读完后应当能够理解：
 
@@ -50,6 +50,7 @@ flowchart LR
     Services --> AgentService["AgentService"]
     AgentService --> Router["@Agent 路由"]
     AgentService --> Planner["Orchestrator 计划"]
+    AgentService --> Harness["执行 Harness"]
     AgentService --> Registry["AgentRegistry"]
     Registry --> RealAgent["RealAgent OpenAI-compatible"]
     RealAgent --> LLM["外部 LLM API"]
@@ -78,7 +79,7 @@ agenthub/
     deps.py                       依赖注入和仓库/服务创建
     conversations.py              会话 API
     messages.py                   消息 API
-    agents.py                     Agent 列表、调试运行、SSE stub
+    agents.py                     Agent 列表、runtime 信息、调试运行、SSE
     workspaces.py                 workspace 文件、preview、apply diff API
   agents/                         Agent Adapter 和具体业务 Agent
     base.py                       AgentAdapter 协议导出
@@ -90,7 +91,8 @@ agenthub/
     mock_agent.py                 Mock Agent，主要用于测试/离线
   orchestrator/
     router.py                     显式 @Agent 路由
-    planner.py                    规则式任务拆解
+    planner.py                    Plan/Decision 数据模型和 legacy 规则兜底
+    harness.py                    执行报告、步骤运行和校验结果模型
     executor.py                   旧/测试用编排执行器
   services/
     conversation_service.py       会话业务逻辑
@@ -205,6 +207,7 @@ PERSISTENCE_BACKEND=sqlite
 DATABASE_URL=sqlite:///./agenthub.db
 WORKSPACE_ROOT=./workspaces
 USE_MOCK_AGENTS=false
+AGENT_ALLOW_FALLBACKS=false
 
 AGENT_PROVIDER=openai-compatible
 AGENT_MODEL=gpt-4o-mini
@@ -224,6 +227,7 @@ OPENAI_API_KEY=
 | `DATABASE_URL` | SQLite 数据库位置。 |
 | `WORKSPACE_ROOT` | 真实 workspace 文件根目录。 |
 | `USE_MOCK_AGENTS` | `false` 时使用真实 LLM wrapper；`true` 时使用 MockAgent。 |
+| `AGENT_ALLOW_FALLBACKS` | 默认 `false`。只在显式调试时允许 Code/Review/Preview 使用旧兜底产物。 |
 | `AGENT_PROVIDER` | 当前支持 `openai` 或 `openai-compatible`。 |
 | `AGENT_BASE_URL` | OpenAI-compatible 服务 base URL，后端会追加 `/chat/completions`。 |
 | `AGENT_MODEL` | 具体模型名，由供应商决定。 |
@@ -369,7 +373,8 @@ workspace id: ws_conv_xxx
 | `artifacts` | 结构化产物列表。 |
 | `created_at` | 创建时间。 |
 
-`MessageCreate` 里有 `run_agent: bool = True`，但当前前端主流程使用 `/messages/run`，由后端统一保存用户消息并触发 Agent 调度。
+`MessageCreate` 里有 `run_agent: bool = True`。当前前端主流程使用 `/messages/stream`，
+由后端统一保存用户消息、触发 Agent 调度，并把进度以 SSE 返回。
 
 #### Artifact
 
@@ -446,9 +451,33 @@ Artifact 结构：
 | --- | --- | --- |
 | `GET` | `/api/conversations/{conversation_id}/messages` | 拉取会话消息。 |
 | `POST` | `/api/conversations/{conversation_id}/messages` | 只创建消息。 |
+| `POST` | `/api/conversations/{conversation_id}/messages/stream` | 创建用户消息，并以 SSE 流式返回 Agent 进度。 |
 | `POST` | `/api/conversations/{conversation_id}/messages/run` | 创建用户消息，并由后端调度 Agent。 |
 
-当前前端主链路只依赖：
+当前前端主链路优先使用流式接口：
+
+```txt
+POST /api/conversations/{conversation_id}/messages/stream
+```
+
+该接口返回 SSE，事件顺序围绕聊天体验设计：
+
+```txt
+user_message
+agent_started
+agent_delta
+artifact
+agent_done
+harness_step
+error
+done
+```
+
+前端收到 `user_message` 后立即展示用户消息；收到 `agent_started` 后创建 Agent
+草稿气泡；收到 `agent_delta` 后增量追加正文；收到 `agent_done` 后用后端落盘的真实
+message 替换草稿。`harness_step` 用于展示 Orchestrator 的计划、执行、校验和重试进度。
+
+非流式兼容接口仍然保留：
 
 ```txt
 POST /api/conversations/{conversation_id}/messages/run
@@ -481,9 +510,10 @@ POST /api/conversations/{conversation_id}/messages/run
 重要行为：
 
 - 用户消息一定会先保存；
-- 如果用户没有显式 `@Agent`，`agent_messages` 是空数组；
+- 如果用户没有显式 `@Agent`，Orchestrator 作为默认助手入口响应；
+- 普通问候/闲聊直接生成 Orchestrator 回复，开发需求自动进入 harness；
 - 如果用户显式 `@CodeAgent`，只调用 Code Agent；
-- 如果用户显式 `@Orchestrator`，后端生成计划并顺序调用子 Agent；
+- 如果用户显式 `@Orchestrator`，后端生成计划并执行 harness；
 - Agent 失败时，当前实现倾向于返回一条 agent 错误消息，而不是直接让前端看到 502。
 
 ### 6.3 Agent API
@@ -496,7 +526,7 @@ POST /api/conversations/{conversation_id}/messages/run
 | --- | --- | --- |
 | `GET` | `/api/agents` | 获取可用 Agent 列表。 |
 | `POST` | `/api/agents/run` | 调试接口，直接运行 AgentService。 |
-| `GET` | `/api/agents/stream` | SSE 接口，目前是基础 stub。 |
+| `POST` | `/api/agents/stream` | 调试 SSE 接口，输出 Agent 流式事件。 |
 
 注意：`/api/agents/run` 保留为调试接口，前端主流程不依赖它。
 
@@ -569,8 +599,9 @@ POST /api/workspaces/{workspace_id}/apply-diff
 - 读取会话信息；
 - 构造 `AgentRunInput`；
 - 调用 `AgentService.run_for_message()`；
+- 或调用 `AgentService.stream_for_message()` 并转成 SSE；
 - 把每个 `AgentRunResult` 转成真实 `Message` 并持久化；
-- 返回 `MessageSendResponse`。
+- 返回 `MessageSendResponse` 或 SSE `done` 事件。
 
 核心流程：
 
@@ -583,6 +614,18 @@ send_message(conversation_id, message_create)
   -> 每个 AgentRunResult 转成 agent Message
   -> 保存 agent Message
   -> 返回 user_message + agent_messages
+```
+
+流式路径：
+
+```txt
+stream_message(conversation_id, message_create)
+  -> 保存用户消息
+  -> yield user_message
+  -> AgentService.stream_for_message(AgentRunInput)
+  -> 透传 agent_started / agent_delta / artifact / harness_step
+  -> 收到 agent_done 后持久化真实 Agent message
+  -> yield done(agent_messages)
 ```
 
 也就是说，前端不再自己串行调用多个 Agent。前端只负责发送用户消息，Agent 调度全部在后端完成。
@@ -613,7 +656,9 @@ context.agent_id
 agent_id = route_agent(user_message)
 
 if agent_id is None:
-  return []
+  if looks_like_development_request:
+    return _run_orchestrator_pipeline(input_data)
+  return [orchestrator_chat_result]
 
 if agent_id == "orchestrator":
   return _run_orchestrator_pipeline(input_data)
@@ -621,42 +666,38 @@ if agent_id == "orchestrator":
 return [run(context.agent_id = agent_id)]
 ```
 
-这里最关键的设计是：只有显式 `@Agent` 才触发 Agent。
+这里最关键的设计是：显式 `@Agent` 优先路由；无 `@Agent` 时不会静默，而是交给
+Orchestrator 作为默认助手入口。
 
 例如：
 
 | 用户输入 | 后端行为 |
 | --- | --- |
-| `你好` | 保存用户消息，不调用 Agent。 |
-| `帮我写个 Todo 页面` | 保存用户消息，不调用 Agent。 |
+| `你好` | Orchestrator 返回普通助手回复。 |
+| `帮我写个 Todo 页面` | 自动进入 Orchestrator harness。 |
 | `@CodeAgent 帮我写个 Todo 页面` | 只调用 Code Agent。 |
 | `@ReviewAgent 检查一下` | 只调用 Review Agent。 |
-| `@Orchestrator 帮我做 Todo 页面` | Orchestrator 拆解并串行调用 Code、Review、Preview。 |
+| `@Orchestrator 帮我做 Todo 页面` | Orchestrator 拆解并执行 Code、Review、Preview harness。 |
 
 #### _run_orchestrator_pipeline()
 
 当用户输入 `@Orchestrator` 时进入完整 pipeline：
 
 ```txt
-create_plan(user_message)
-  -> 生成 plan_result
-  -> 先把 plan_result 放入 results
-  -> history 追加 Orchestrator 计划消息
-  -> prior_artifacts 记录计划 artifact
-  -> 按 plan.tasks 顺序执行
-       task-code    -> Code Agent
-       task-review  -> Review Agent
-       task-preview -> Preview Agent
-  -> 每个结果追加到 history
-  -> 每个 artifact 追加到 prior_artifacts
-  -> 返回多个 AgentRunResult
+OrchestratorAdapter.decide(user_message)
+  -> LLM 返回 OrchestratorDecision(mode=plan)
+  -> 输出 LLM 生成的任务分工消息
+  -> task-code    -> run -> verify code/diff artifact -> retry once if failed
+  -> task-review  -> run -> verify findings/risk artifact -> retry once if failed
+  -> task-preview -> run -> verify preview artifact -> retry once if failed
+  -> 输出 Harness 汇总报告
 ```
 
-如果某个子 Agent 抛出 `AgentExecutionError`：
+如果某个子 Agent 抛出 `AgentExecutionError` 或产物校验失败：
 
 - 后端生成一条错误 AgentRunResult；
 - 把错误作为 agent message 返回给前端；
-- pipeline 中止后续任务。
+- 最多重试一次，重试后仍失败则中止后续任务并汇总原因。
 
 这样前端不会只看到网络 502，而是能在聊天里看到可读错误，例如提醒检查 `.env`、模型、base URL、网络。
 
@@ -688,29 +729,35 @@ def route_agent(user_message: str) -> str | None:
 
 所以：
 
-- 不带 `@`，不调用 Agent；
 - 只要包含有效 mention，就按 mention 路由；
-- 当前没有复杂 NLP 路由，也没有自动猜测用户意图。
+- 不带 `@` 时，由 `AgentService` 判断普通聊天或开发需求；
+- 普通聊天和开发需求都先走 Orchestrator LLM；
+- Orchestrator LLM 返回 chat 或 plan 决策，plan 再进入 harness。
 
-### 8.2 规则式任务拆解
+### 8.2 LLM Orchestrator 决策
 
-文件：`agenthub/orchestrator/planner.py`
+文件：
 
-核心函数是 `create_plan(user_message)`。
+- `agenthub/agents/registry.py`
+- `agenthub/orchestrator/planner.py`
+- `agenthub/services/agent_service.py`
 
-它会根据关键词判断是否需要：
+真实模式下，`OrchestratorAdapter` 包装 `RealAgent`，要求模型返回：
 
-- Code Agent；
-- Review Agent；
-- Preview Agent。
+```txt
+OrchestratorDecision
+  mode: chat | plan
+  content: Markdown
+  plan: OrchestratorPlan | null
+```
 
-如果消息包含 `@Orchestrator`，当前实现强制走完整演示链路：
+`mode=chat` 时直接保存 Orchestrator 回复。`mode=plan` 时进入 harness：
 
 ```txt
 Code -> Review -> Preview
 ```
 
-依赖关系：
+Plan task 仍使用同一套 Pydantic 模型：
 
 ```txt
 task-code
@@ -718,9 +765,31 @@ task-review depends_on task-code
 task-preview depends_on task-review
 ```
 
-这里的依赖目前主要用于计划 artifact 和上下文说明，实际执行仍是按 `plan.tasks` 顺序串行执行。
+LLM prompt 要求 instruction 按角色生成，不把用户原始需求复制给每个 Agent：
+
+- Code Agent：根据 `context.user_request` 实现代码和 diff；
+- Review Agent：审查前序代码/diff，输出 findings 和 risk；
+- Preview Agent：验证 workspace 预览状态和 preview artifact。
+
+Orchestrator 计划消息只在正文中展示任务分工、依赖关系和预期产物，不再生成伪装成
+workspace 文件的 `file` artifact。执行层仍按 `plan.tasks` 顺序运行，但每步都有产物校验、
+一次重试和最终汇总。
+
+`create_plan(user_message)` 仍保留给 mock/legacy executor 和离线测试，不再作为真实聊天主链路。
 
 ## 9. Agent Adapter 与真实 LLM 调用
+
+Agent Adapter 是 AgentHub 调用不同 Agent/LLM 后端的统一协议层。业务代码只依赖
+`AgentRunInput`、`AgentRunResult` 和 artifact schema，不直接耦合 OpenAI、Claude、Mock、
+Codex 或未来其他工具平台。
+
+当前协议分两层：
+
+- `AgentAdapter.run()`：稳定的非流式执行入口；
+- `StreamingAgentAdapter.stream()`：可选流式能力，逐块返回文本 delta。
+
+`RealAgent` 负责 OpenAI-compatible API 的鉴权、timeout、JSON 解析和 `stream: true`
+处理；`MockAgent` 提供离线、确定性的 artifact 和分块输出，保证 demo 和测试不依赖外网。
 
 ### 9.1 AgentRegistry
 
@@ -739,7 +808,7 @@ task-preview depends_on task-review
 if settings is None or settings.use_mock_agents:
   注册 MockAgent
 else:
-  注册 OrchestratorAdapter
+  注册 OrchestratorAdapter(RealAgent)
   注册 CodeAgent(RealAgent)
   注册 ReviewAgent(RealAgent)
   注册 PreviewAgent(RealAgent)
@@ -817,6 +886,10 @@ Authorization: Bearer {OPENAI_API_KEY}
 | 响应无 choices/content | LLM 响应结构不符合预期。 |
 
 错误信息会做脱敏，不应泄露真实 key。
+
+结构化输出错误会先静默 repair 一次：模型第一次返回 malformed JSON、artifact schema
+错误或 Pydantic 校验失败时，后端把原始输出和校验错误发给同一模型，请它修复为合法
+`AgentRunResult` 或 `OrchestratorDecision`。修复仍失败时，聊天里显示“模型连续返回了不符合结构要求的内容”，不会再误提示用户检查 `.env`。
 
 ### 9.3 LLM 返回内容如何拆成 content 和 artifact
 
@@ -1154,6 +1227,7 @@ apply_diff(workspace_id, request, preview_url)
 | `updateConversation()` | `PATCH /api/conversations/{id}` |
 | `deleteConversation()` | `DELETE /api/conversations/{id}` |
 | `listMessages()` | `GET /api/conversations/{id}/messages` |
+| `streamMessage()` | `POST /api/conversations/{id}/messages/stream` |
 | `sendMessage()` | `POST /api/conversations/{id}/messages/run` |
 | `listAgents()` | `GET /api/agents` |
 | `runAgent()` | `POST /api/agents/run`，仅调试 |
@@ -1162,7 +1236,8 @@ apply_diff(workspace_id, request, preview_url)
 | `listAppliedDiffs()` | `GET /api/workspaces/{id}/applied-diffs` |
 | `applyDiff()` | `POST /api/workspaces/{id}/apply-diff` |
 
-当前主流程里，发送消息只使用 `sendMessage()`，不再由前端串行调用多个 Agent。
+当前主流程里，发送消息优先使用 `streamMessage()`；`sendMessage()` 保留给非流式兼容场景。
+前端不再串行调用多个 Agent。
 
 ### 12.3 App.tsx 状态流
 
@@ -1215,10 +1290,13 @@ selectedConversation 变化
 ```txt
 handleSendMessage(content)
   -> setAgentRunning(true)
-  -> apiClient.sendMessage(conversation.id, { sender_id: "user", content })
-  -> response.user_message + response.agent_messages 追加到 messages
-  -> 用最后一条消息时间更新会话 updated_at
-  -> 如果 agent_messages 有 preview artifact，刷新 preview
+  -> apiClient.streamMessage(conversation.id, { sender_id: "user", content })
+  -> user_message 事件追加用户消息
+  -> agent_started 事件创建 Agent 草稿
+  -> agent_delta 事件增量更新正文
+  -> artifact 事件追加结构化产物
+  -> agent_done 事件用真实落盘消息替换草稿
+  -> done 事件收尾，并按 preview artifact 刷新 preview
   -> setAgentRunning(false)
 ```
 
@@ -1363,7 +1441,7 @@ MessageComposer
 
 ```txt
 App.handleSendMessage()
-  -> apiClient.sendMessage(conversation.id, {
+  -> apiClient.streamMessage(conversation.id, {
        sender_id: "user",
        content: "@Orchestrator 帮我做一个 Todo List 网页"
      })
@@ -1372,9 +1450,10 @@ App.handleSendMessage()
 ### 13.3 后端保存用户消息
 
 ```txt
-POST /api/conversations/{id}/messages/run
-  -> MessageService.send_message()
+POST /api/conversations/{id}/messages/stream
+  -> MessageService.stream_message()
   -> message_repo.create(user message)
+  -> yield user_message
 ```
 
 ### 13.4 后端路由到 Orchestrator
@@ -1389,7 +1468,8 @@ AgentService.run_for_message()
 ### 13.5 Orchestrator 生成计划
 
 ```txt
-create_plan(user_message)
+OrchestratorAdapter.decide(user_message)
+  -> LLM 返回 OrchestratorDecision
   -> task-code
   -> task-review depends_on task-code
   -> task-preview depends_on task-review
@@ -1400,12 +1480,13 @@ create_plan(user_message)
 ```txt
 ## 任务拆解
 
-1. code-agent: @Orchestrator 帮我做一个 Todo List 网页
-2. review-agent: @Orchestrator 帮我做一个 Todo List 网页
-3. preview-agent: @Orchestrator 帮我做一个 Todo List 网页
+1. code-agent: 根据 context.user_request 设计并实现...
+2. review-agent: 审查前序代码与 diff 产物...
+3. preview-agent: 基于 workspace 状态和前序产物验证预览...
 ```
 
-同时附带一个 `file` artifact，里面保存 plan 结构。
+这条计划消息不附带 fake file artifact；如果未来需要结构化计划，应作为可展开数据卡片展示，
+不能伪装成真实 workspace 文件。
 
 ### 13.6 Code Agent 生成代码和 diff
 
@@ -1441,16 +1522,22 @@ Review 可以看到之前的 history 和 prior artifacts，因此可以基于 Co
 ```txt
 PreviewAgent.run()
   -> RealAgent.run()
-  -> 如果没有 preview artifact，自动补 preview artifact
+  -> 读取 workspace_id、preview_url/status 和前序 artifact
+  -> 如果没有 preview artifact，补充一个带验证结论的 preview artifact
 ```
 
-注意：Preview Agent 不会自动应用代码。只有 Apply Diff 后，workspace preview 才会真正 ready。
+注意：Preview Agent 不负责写文件，也不会声称已经应用 diff。只有 Apply Diff 后，
+workspace preview 才会真正反映文件变更。
 
 ### 13.9 前端展示消息
 
 ```txt
-apiClient.sendMessage() 返回
-  -> App 把 user_message 和 agent_messages 追加到 messages
+apiClient.streamMessage() 持续返回事件
+  -> App 先追加 user_message
+  -> agent_started 创建 Agent 草稿
+  -> agent_delta 增量更新草稿正文
+  -> artifact 追加到草稿
+  -> agent_done 用后端保存的 message 替换草稿
   -> ChatPanel 渲染消息
   -> MarkdownMessage 渲染 content
   -> MessageArtifactActions 渲染 Apply Diff 等按钮
@@ -1491,21 +1578,21 @@ applyDiff 成功
 
 ## 14. 普通消息和 @Agent 的区别
 
-当前实现刻意避免“不带 @ 也自动生成模拟文本”。
+当前实现支持“不带 @ 也正常对话”，但显式 `@Agent` 仍有最高优先级。
 
 | 输入 | 结果 |
 | --- | --- |
-| `你好` | 只保存用户消息，不调用 Agent。 |
-| `帮我写一个页面` | 只保存用户消息，不调用 Agent。 |
+| `你好` | Orchestrator 返回自然问候。 |
+| `帮我写一个页面` | Orchestrator 自动规划并执行 Code、Review、Preview harness。 |
 | `@CodeAgent 你好` | 调用 Code Agent，但如果不是代码任务，可以返回普通问候。 |
 | `@CodeAgent 生成 index.html` | 调用 Code Agent，要求 code + diff artifact。 |
 | `@Orchestrator 生成 Todo 页面` | Orchestrator 计划 + Code + Review + Preview。 |
 
 这样设计的原因是：
 
-- 用户不 `@` 时，系统不擅自消耗 LLM 调用；
-- 避免误触发 mock 或默认 agent；
-- 让演示链路更清晰：`@Agent` 是明确的协作指令。
+- 用户可以像普通聊天产品一样直接打招呼或描述需求；
+- 开发需求不需要用户先学会 `@Orchestrator`；
+- `@Agent` 仍可用于精确指定某个 Agent，避免多 Agent 误触发。
 
 ## 15. Artifact 展示与写入语义
 
@@ -1586,6 +1673,9 @@ USE_MOCK_AGENTS=false
 表示：
 
 - `CodeAgent`、`ReviewAgent`、`PreviewAgent` 都包装真实 `RealAgent`；
+- `OrchestratorAdapter` 也包装真实 `RealAgent`，普通聊天和任务拆解都调用大模型；
+- `AGENT_ALLOW_FALLBACKS=false` 时，Code Agent 不会把 schema 失败静默替换成硬编码页面；
+- Review/Preview 的 schema recovery 只基于前序真实 artifacts 和 workspace context 做结构化检查，不覆盖 Code Agent 产物；
 - 需要有效 API Key 和供应商配置；
 - 失败时会返回可读错误消息。
 
@@ -1601,10 +1691,22 @@ USE_MOCK_AGENTS=true
 
 如果用户在前端看到类似“模拟文本”，优先检查：
 
-1. `.env` 里 `USE_MOCK_AGENTS` 是否为 `true`；
-2. 后端是否重启后仍在使用旧配置；
-3. 当前运行的是 FastAPI 后端还是历史 Flask demo；
-4. 前端 `VITE_API_BASE_URL` 是否指向 `127.0.0.1:8000`。
+1. 前端顶部是否出现 Mock Agent warning；
+2. `/api/agents/runtime` 的 `agent_mode` 是否为 `mock`；
+3. `.env` 里 `USE_MOCK_AGENTS` 是否为 `true`；
+4. 后端是否重启后仍在使用旧配置；
+5. 当前运行的是 FastAPI 后端还是历史 Flask demo；
+6. 前端 `VITE_API_BASE_URL` 是否指向真实后端，例如 `127.0.0.1:8000`。
+
+真实模型端到端验收可运行：
+
+```bash
+.venv/bin/python scripts/verify_real_agent_tasks.py
+```
+
+该脚本会创建十个临时会话，逐个通过 Orchestrator 生成开发任务，检查
+Code/Review/Preview 消息，应用 diff，读取 workspace preview-page，并确认预览页面与
+workspace 源文件一致。它使用临时 workspace 和内存仓库，不把十个任务写入后端兜底逻辑。
 
 ## 18. 关键文件速查
 
@@ -1623,7 +1725,7 @@ USE_MOCK_AGENTS=true
 | --- | --- |
 | `agenthub/api/conversations.py` | 会话 CRUD。 |
 | `agenthub/api/messages.py` | 消息列表、消息创建、发送并运行 Agent。 |
-| `agenthub/api/agents.py` | Agent 列表、调试运行、SSE stub。 |
+| `agenthub/api/agents.py` | Agent 列表、runtime 信息、调试运行、SSE。 |
 | `agenthub/api/workspaces.py` | workspace preview、文件、apply diff。 |
 
 ### 业务服务
@@ -1651,7 +1753,7 @@ USE_MOCK_AGENTS=true
 | 文件 | 作用 |
 | --- | --- |
 | `agenthub/orchestrator/router.py` | 只识别显式 `@Agent`。 |
-| `agenthub/orchestrator/planner.py` | 规则式任务拆解和 plan 数据模型。 |
+| `agenthub/orchestrator/planner.py` | OrchestratorDecision、Plan 数据模型和 legacy 规则兜底。 |
 | `agenthub/orchestrator/executor.py` | 旧/测试用 executor。 |
 
 ### Workspace
@@ -1720,9 +1822,10 @@ npm run build
 
 `get_settings()` 使用 `@lru_cache`，后端启动后配置会缓存。修改 `.env` 后需要重启 FastAPI。
 
-### 20.2 为什么没带 @ 也没有 Agent 回复？
+### 20.2 为什么没带 @ 也会有 Agent 回复？
 
-这是当前预期行为。`route_agent()` 只识别显式 `@Agent`。不带 `@` 只保存用户消息，不调用 Agent。
+这是当前预期行为。`route_agent()` 仍只识别显式 `@Agent`，但 `AgentService` 会在无 `@`
+时把消息交给 Orchestrator LLM：普通聊天返回 chat decision，开发需求返回 plan decision 并进入 harness。
 
 ### 20.3 为什么 Agent 报 timeout？
 
@@ -1775,10 +1878,10 @@ AGENT_THINKING=disabled
 
 当前 MVP 已经围绕“聊天式多 Agent 协作 + artifact + Apply Diff + workspace”形成闭环，但仍有一些限制：
 
-- Orchestrator 仍是规则式拆解，不是复杂 LLM planner；
-- Agent 执行是串行，不做复杂并行调度；
-- Preview 主要展示 workspace 状态，不是完整 dev server 编排；
-- SSE stream 目前是基础 stub，主流程仍是非流式；
+- Orchestrator 已调用 LLM，但 plan 质量仍依赖模型输出稳定性；
+- Agent harness 目前按计划串行执行，不做复杂并行调度或自动冲突解决；
+- Preview Agent 负责验证 workspace preview 状态，不是完整 dev server 编排；
+- SSE 已接入聊天主流程，但真实 LLM token 粒度仍取决于具体 Adapter；
 - 没有权限系统和多用户协同；
 - Apply Diff 还不支持删除文件；
 - 冲突处理以拒绝失败为主，没有自动合并策略；
@@ -1786,9 +1889,9 @@ AGENT_THINKING=disabled
 
 后续优先级建议：
 
-1. 保持 `POST /messages/run` 主链路稳定；
+1. 保持 `POST /messages/stream` 主链路稳定，并保留 `/messages/run` 兼容；
 2. 强化 Agent 输出 schema 校验和自动修复；
-3. 增加真实 SSE，让前端逐步展示 Orchestrator、Code、Review、Preview 进度；
+3. 增强 harness 的回传校验、自动修复和失败恢复策略；
 4. 增加 workspace preview 的真实构建/运行能力；
 5. 增强 diff 冲突提示；
 6. 为不同供应商提供更清晰的 `.env` 示例；

@@ -746,7 +746,17 @@
   gap: 0;
 }
 
+.message-artifact-file-card {
+  display: grid;
+  gap: 0;
+}
+
 .message-artifact-diff-card .message-artifact-action {
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.message-artifact-file-card .message-artifact-action {
   border-bottom-right-radius: 0;
   border-bottom-left-radius: 0;
 }
@@ -774,6 +784,23 @@
 
 .message-artifact-action .ant-btn {
   margin-left: auto;
+}
+
+.message-artifact-json {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid #e2ddd3;
+  border-top: 0;
+  border-bottom-right-radius: 8px;
+  border-bottom-left-radius: 8px;
+  background: #ffffff;
+  color: #25302c;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .message-diff-viewer {

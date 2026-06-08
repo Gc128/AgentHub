@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     agent_response_format: Literal["auto", "text", "json_object"] = "json_object"
     agent_thinking: Literal["auto", "enabled", "disabled"] = "auto"
     agent_max_tokens: int | None = None
+    agent_allow_fallbacks: bool = False
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
 

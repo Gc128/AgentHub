@@ -20,6 +20,8 @@ type ChatPanelProps = {
   loading: boolean
   /** Agent 是否正在生成回复。 */
   agentRunning: boolean
+  /** 当前 Orchestrator harness 状态。 */
+  harnessStatus: string | null
   /** 已经成功应用的 diff artifact ID 集合。 */
   appliedDiffIds: ReadonlySet<string>
   /** 当前正在应用的 diff artifact ID。 */
@@ -65,6 +67,7 @@ export function ChatPanel({
   messages,
   loading,
   agentRunning,
+  harnessStatus,
   appliedDiffIds,
   applyingDiffId,
   onApplyDiff,
@@ -73,13 +76,23 @@ export function ChatPanel({
 }: ChatPanelProps) {
   // messageListRef 用于第六天的演示体验：新消息和 Agent 生成状态出现时自动滚动到底部。
   const messageListRef = useRef<HTMLDivElement | null>(null)
+  const messageEndRef = useRef<HTMLDivElement | null>(null)
+  const lastMessage = messages[messages.length - 1]
+  const lastMessageContentLength = lastMessage?.content.length ?? 0
 
   useEffect(() => {
-    messageListRef.current?.scrollTo({
-      top: messageListRef.current.scrollHeight,
+    messageEndRef.current?.scrollIntoView({
+      block: 'end',
       behavior: 'smooth',
     })
-  }, [messages, agentRunning, loading])
+  }, [
+    messages.length,
+    lastMessage?.id,
+    lastMessageContentLength,
+    agentRunning,
+    harnessStatus,
+    loading,
+  ])
 
   // 没有选中会话时不展示旧消息，避免用户误以为仍在上一个会话。
   if (!conversation) {
@@ -158,13 +171,14 @@ export function ChatPanel({
               <span>生成中</span>
             </div>
             <p>
-              Agent 正在根据 @Agent 路由生成回复
+              {harnessStatus ?? 'Agent 正在生成回复'}
               <span className="typing-dots" aria-hidden="true">
                 ...
               </span>
             </p>
           </article>
         ) : null}
+        <div ref={messageEndRef} />
       </div>
 
       <footer className="composer-shell">

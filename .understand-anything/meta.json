@@ -1,0 +1,8 @@
+{
+  "lastAnalyzedAt": "2026-06-07T09:20:07.690Z",
+  "gitCommitHash": "f273a395f2571b4eefc4553a965864b5cea50b1a",
+  "version": "1.0.0",
+  "analyzedFiles": 137,
+  "generationMode": "degraded-local-analysis",
+  "note": "Understand-Anything core was not built because pnpm/corepack is unavailable; generated graph uses deterministic local code/file analysis."
+}

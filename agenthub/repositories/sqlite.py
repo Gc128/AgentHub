@@ -2,6 +2,8 @@ import json
 from datetime import UTC, datetime
 from typing import Literal, cast
 
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from agenthub.core.errors import NotFoundError
@@ -29,6 +31,20 @@ class _SqliteRepositoryMixin:
     def __init__(self, database_url: str) -> None:
         self._engine = create_engine(database_url)
         SQLModel.metadata.create_all(self._engine)
+        _ensure_workspace_preview_columns(self._engine)
+
+
+def _ensure_workspace_preview_columns(engine: Engine) -> None:
+    if not engine.url.get_backend_name().startswith("sqlite"):
+        return
+
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(workspacepreviewrecord)")).mappings()
+        column_names = {str(column["name"]) for column in columns}
+        if column_names and "entry_path" not in column_names:
+            connection.execute(
+                text("ALTER TABLE workspacepreviewrecord ADD COLUMN entry_path VARCHAR")
+            )
 
 
 class SqliteConversationRepository(_SqliteRepositoryMixin, ConversationRepository):
@@ -99,6 +115,7 @@ class SqliteWorkspaceRepository(_SqliteRepositoryMixin, WorkspaceRepository):
                 workspace_id=record.workspace_id,
                 status=record.status,
                 preview_url=record.preview_url,
+                entry_path=record.entry_path,
             )
 
     async def save_preview(
@@ -111,6 +128,7 @@ class SqliteWorkspaceRepository(_SqliteRepositoryMixin, WorkspaceRepository):
                     workspace_id=preview.workspace_id,
                     status=preview.status,
                     preview_url=preview.preview_url,
+                    entry_path=preview.entry_path,
                 )
             )
             session.commit()

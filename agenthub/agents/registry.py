@@ -6,9 +6,8 @@ from agenthub.agents.real_agent import RealAgent
 from agenthub.agents.review_agent import REVIEW_AGENT_SYSTEM_PROMPT, ReviewAgent
 from agenthub.config import Settings
 from agenthub.core.errors import NotFoundError
-from agenthub.orchestrator.planner import create_plan
+from agenthub.orchestrator.planner import OrchestratorDecision, OrchestratorPlan, create_plan
 from agenthub.schemas.agent import AgentRunInput, AgentRunResult
-from agenthub.schemas.artifact import Artifact
 
 
 class AgentRegistry:
@@ -28,26 +27,50 @@ class AgentRegistry:
 class OrchestratorAdapter:
     id = "orchestrator"
     name = "Orchestrator"
-    capabilities = ["task-planning", "routing", "summary"]
+    capabilities = ["llm-planning", "routing", "summary"]
+
+    def __init__(self, llm: RealAgent | None = None) -> None:
+        self._llm = llm
+
+    async def decide(self, input_data: AgentRunInput) -> OrchestratorDecision:
+        if self._llm is None:
+            plan = create_plan(input_data.user_message)
+            if any(task.agent_id != self.id for task in plan.tasks):
+                return OrchestratorDecision(
+                    mode="plan",
+                    content=_plan_content(plan),
+                    plan=plan,
+                )
+            return OrchestratorDecision(
+                mode="chat",
+                content="你好，我是 AgentHub Orchestrator。请告诉我你想完成什么。",
+            )
+        return await self._llm.run_structured(
+            input_data.model_copy(
+                update={
+                    "context": {
+                        **input_data.context,
+                        "agent_id": self.id,
+                        "agent_role": "orchestrator",
+                        "available_agents": [
+                            "code-agent",
+                            "review-agent",
+                            "preview-agent",
+                        ],
+                    }
+                }
+            ),
+            OrchestratorDecision,
+            schema_name="OrchestratorDecision",
+        )
 
     async def run(self, input_data: AgentRunInput) -> AgentRunResult:
-        plan = create_plan(input_data.user_message)
+        decision = await self.decide(input_data)
         return AgentRunResult(
             agent_id=self.id,
-            content="## 任务拆解\n\n"
-            + "\n".join(
-                f"{index}. {task.agent_id}: {task.instruction}"
-                for index, task in enumerate(plan.tasks, start=1)
-            ),
-            artifacts=[
-                Artifact(
-                    id="artifact-orchestrator-plan",
-                    type="file",
-                    title="Orchestrator task plan",
-                    data={**plan.model_dump(mode="json"), "agent_ids": plan.agent_ids},
-                )
-            ],
-            next_actions=plan.agent_ids,
+            content=decision.content,
+            artifacts=[],
+            next_actions=decision.plan.agent_ids if decision.plan else [],
         )
 
 
@@ -65,15 +88,55 @@ def create_default_registry(settings: Settings | None = None) -> AgentRegistry:
 
     return AgentRegistry(
         adapters=[
-            OrchestratorAdapter(),
+            OrchestratorAdapter(_real_agent("orchestrator", ORCHESTRATOR_SYSTEM_PROMPT, settings)),
             CodeAgent(
                 _real_agent("code-agent", CODE_AGENT_SYSTEM_PROMPT, settings),
                 workspace_root=settings.workspace_root,
+                allow_fallbacks=settings.agent_allow_fallbacks,
             ),
-            ReviewAgent(_real_agent("review-agent", REVIEW_AGENT_SYSTEM_PROMPT, settings)),
-            PreviewAgent(_real_agent("preview-agent", PREVIEW_AGENT_SYSTEM_PROMPT, settings)),
+            ReviewAgent(
+                _real_agent("review-agent", REVIEW_AGENT_SYSTEM_PROMPT, settings),
+                allow_fallbacks=settings.agent_allow_fallbacks,
+            ),
+            PreviewAgent(
+                _real_agent("preview-agent", PREVIEW_AGENT_SYSTEM_PROMPT, settings),
+                allow_fallbacks=settings.agent_allow_fallbacks,
+            ),
         ]
     )
+
+
+def _plan_content(plan: OrchestratorPlan) -> str:
+    lines = [
+        f"{index}. {task.agent_id}: {task.instruction}"
+        for index, task in enumerate(plan.tasks, start=1)
+        if task.agent_id != "orchestrator"
+    ]
+    return "## 任务拆解\n\n" + "\n".join(lines)
+
+
+ORCHESTRATOR_SYSTEM_PROMPT = """
+You are AgentHub Orchestrator.
+Return only one JSON object matching OrchestratorDecision:
+{"mode":"chat","content":"Markdown reply","plan":null}
+or
+{"mode":"plan","content":"Markdown task breakdown","plan":{"summary":"...","tasks":[]}}
+
+Rules:
+- Use mode=chat for greetings, casual conversation, or clarification.
+- Use mode=plan for development work, bug fixing, UI implementation, review, or preview requests.
+- Available child agents are exactly: code-agent, review-agent, preview-agent.
+- Plan tasks must use stable task_id values when possible: task-code, task-review, task-preview.
+- Do not copy the user's full request into each task instruction.
+- Give each task a role-specific instruction, expected artifact, and dependency.
+- Code tasks should explicitly tell Code Agent to implement the original user requirements
+  from context.user_request, including all requested fields, interactions, and data rules.
+- Code tasks should produce code and diff artifacts.
+- Review tasks should inspect prior code/diff and produce findings plus risk_level.
+- Preview tasks should verify preview_url/status and never claim a diff was applied.
+- If a plan includes code-agent, include review-agent and preview-agent unless the user
+  explicitly asks for only one agent.
+""".strip()
 
 
 def _real_agent(agent_id: str, system_prompt: str, settings: Settings) -> RealAgent:

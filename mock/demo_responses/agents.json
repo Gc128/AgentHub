@@ -52,6 +52,11 @@
         "title": "Review notes",
         "data": {
           "filename": "review.md",
+          "findings": [
+            "Workspace 写入仍由 Apply Diff 触发，没有发现阻塞演示的问题。",
+            "继续保持 Pydantic API 响应和路径安全校验。"
+          ],
+          "risk_level": "low",
           "content": "- Keep workspace writes behind WorkspaceManager.\n- Keep API responses typed with Pydantic.\n- Add UI states before demo.",
           "workspace_id": "{workspace_id}"
         }
@@ -60,7 +65,7 @@
     "next_actions": ["preview"]
   },
   "preview-agent": {
-    "content": "Preview Agent prepared a preview card for the current workspace.",
+    "content": "Preview Agent 验证完成：Preview 状态为 ready，预览入口 /api/workspaces/{workspace_id}/preview 可用于当前 workspace。",
     "artifacts": [
       {
         "id": "artifact-preview-card",

@@ -1,6 +1,7 @@
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from agenthub.core.errors import BadRequestError, NotFoundError
 from agenthub.repositories.workspace_repo import WorkspaceRepository
@@ -41,6 +42,8 @@ class WorkspaceService:
         workspace_id: str,
         status: str,
         preview_url: str | None = None,
+        entry_path: str | None = None,
+        preserve_entry_path: bool = True,
     ) -> WorkspacePreviewResponse:
         current = await self._repository.get_preview(workspace_id)
         return await self._repository.save_preview(
@@ -48,6 +51,7 @@ class WorkspaceService:
                 workspace_id=workspace_id,
                 status=status,
                 preview_url=preview_url if preview_url is not None else current.preview_url,
+                entry_path=current.entry_path if preserve_entry_path else entry_path,
             )
         )
 
@@ -126,7 +130,10 @@ class WorkspaceService:
             file_path.unlink()
             self._remove_empty_parent_dirs(file_path.parent, self._workspace_dir(workspace_id))
         await self._repository.delete_file(workspace_id, normalized_path)
-        if normalized_path == "index.html":
+        current_preview = await self._repository.get_preview(workspace_id)
+        if normalized_path == current_preview.entry_path or (
+            normalized_path == "index.html" and current_preview.entry_path is None
+        ):
             await self._repository.save_preview(
                 WorkspacePreviewResponse(workspace_id=workspace_id, status="not_started")
             )
@@ -145,7 +152,7 @@ class WorkspaceService:
         workspace_id: str,
         request: ApplyDiffRequest,
         *,
-        preview_url: str,
+        preview_page_url: str,
     ) -> ApplyDiffResponse:
         target_path = self._extract_diff_target_path(request.diff)
         old_content = self._read_file_content_or_empty(workspace_id, target_path)
@@ -174,12 +181,22 @@ class WorkspaceService:
                 applied_at=applied_at,
             )
         )
-        await self.set_preview(workspace_id, "ready", preview_url)
+        entry_path = await self._select_preview_entry_path(workspace_id, target_path)
+        preview_url = _build_preview_url(preview_page_url, entry_path)
+        await self.set_preview(
+            workspace_id,
+            "ready",
+            preview_url,
+            entry_path=entry_path,
+            preserve_entry_path=False,
+        )
         return ApplyDiffResponse(
             workspace_id=workspace_id,
             status="ready",
             applied_artifact_id=request.artifact_id,
             path=target_path,
+            preview_url=preview_url,
+            entry_path=entry_path,
             applied_at=applied_at,
         )
 
@@ -235,6 +252,33 @@ class WorkspaceService:
             return False
         return True
 
+    async def _workspace_file_exists(self, workspace_id: str, path: str) -> bool:
+        file_path = self._file_path(workspace_id, path)
+        return (file_path.exists() and file_path.is_file()) or await self._metadata_file_exists(
+            workspace_id,
+            path,
+        )
+
+    async def _select_preview_entry_path(
+        self,
+        workspace_id: str,
+        target_path: str,
+    ) -> str | None:
+        if _is_html_path(target_path):
+            return target_path
+
+        current_preview = await self._repository.get_preview(workspace_id)
+        if current_preview.entry_path and await self._workspace_file_exists(
+            workspace_id,
+            current_preview.entry_path,
+        ):
+            return current_preview.entry_path
+
+        if await self._workspace_file_exists(workspace_id, "index.html"):
+            return "index.html"
+
+        return None
+
     def _remove_empty_parent_dirs(self, start: Path, stop: Path) -> None:
         current = start
         stop = stop.resolve()
@@ -244,3 +288,13 @@ class WorkspaceService:
             except OSError:
                 break
             current = current.parent
+
+
+def _is_html_path(path: str) -> bool:
+    return path.lower().endswith((".html", ".htm"))
+
+
+def _build_preview_url(preview_page_url: str, entry_path: str | None) -> str:
+    if entry_path is None:
+        return preview_page_url
+    return f"{preview_page_url}?path={quote(entry_path, safe='/')}"

@@ -13,6 +13,7 @@ class WorkspacePreviewRecord(SQLModel, table=True):
     workspace_id: str = Field(primary_key=True)
     status: str
     preview_url: str | None = None
+    entry_path: str | None = None
 
 
 class WorkspaceFileRecord(SQLModel, table=True):

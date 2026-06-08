@@ -7,6 +7,7 @@ class WorkspacePreviewResponse(BaseModel):
     workspace_id: str
     status: str
     preview_url: str | None = None
+    entry_path: str | None = None
 
 
 class WorkspaceFile(BaseModel):
@@ -43,6 +44,8 @@ class ApplyDiffResponse(BaseModel):
     status: str
     applied_artifact_id: str
     path: str
+    preview_url: str | None = None
+    entry_path: str | None = None
     applied_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

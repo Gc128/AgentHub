@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -13,6 +14,14 @@ class Agent(BaseModel):
     description: str
     capabilities: list[str] = Field(default_factory=list)
     adapter_type: Literal["mock", "codex", "claude", "opencode", "custom"] = "mock"
+
+
+class AgentRuntimeInfo(BaseModel):
+    agent_mode: Literal["mock", "real"]
+    provider: str
+    model: str
+    base_url_host: str
+    api_key_configured: bool
 
 
 class AgentRunInput(BaseModel):
@@ -36,3 +45,7 @@ class AgentAdapter(Protocol):
     capabilities: list[str]
 
     async def run(self, input_data: AgentRunInput) -> AgentRunResult: ...
+
+
+class StreamingAgentAdapter(AgentAdapter, Protocol):
+    async def stream(self, input_data: AgentRunInput) -> AsyncIterator[str]: ...

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, ConfigProvider, theme } from 'antd'
 import { apiClient } from './api/client'
 import { AgentList } from './components/agents/AgentList'
@@ -10,11 +10,13 @@ import { AppLayout } from './components/layout/AppLayout'
 import { WorkspacePanel } from './components/workspace/WorkspacePanel'
 import type {
   Agent,
+  AgentRuntimeInfo,
   AppliedDiffRecord,
   Artifact,
   Conversation,
   CreateConversationInput,
   Message,
+  MessageStreamEvent,
   ConversationMode,
   WorkspaceFile,
   WorkspaceFileContent,
@@ -54,6 +56,38 @@ const getAppliedDiffIds = (records: AppliedDiffRecord[]) =>
 const inferConversationMode = (agentIds: string[]): ConversationMode =>
   agentIds.length > 1 ? 'group' : 'single'
 
+const createDraftMessage = (
+  id: string,
+  conversationId: string,
+  agentId: string,
+): Message => ({
+  id,
+  conversation_id: conversationId,
+  role: 'agent',
+  sender_id: agentId,
+  content: '',
+  artifacts: [],
+  created_at: new Date().toISOString(),
+})
+
+const STREAM_VISUAL_CHUNK_SIZE = 14
+const STREAM_VISUAL_DELAY_MS = 28
+
+const sleep = (milliseconds: number) =>
+  new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+
+const splitVisualDelta = (delta: string) => {
+  if (delta.length <= STREAM_VISUAL_CHUNK_SIZE) {
+    return [delta]
+  }
+
+  const chunks: string[] = []
+  for (let index = 0; index < delta.length; index += STREAM_VISUAL_CHUNK_SIZE) {
+    chunks.push(delta.slice(index, index + STREAM_VISUAL_CHUNK_SIZE))
+  }
+  return chunks
+}
+
 /**
  * AgentHub 前端根组件。
  * 这里负责把首日 Demo 的核心数据串起来：会话列表、聊天消息、Agent 联系人和右侧产物预览。
@@ -61,14 +95,17 @@ const inferConversationMode = (agentIds: string[]): ConversationMode =>
 function App() {
   // 可用 Agent 列表，来自 FastAPI 后端 /api/agents。
   const [agents, setAgents] = useState<Agent[]>([])
+  const [agentRuntime, setAgentRuntime] = useState<AgentRuntimeInfo | null>(null)
   // 左侧会话列表，Conversation 字段严格对齐后端 schema。
   const [conversations, setConversations] = useState<Conversation[]>([])
   // 当前选中的会话 ID；用 ID 而不是对象，方便列表刷新后重新计算选中会话。
   const [selectedConversationId, setSelectedConversationId] = useState<
     string | null
   >(null)
-  // 当前会话的消息列表；切换会话时会重新加载。
-  const [messages, setMessages] = useState<Message[]>([])
+  // 消息按会话隔离缓存，避免一个会话的流式 draft 污染另一个会话。
+  const [messagesByConversationId, setMessagesByConversationId] = useState<
+    Record<string, Message[]>
+  >({})
   // 当前会话 workspace 的预览状态，用于右侧 Workspace 面板。
   const [preview, setPreview] = useState<WorkspacePreview | null>(null)
   // 当前 workspace 文件列表。
@@ -85,8 +122,11 @@ function App() {
   const [newConversationOpen, setNewConversationOpen] = useState(false)
   // 控制当前会话成员管理弹窗是否打开。
   const [memberManagerOpen, setMemberManagerOpen] = useState(false)
-  // Agent 回复生成状态；生成中禁用输入框并展示一条系统态消息。
-  const [agentRunning, setAgentRunning] = useState(false)
+  // Agent 运行状态按会话隔离；切换会话时只展示当前会话的生成状态。
+  const [agentRunningByConversationId, setAgentRunningByConversationId] =
+    useState<Record<string, boolean>>({})
+  const [harnessStatusByConversationId, setHarnessStatusByConversationId] =
+    useState<Record<string, string | null>>({})
   // 已成功应用的 diff artifact ID；聊天流和右侧产物栏共享这份状态。
   const [appliedDiffIds, setAppliedDiffIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -99,6 +139,11 @@ function App() {
   >(null)
   // 页面级错误提示；首日先集中展示，后续可以拆成更细的错误状态。
   const [error, setError] = useState<string | null>(null)
+  const selectedConversationIdRef = useRef<string | null>(selectedConversationId)
+
+  useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId
+  }, [selectedConversationId])
 
   useEffect(() => {
     // ignore 用于避免组件卸载后异步请求继续 setState。
@@ -111,9 +156,10 @@ function App() {
      */
     const loadInitialData = async () => {
       try {
-        const [nextConversations, nextAgents] = await Promise.all([
+        const [nextConversations, nextAgents, nextRuntime] = await Promise.all([
           apiClient.listConversations(),
           apiClient.listAgents(),
+          apiClient.getAgentRuntime(),
         ])
 
         if (ignore) {
@@ -122,6 +168,7 @@ function App() {
 
         setConversations(nextConversations)
         setAgents(nextAgents)
+        setAgentRuntime(nextRuntime)
         setError(null)
         // 默认选中最近活跃的第一条会话，后端已按置顶和 updated_at 排序返回。
         setSelectedConversationId(nextConversations[0]?.id ?? null)
@@ -155,6 +202,48 @@ function App() {
     [conversations, selectedConversationId],
   )
 
+  const selectedMessages = selectedConversationId
+    ? messagesByConversationId[selectedConversationId] ?? []
+    : []
+  const selectedAgentRunning = selectedConversationId
+    ? agentRunningByConversationId[selectedConversationId] ?? false
+    : false
+  const selectedHarnessStatus = selectedConversationId
+    ? harnessStatusByConversationId[selectedConversationId] ?? null
+    : null
+
+  const setConversationMessages = (
+    conversationId: string,
+    updater: (messages: Message[]) => Message[],
+  ) => {
+    setMessagesByConversationId((currentMessagesByConversationId) => ({
+      ...currentMessagesByConversationId,
+      [conversationId]: updater(
+        currentMessagesByConversationId[conversationId] ?? [],
+      ),
+    }))
+  }
+
+  const setConversationRunning = (
+    conversationId: string,
+    running: boolean,
+  ) => {
+    setAgentRunningByConversationId((current) => ({
+      ...current,
+      [conversationId]: running,
+    }))
+  }
+
+  const setConversationHarnessStatus = (
+    conversationId: string,
+    status: string | null,
+  ) => {
+    setHarnessStatusByConversationId((current) => ({
+      ...current,
+      [conversationId]: status,
+    }))
+  }
+
   /**
    * 当前会话实际可用的 Agent。
    * 这里严格按 conversation.agent_ids 取成员，聊天输入和 @ 路由都只能使用这批 Agent。
@@ -169,10 +258,28 @@ function App() {
       .filter((agent): agent is Agent => Boolean(agent))
   }, [agents, selectedConversation])
 
+  const mockAgentWarning = useMemo(() => {
+    const coreAgentIds = new Set([
+      'orchestrator',
+      'code-agent',
+      'review-agent',
+      'preview-agent',
+    ])
+    const hasMockCoreAgent = agents.some(
+      (agent) => coreAgentIds.has(agent.id) && agent.adapter_type === 'mock',
+    )
+    if (agentRuntime?.agent_mode === 'mock' || hasMockCoreAgent) {
+      return '当前前端连接的是 Mock Agent 后端，回复会使用固定模拟数据。请确认 VITE_API_BASE_URL 指向真实 FastAPI 服务，例如 http://127.0.0.1:8000。'
+    }
+    if (agentRuntime && !agentRuntime.api_key_configured) {
+      return `当前后端是 Real Agent 模式，但没有配置 API Key。Provider: ${agentRuntime.provider}，Model: ${agentRuntime.model}。`
+    }
+    return null
+  }, [agentRuntime, agents])
+
   useEffect(() => {
     // 没有选中会话时清空中间消息区和右侧预览，避免展示上一个会话的数据。
     if (!selectedConversation) {
-      setMessages([])
       setPreview(null)
       setWorkspaceFiles([])
       setAppliedDiffRecords([])
@@ -204,7 +311,7 @@ function App() {
           return
         }
 
-        setMessages(nextMessages)
+        setConversationMessages(selectedConversation.id, () => nextMessages)
         setPreview(nextPreview)
         setWorkspaceFiles(nextWorkspaceFiles)
         setAppliedDiffRecords(nextAppliedDiffRecords)
@@ -230,7 +337,7 @@ function App() {
     return () => {
       ignore = true
     }
-  }, [selectedConversation])
+  }, [selectedConversation?.id, selectedConversation?.workspace_id])
 
   /**
    * 按搜索关键词过滤会话列表。
@@ -346,6 +453,21 @@ function App() {
         ),
       )
       setConversations(nextConversations)
+      setMessagesByConversationId((current) => {
+        const next = { ...current }
+        delete next[conversationId]
+        return next
+      })
+      setAgentRunningByConversationId((current) => {
+        const next = { ...current }
+        delete next[conversationId]
+        return next
+      })
+      setHarnessStatusByConversationId((current) => {
+        const next = { ...current }
+        delete next[conversationId]
+        return next
+      })
 
       if (selectedConversationId === conversationId) {
         setSelectedConversationId(nextConversations[0]?.id ?? null)
@@ -381,14 +503,16 @@ function App() {
         return nextDiffIds
       })
 
-      const nextPreview = await apiClient.getWorkspacePreview(
-        selectedConversation.workspace_id,
-      )
       const [nextWorkspaceFiles, nextAppliedDiffRecords] = await Promise.all([
         apiClient.listWorkspaceFiles(selectedConversation.workspace_id),
         apiClient.listAppliedDiffs(selectedConversation.workspace_id),
       ])
-      setPreview(nextPreview)
+      setPreview({
+        workspace_id: result.workspace_id,
+        status: result.status,
+        preview_url: result.preview_url ?? null,
+        entry_path: result.entry_path ?? null,
+      })
       setWorkspaceFiles(nextWorkspaceFiles)
       setAppliedDiffRecords(nextAppliedDiffRecords)
       setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
@@ -475,40 +599,169 @@ function App() {
       throw new Error('请先选择一个会话')
     }
 
-    setAgentRunning(true)
+    const conversationId = selectedConversation.id
+    const workspaceId = selectedConversation.workspace_id
+    if (agentRunningByConversationId[conversationId]) {
+      throw new Error('当前会话已有 Agent 正在回复')
+    }
+
+    setConversationRunning(conversationId, true)
+    setConversationHarnessStatus(conversationId, '正在连接 AgentHub harness...')
 
     try {
-      const response = await apiClient.sendMessage(selectedConversation.id, {
-        sender_id: 'user',
-        content,
-      })
-      const nextConversationMessages = [
-        response.user_message,
-        ...response.agent_messages,
-      ]
+      const draftIds = new Map<string, string>()
+      const deltaChains = new Map<string, Promise<void>>()
+      const animatedTasks: Promise<void>[] = []
+      let draftCounter = 0
+      let shouldRefreshPreview = false
 
-      setMessages((currentMessages) => [
-        ...currentMessages,
-        ...nextConversationMessages,
-      ])
-      const lastMessage =
-        nextConversationMessages[nextConversationMessages.length - 1] ??
-        response.user_message
-      setConversations((currentConversations) =>
-        sortConversationsByUpdatedAt(
-          currentConversations.map((conversation) =>
-            conversation.id === selectedConversation.id
-              ? { ...conversation, updated_at: lastMessage.created_at }
-              : conversation,
+      const ensureDraft = (agentId: string) => {
+        const existingId = draftIds.get(agentId)
+        if (existingId) {
+          return existingId
+        }
+        draftCounter += 1
+        const draftId = `draft-${agentId}-${Date.now()}-${draftCounter}`
+        draftIds.set(agentId, draftId)
+        setConversationMessages(conversationId, (currentMessages) => [
+          ...currentMessages,
+          createDraftMessage(draftId, conversationId, agentId),
+        ])
+        return draftId
+      }
+
+      const updateConversationTimestamp = (message: Message) => {
+        setConversations((currentConversations) =>
+          sortConversationsByUpdatedAt(
+            currentConversations.map((conversation) =>
+              conversation.id === conversationId
+                ? { ...conversation, updated_at: message.created_at }
+                : conversation,
+            ),
           ),
-        ),
-      )
-
-      if (hasPreviewArtifact(response.agent_messages)) {
-        const nextPreview = await apiClient.getWorkspacePreview(
-          selectedConversation.workspace_id,
         )
-        setPreview(nextPreview)
+      }
+
+      const appendAnimatedDelta = (agentId: string, delta: string) => {
+        const draftId = ensureDraft(agentId)
+        const previousChain = deltaChains.get(agentId) ?? Promise.resolve()
+        const nextChain = previousChain.then(async () => {
+          for (const chunk of splitVisualDelta(delta)) {
+            setConversationMessages(conversationId, (currentMessages) =>
+              currentMessages.map((message) =>
+                message.id === draftId
+                  ? {
+                      ...message,
+                      content: message.content + chunk,
+                    }
+                  : message,
+              ),
+            )
+            await sleep(STREAM_VISUAL_DELAY_MS)
+          }
+        })
+        deltaChains.set(agentId, nextChain)
+        animatedTasks.push(nextChain)
+      }
+
+      const finalizeAgentMessage = (message: Message) => {
+        const previousChain =
+          deltaChains.get(message.sender_id) ?? Promise.resolve()
+        const nextChain = previousChain.then(() => {
+          const draftId = draftIds.get(message.sender_id)
+          setConversationMessages(conversationId, (currentMessages) => {
+            if (!draftId) {
+              return [...currentMessages, message]
+            }
+            return currentMessages.map((currentMessage) =>
+              currentMessage.id === draftId ? message : currentMessage,
+            )
+          })
+          draftIds.delete(message.sender_id)
+          updateConversationTimestamp(message)
+        })
+        deltaChains.set(message.sender_id, nextChain)
+        animatedTasks.push(nextChain)
+      }
+
+      const handleStreamEvent = (event: MessageStreamEvent) => {
+        if (event.event === 'user_message') {
+          setConversationMessages(conversationId, (currentMessages) => [
+            ...currentMessages,
+            event.data.message,
+          ])
+          updateConversationTimestamp(event.data.message)
+          return
+        }
+
+        if (event.event === 'harness_step') {
+          setConversationHarnessStatus(
+            conversationId,
+            event.data.message ?? event.data.status,
+          )
+          return
+        }
+
+        if (event.event === 'agent_started') {
+          ensureDraft(event.data.agent_id)
+          return
+        }
+
+        if (event.event === 'agent_delta') {
+          appendAnimatedDelta(event.data.agent_id, event.data.delta)
+          return
+        }
+
+        if (event.event === 'artifact') {
+          const draftId = ensureDraft(event.data.agent_id)
+          setConversationMessages(conversationId, (currentMessages) =>
+            currentMessages.map((message) =>
+              message.id === draftId
+                ? {
+                    ...message,
+                    artifacts: [...message.artifacts, event.data.artifact],
+                  }
+                : message,
+            ),
+          )
+          return
+        }
+
+        if (event.event === 'agent_done') {
+          const message = event.data.message
+          shouldRefreshPreview =
+            shouldRefreshPreview || message.artifacts.some((artifact) => artifact.type === 'preview')
+          finalizeAgentMessage(message)
+          return
+        }
+
+        if (event.event === 'error') {
+          setError(event.data.message)
+          return
+        }
+
+        if (event.event === 'done') {
+          shouldRefreshPreview =
+            shouldRefreshPreview ||
+            hasPreviewArtifact(event.data.agent_messages ?? [])
+        }
+      }
+
+      await apiClient.streamMessage(
+        conversationId,
+        {
+          sender_id: 'user',
+          content,
+        },
+        handleStreamEvent,
+      )
+      await Promise.all(animatedTasks)
+
+      if (shouldRefreshPreview) {
+        const nextPreview = await apiClient.getWorkspacePreview(workspaceId)
+        if (selectedConversationIdRef.current === conversationId) {
+          setPreview(nextPreview)
+        }
       }
 
       setError(null)
@@ -517,7 +770,8 @@ function App() {
         caughtError instanceof Error ? caughtError.message : 'Agent 回复失败',
       )
     } finally {
-      setAgentRunning(false)
+      setConversationRunning(conversationId, false)
+      setConversationHarnessStatus(conversationId, null)
     }
   }
 
@@ -573,16 +827,25 @@ function App() {
                 type="error"
               />
             ) : null}
+            {mockAgentWarning ? (
+              <Alert
+                className="error-banner"
+                showIcon
+                title={mockAgentWarning}
+                type="warning"
+              />
+            ) : null}
             {/* 中间主区域：当前会话的消息流和消息输入。 */}
             <ChatPanel
               agents={agents}
               availableAgents={selectedConversationAgents}
               conversation={selectedConversation}
-              agentRunning={agentRunning}
+              agentRunning={selectedAgentRunning}
               appliedDiffIds={appliedDiffIds}
               applyingDiffId={applyingDiffId}
-              loading={loadingMessages}
-              messages={messages}
+              harnessStatus={selectedHarnessStatus}
+              loading={loadingMessages && selectedMessages.length === 0}
+              messages={selectedMessages}
               onApplyDiff={handleApplyDiff}
               onOpenMemberManager={() => setMemberManagerOpen(true)}
               onSendMessage={handleSendMessage}
@@ -597,6 +860,14 @@ function App() {
             deletingFilePath={deletingWorkspaceFilePath}
             files={workspaceFiles}
             preview={preview}
+            getFilePreviewUrl={(path) =>
+              selectedConversation
+                ? apiClient.getWorkspacePreviewPageUrl(
+                    selectedConversation.workspace_id,
+                    path,
+                  )
+                : ''
+            }
             onDeleteFile={handleDeleteWorkspaceFile}
             onPreviewFile={handlePreviewWorkspaceFile}
           />

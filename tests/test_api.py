@@ -72,7 +72,7 @@ def test_message_run_endpoint_runs_full_orchestrator_pipeline() -> None:
         "review-agent",
         "preview-agent",
     ]
-    assert payload["agent_messages"][0]["artifacts"][0]["type"] == "file"
+    assert payload["agent_messages"][0]["artifacts"] == []
     assert payload["agent_messages"][1]["artifacts"][0]["type"] == "code"
     assert payload["agent_messages"][1]["artifacts"][1]["type"] == "diff"
     assert payload["agent_messages"][2]["artifacts"][0]["type"] == "file"
@@ -111,7 +111,7 @@ def test_direct_agent_message_runs_only_target_agent() -> None:
     assert payload["agent_messages"][0]["artifacts"][0]["type"] == "file"
 
 
-def test_message_without_agent_mention_only_saves_user_message() -> None:
+def test_message_without_agent_mention_gets_default_chat_response() -> None:
     test_client = client()
     create_response = test_client.post(
         "/api/conversations",
@@ -130,10 +130,40 @@ def test_message_without_agent_mention_only_saves_user_message() -> None:
     assert response.status_code == 201
     payload = response.json()
     assert payload["user_message"]["sender_id"] == "user"
-    assert payload["agent_messages"] == []
+    assert [message["sender_id"] for message in payload["agent_messages"]] == ["orchestrator"]
+    assert "我已收到" in payload["agent_messages"][0]["content"]
 
     history_response = test_client.get(f"/api/conversations/{conversation['id']}/messages")
-    assert [message["sender_id"] for message in history_response.json()] == ["user"]
+    assert [message["sender_id"] for message in history_response.json()] == [
+        "user",
+        "orchestrator",
+    ]
+
+
+def test_message_without_agent_mention_can_auto_plan_development_request() -> None:
+    test_client = client()
+    create_response = test_client.post(
+        "/api/conversations",
+        json={
+            "title": "Auto Plan",
+            "agent_ids": ["orchestrator", "code-agent", "review-agent", "preview-agent"],
+        },
+    )
+    conversation = create_response.json()
+
+    response = test_client.post(
+        f"/api/conversations/{conversation['id']}/messages/run",
+        json={"content": "帮我实现一个 Todo 页面"},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert [message["sender_id"] for message in payload["agent_messages"][:4]] == [
+        "orchestrator",
+        "code-agent",
+        "review-agent",
+        "preview-agent",
+    ]
 
 
 def test_agent_failure_returns_chat_message_instead_of_502(monkeypatch) -> None:
@@ -177,12 +207,21 @@ def test_agent_run_orchestrator_returns_plan_without_child_artifacts() -> None:
     result = response.json()
     assert result["agent_id"] == "orchestrator"
     assert result["next_actions"] == ["code-agent", "review-agent", "preview-agent"]
-    assert [artifact["type"] for artifact in result["artifacts"]] == ["file"]
-    assert result["artifacts"][0]["data"]["agent_ids"] == [
-        "code-agent",
-        "review-agent",
-        "preview-agent",
-    ]
+    assert result["artifacts"] == []
+    assert "@Orchestrator 帮我做一个 Todo List 网页" not in result["content"]
+    assert "Code Agent" not in result["content"]
+    assert "code-agent" in result["content"]
+
+
+def test_agent_runtime_reports_mock_mode_without_secret() -> None:
+    response = client().get("/api/agents/runtime")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["agent_mode"] == "mock"
+    assert payload["provider"]
+    assert "api_key" not in payload
+    assert "secret" not in str(payload).lower()
 
 
 def test_update_and_delete_conversation_match_frontend_contract() -> None:
@@ -237,6 +276,44 @@ def test_agents_stream_returns_sse_events() -> None:
     ) as response:
         body = "".join(response.iter_text())
     assert response.status_code == 200
-    assert "event: status" in body
+    assert "event: agent_started" in body
+    assert "event: agent_delta" in body
     assert "event: done" in body
-    assert "Code Agent 正在生成代码" in body
+
+
+def test_message_stream_persists_user_and_agent_messages() -> None:
+    test_client = client()
+    create_response = test_client.post(
+        "/api/conversations",
+        json={
+            "title": "Stream",
+            "agent_ids": ["orchestrator", "code-agent", "review-agent", "preview-agent"],
+        },
+    )
+    conversation = create_response.json()
+
+    with test_client.stream(
+        "POST",
+        f"/api/conversations/{conversation['id']}/messages/stream",
+        json={"content": "@Orchestrator 帮我做一个 Todo List 网页"},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert body.index("event: user_message") < body.index("event: harness_step")
+    assert "event: agent_started" in body
+    assert "event: agent_delta" in body
+    assert body.count("event: agent_delta") > 3
+    assert "event: agent_done" in body
+    assert "event: done" in body
+    assert '"agent_messages"' in body
+
+    history_response = test_client.get(f"/api/conversations/{conversation['id']}/messages")
+    assert history_response.status_code == 200
+    assert [message["sender_id"] for message in history_response.json()] == [
+        "user",
+        "orchestrator",
+        "code-agent",
+        "review-agent",
+        "preview-agent",
+    ]

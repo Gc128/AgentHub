@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -93,9 +94,12 @@ async def test_sqlite_workspace_repository_persists_preview_files_and_diffs(
             workspace_id="ws_sqlite",
             status="ready",
             preview_url="http://example.test/preview",
+            entry_path="todo.html",
         )
     )
-    assert (await repository.get_preview("ws_sqlite")).preview_url == "http://example.test/preview"
+    preview = await repository.get_preview("ws_sqlite")
+    assert preview.preview_url == "http://example.test/preview"
+    assert preview.entry_path == "todo.html"
 
     file_record = WorkspaceFileContent(
         workspace_id="ws_sqlite",
@@ -127,3 +131,39 @@ async def test_sqlite_workspace_repository_persists_preview_files_and_diffs(
     await repository.save_applied_diff(diff_record)
 
     assert await repository.list_applied_diffs("ws_sqlite") == [diff_record]
+
+
+@pytest.mark.asyncio
+async def test_sqlite_workspace_repository_migrates_preview_entry_path(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "agenthub-test.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "CREATE TABLE workspacepreviewrecord ("
+            "workspace_id VARCHAR NOT NULL, "
+            "status VARCHAR NOT NULL, "
+            "preview_url VARCHAR, "
+            "PRIMARY KEY (workspace_id))"
+        )
+        connection.execute(
+            "INSERT INTO workspacepreviewrecord "
+            "(workspace_id, status, preview_url) VALUES (?, ?, ?)",
+            ("ws_old", "ready", "http://example.test/old"),
+        )
+
+    repository = SqliteWorkspaceRepository(f"sqlite:///{database_path}")
+
+    preview = await repository.get_preview("ws_old")
+    assert preview.preview_url == "http://example.test/old"
+    assert preview.entry_path is None
+
+    await repository.save_preview(
+        WorkspacePreviewResponse(
+            workspace_id="ws_old",
+            status="ready",
+            preview_url="http://example.test/new",
+            entry_path="todo.html",
+        )
+    )
+    assert (await repository.get_preview("ws_old")).entry_path == "todo.html"

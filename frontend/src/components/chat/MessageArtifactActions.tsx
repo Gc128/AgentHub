@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   CheckCircleOutlined,
   CloudUploadOutlined,
@@ -43,6 +44,10 @@ export function MessageArtifactActions({
   applyingDiffId,
   onApplyDiff,
 }: MessageArtifactActionsProps) {
+  const [expandedArtifactIds, setExpandedArtifactIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+
   if (artifacts.length === 0) {
     return null
   }
@@ -135,11 +140,36 @@ export function MessageArtifactActions({
         }
 
         const findings = getArtifactStringList(artifact, 'findings')
+        const expanded = expandedArtifactIds.has(artifact.id)
         return (
-          <div className="message-artifact-action" key={artifact.id}>
-            <Tag className="artifact-type">{artifact.type}</Tag>
-            <FileTextOutlined />
-            <span>{findings[0] ?? label}</span>
+          <div className="message-artifact-file-card" key={artifact.id}>
+            <div className="message-artifact-action">
+              <Tag className="artifact-type">{artifact.type}</Tag>
+              <FileTextOutlined />
+              <span>{findings[0] ?? label}</span>
+              <Button
+                icon={<EyeOutlined />}
+                onClick={() =>
+                  setExpandedArtifactIds((currentIds) => {
+                    const nextIds = new Set(currentIds)
+                    if (nextIds.has(artifact.id)) {
+                      nextIds.delete(artifact.id)
+                    } else {
+                      nextIds.add(artifact.id)
+                    }
+                    return nextIds
+                  })
+                }
+                size="small"
+              >
+                {expanded ? '收起' : '查看详情'}
+              </Button>
+            </div>
+            {expanded ? (
+              <pre className="message-artifact-json">
+                {JSON.stringify(artifact.data, null, 2)}
+              </pre>
+            ) : null}
           </div>
         )
       })}
