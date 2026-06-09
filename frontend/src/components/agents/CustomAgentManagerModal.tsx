@@ -10,6 +10,7 @@ import {
   Tag,
 } from 'antd'
 import { apiClient } from '../../api/client'
+import { MarkdownMessage } from '../chat/MarkdownMessage'
 import type { AgentRunResult, CustomAgent } from '../../types/api'
 
 type CustomAgentManagerModalProps = {
@@ -47,6 +48,18 @@ const parseCapabilities = (value: string) =>
     .split(/[,，\n]/)
     .map((item) => item.trim())
     .filter(Boolean)
+
+const cleanCustomAgentOutput = (content: string, agentId?: string) => {
+  if (!agentId) {
+    return content
+  }
+  return content
+    .replace(
+      new RegExp(`^\\s*${agentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[:：]\\s*`),
+      '',
+    )
+    .trimStart()
+}
 
 export function CustomAgentManagerModal({
   open,
@@ -337,8 +350,13 @@ export function CustomAgentManagerModal({
             </Button>
             {testResult ? (
               <div className="custom-agent-test-result">
-                <strong>{testResult.agent_id}</strong>
-                <p>{testResult.content}</p>
+                <strong>{selectedAgent?.name ?? formState.name}</strong>
+                <MarkdownMessage
+                  content={cleanCustomAgentOutput(
+                    testResult.content,
+                    testResult.agent_id,
+                  )}
+                />
               </div>
             ) : null}
           </div>
