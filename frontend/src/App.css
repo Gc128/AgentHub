@@ -1058,6 +1058,26 @@
   padding: 14px;
 }
 
+.workspace-status-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workspace-status-info {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 4px;
+}
+
+.workspace-status-info strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .preview-label {
   display: block;
   color: #71766d;
@@ -1066,13 +1086,21 @@
 }
 
 .status-pill {
+  display: inline-flex;
+  max-width: 92px;
+  flex: 0 0 auto;
+  align-items: center;
   padding: 7px 9px;
 }
 
 .status-pill .ant-badge-status-text {
+  min-width: 0;
+  overflow: hidden;
   color: inherit;
   font-size: 11px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-not_started {
@@ -1322,10 +1350,15 @@
   white-space: nowrap;
 }
 
+.workspace-preview-action > .ant-btn {
+  flex: 0 0 auto;
+}
+
 .workspace-section {
-  display: grid;
+  display: flex;
   gap: 10px;
   min-height: 0;
+  flex-direction: column;
 }
 
 .workspace-files-section {
@@ -1335,6 +1368,11 @@
 .workspace-change-section {
   flex: 1 1 auto;
   overflow: hidden;
+}
+
+.workspace-section > .empty-artifacts {
+  flex: 0 0 auto;
+  min-height: 112px;
 }
 
 .workspace-section-title {
@@ -1352,9 +1390,15 @@
 .workspace-file-list,
 .workspace-change-list {
   display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
   gap: 8px;
   min-height: 0;
   overflow-y: auto;
+}
+
+.workspace-change-list {
+  flex: 1 1 auto;
 }
 
 .workspace-file-row,

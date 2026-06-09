@@ -61,6 +61,16 @@ const getPreviewBadgeStatus = (
   return 'default'
 }
 
+const getPreviewStatusLabel = (
+  status: WorkspacePreview['status'] | undefined,
+) =>
+  ({
+    error: '异常',
+    not_started: '未开始',
+    ready: '就绪',
+    running: '运行中',
+  })[status ?? 'not_started'] ?? status ?? '未开始'
+
 const formatTime = (value: string | undefined) => {
   if (!value) {
     return '未记录'
@@ -172,6 +182,7 @@ export function WorkspacePanel({
 }: WorkspacePanelProps) {
   const workspaceId = conversation?.workspace_id ?? '未选择'
   const previewStatus = preview?.status ?? 'not_started'
+  const previewStatusLabel = getPreviewStatusLabel(previewStatus)
   const [previewFile, setPreviewFile] = useState<WorkspaceFileContent | null>(
     null,
   )
@@ -226,15 +237,15 @@ export function WorkspacePanel({
         <h2>预览与变更</h2>
       </header>
 
-      <div className="preview-card">
-        <div>
+      <div className="preview-card workspace-status-card">
+        <div className="workspace-status-info">
           <span className="preview-label">Workspace</span>
-          <strong>{workspaceId}</strong>
+          <strong title={workspaceId}>{workspaceId}</strong>
         </div>
         <Badge
           className={`status-pill status-${previewStatus}`}
           status={getPreviewBadgeStatus(preview?.status)}
-          text={previewStatus}
+          text={previewStatusLabel}
         />
       </div>
 
