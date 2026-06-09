@@ -18,10 +18,10 @@ type ChatPanelProps = {
   messages: Message[]
   /** 消息和 preview 加载状态。 */
   loading: boolean
-  /** Agent 是否正在生成回复。 */
+  /** 当前会话是否仍有流式请求在进行，用于禁用输入。 */
   agentRunning: boolean
-  /** 当前 Orchestrator harness 状态。 */
-  harnessStatus: string | null
+  /** 当前生成提示；只控制底部黄色状态卡片展示。 */
+  generationNotice: string | null
   /** 当前 workspace 的可打开 preview URL。 */
   workspacePreviewUrl?: string | null
   /** 已经成功应用的 diff artifact ID 集合。 */
@@ -69,7 +69,7 @@ export function ChatPanel({
   messages,
   loading,
   agentRunning,
-  harnessStatus,
+  generationNotice,
   workspacePreviewUrl,
   appliedDiffIds,
   applyingDiffId,
@@ -93,7 +93,7 @@ export function ChatPanel({
     lastMessage?.id,
     lastMessageContentLength,
     agentRunning,
-    harnessStatus,
+    generationNotice,
     loading,
   ])
 
@@ -165,7 +165,7 @@ export function ChatPanel({
             </article>
           ))
         )}
-        {agentRunning ? (
+        {generationNotice ? (
           <article className="message-bubble message-system">
             <Avatar className="message-avatar" shape="square">
               A
@@ -175,7 +175,7 @@ export function ChatPanel({
               <span>生成中</span>
             </div>
             <p>
-              {harnessStatus ?? 'Agent 正在生成回复'}
+              {generationNotice}
               <span className="typing-dots" aria-hidden="true">
                 ...
               </span>

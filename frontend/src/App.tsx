@@ -131,7 +131,7 @@ function App() {
   // Agent 运行状态按会话隔离；切换会话时只展示当前会话的生成状态。
   const [agentRunningByConversationId, setAgentRunningByConversationId] =
     useState<Record<string, boolean>>({})
-  const [harnessStatusByConversationId, setHarnessStatusByConversationId] =
+  const [generationNoticeByConversationId, setGenerationNoticeByConversationId] =
     useState<Record<string, string | null>>({})
   // 已成功应用的 diff artifact ID；聊天流和右侧产物栏共享这份状态。
   const [appliedDiffIds, setAppliedDiffIds] = useState<ReadonlySet<string>>(
@@ -217,8 +217,8 @@ function App() {
   const selectedAgentRunning = selectedConversationId
     ? agentRunningByConversationId[selectedConversationId] ?? false
     : false
-  const selectedHarnessStatus = selectedConversationId
-    ? harnessStatusByConversationId[selectedConversationId] ?? null
+  const selectedGenerationNotice = selectedConversationId
+    ? generationNoticeByConversationId[selectedConversationId] ?? null
     : null
 
   const setConversationMessages = (
@@ -243,13 +243,13 @@ function App() {
     }))
   }
 
-  const setConversationHarnessStatus = (
+  const setConversationGenerationNotice = (
     conversationId: string,
-    status: string | null,
+    notice: string | null,
   ) => {
-    setHarnessStatusByConversationId((current) => ({
+    setGenerationNoticeByConversationId((current) => ({
       ...current,
-      [conversationId]: status,
+      [conversationId]: notice,
     }))
   }
 
@@ -478,7 +478,7 @@ function App() {
         delete next[conversationId]
         return next
       })
-      setHarnessStatusByConversationId((current) => {
+      setGenerationNoticeByConversationId((current) => {
         const next = { ...current }
         delete next[conversationId]
         return next
@@ -660,12 +660,15 @@ function App() {
     }
 
     setConversationRunning(conversationId, true)
-    setConversationHarnessStatus(conversationId, '正在连接 AgentHub harness...')
+    setConversationGenerationNotice(
+      conversationId,
+      '正在连接 AgentHub harness',
+    )
 
     try {
       const draftIds = new Map<string, string>()
       const deltaChains = new Map<string, Promise<void>>()
-      const animatedTasks: Promise<void>[] = []
+      const closedDraftIds = new Set<string>()
       let draftCounter = 0
       let shouldRefreshPreview = false
 
@@ -701,6 +704,9 @@ function App() {
         const previousChain = deltaChains.get(agentId) ?? Promise.resolve()
         const nextChain = previousChain.then(async () => {
           for (const chunk of splitVisualDelta(delta)) {
+            if (closedDraftIds.has(draftId)) {
+              break
+            }
             setConversationMessages(conversationId, (currentMessages) =>
               currentMessages.map((message) =>
                 message.id === draftId
@@ -715,27 +721,24 @@ function App() {
           }
         })
         deltaChains.set(agentId, nextChain)
-        animatedTasks.push(nextChain)
       }
 
       const finalizeAgentMessage = (message: Message) => {
-        const previousChain =
-          deltaChains.get(message.sender_id) ?? Promise.resolve()
-        const nextChain = previousChain.then(() => {
-          const draftId = draftIds.get(message.sender_id)
-          setConversationMessages(conversationId, (currentMessages) => {
-            if (!draftId) {
-              return [...currentMessages, message]
-            }
-            return currentMessages.map((currentMessage) =>
-              currentMessage.id === draftId ? message : currentMessage,
-            )
-          })
-          draftIds.delete(message.sender_id)
-          updateConversationTimestamp(message)
+        const draftId = draftIds.get(message.sender_id)
+        if (draftId) {
+          closedDraftIds.add(draftId)
+        }
+        setConversationMessages(conversationId, (currentMessages) => {
+          if (!draftId) {
+            return [...currentMessages, message]
+          }
+          return currentMessages.map((currentMessage) =>
+            currentMessage.id === draftId ? message : currentMessage,
+          )
         })
-        deltaChains.set(message.sender_id, nextChain)
-        animatedTasks.push(nextChain)
+        draftIds.delete(message.sender_id)
+        deltaChains.delete(message.sender_id)
+        updateConversationTimestamp(message)
       }
 
       const handleStreamEvent = (event: MessageStreamEvent) => {
@@ -749,14 +752,23 @@ function App() {
         }
 
         if (event.event === 'harness_step') {
-          setConversationHarnessStatus(
-            conversationId,
-            event.data.message ?? event.data.status,
-          )
+          if (event.data.status === 'started') {
+            setConversationGenerationNotice(
+              conversationId,
+              event.data.message ?? event.data.status,
+            )
+          }
+          if (['succeeded', 'failed'].includes(event.data.status)) {
+            setConversationGenerationNotice(conversationId, null)
+          }
           return
         }
 
         if (event.event === 'agent_started') {
+          setConversationGenerationNotice(
+            conversationId,
+            `${event.data.agent_id} 正在生成回复`,
+          )
           ensureDraft(event.data.agent_id)
           return
         }
@@ -784,13 +796,17 @@ function App() {
         if (event.event === 'agent_done') {
           const message = event.data.message
           shouldRefreshPreview =
-            shouldRefreshPreview || message.artifacts.some((artifact) => artifact.type === 'preview')
+            shouldRefreshPreview ||
+            message.artifacts.some((artifact) => artifact.type === 'preview')
           finalizeAgentMessage(message)
+          setConversationGenerationNotice(conversationId, null)
           return
         }
 
         if (event.event === 'error') {
           setError(event.data.message)
+          setConversationGenerationNotice(conversationId, null)
+          setConversationRunning(conversationId, false)
           return
         }
 
@@ -798,6 +814,8 @@ function App() {
           shouldRefreshPreview =
             shouldRefreshPreview ||
             hasPreviewArtifact(event.data.agent_messages ?? [])
+          setConversationGenerationNotice(conversationId, null)
+          setConversationRunning(conversationId, false)
         }
       }
 
@@ -809,8 +827,6 @@ function App() {
         },
         handleStreamEvent,
       )
-      await Promise.all(animatedTasks)
-
       if (shouldRefreshPreview) {
         const nextPreview = await apiClient.getWorkspacePreview(workspaceId)
         if (selectedConversationIdRef.current === conversationId) {
@@ -826,7 +842,7 @@ function App() {
       )
     } finally {
       setConversationRunning(conversationId, false)
-      setConversationHarnessStatus(conversationId, null)
+      setConversationGenerationNotice(conversationId, null)
     }
   }
 
@@ -898,7 +914,7 @@ function App() {
               agentRunning={selectedAgentRunning}
               appliedDiffIds={appliedDiffIds}
               applyingDiffId={applyingDiffId}
-              harnessStatus={selectedHarnessStatus}
+              generationNotice={selectedGenerationNotice}
               loading={loadingMessages && selectedMessages.length === 0}
               messages={selectedMessages}
               workspacePreviewUrl={preview?.preview_url ?? null}
