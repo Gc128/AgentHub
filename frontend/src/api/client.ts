@@ -330,10 +330,20 @@ export const apiClient = {
     )
   },
 
-  getWorkspacePreviewPageUrl(workspaceId: string, path?: string): string {
-    const query = path
-      ? `?path=${path.split('/').map(encodeURIComponent).join('/')}`
-      : ''
+  getWorkspacePreviewPageUrl(
+    workspaceId: string,
+    path?: string,
+    refreshToken?: number,
+  ): string {
+    const params: string[] = []
+    if (path) {
+      params.push(`path=${path.split('/').map(encodeURIComponent).join('/')}`)
+    }
+    if (refreshToken !== undefined) {
+      params.push(`_v=${encodeURIComponent(String(refreshToken))}`)
+    }
+
+    const query = params.length > 0 ? `?${params.join('&')}` : ''
     return `${API_BASE_URL}/api/workspaces/${encodeURIComponent(workspaceId)}/preview-page${query}`
   },
 

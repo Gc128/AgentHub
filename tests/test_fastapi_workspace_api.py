@@ -329,6 +329,49 @@ def test_workspace_preview_page_serves_index_html_when_present(tmp_path, monkeyp
     assert "<main>hello workspace</main>" in response.text
 
 
+def test_preview_page_returns_no_store_header(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+    write_response = test_client.post(
+        "/api/workspaces/ws_no_store/files",
+        json={"path": "index.html", "content": "<main>fresh preview</main>"},
+    )
+    assert write_response.status_code == 201
+
+    response = test_client.get("/api/workspaces/ws_no_store/preview-page")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_preview_page_serves_latest_workspace_file_after_rewrite(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+    first_write = test_client.post(
+        "/api/workspaces/ws_fresh_file/files",
+        json={"path": "index.html", "content": "<main>old preview</main>"},
+    )
+    assert first_write.status_code == 201
+
+    first_response = test_client.get("/api/workspaces/ws_fresh_file/preview-page")
+    assert first_response.status_code == 200
+    assert "<main>old preview</main>" in first_response.text
+
+    second_write = test_client.post(
+        "/api/workspaces/ws_fresh_file/files",
+        json={"path": "index.html", "content": "<main>new preview</main>"},
+    )
+    assert second_write.status_code == 201
+
+    second_response = test_client.get("/api/workspaces/ws_fresh_file/preview-page")
+    assert second_response.status_code == 200
+    assert "<main>new preview</main>" in second_response.text
+    assert "<main>old preview</main>" not in second_response.text
+
+
 def test_preview_page_rewrites_or_bases_relative_assets(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
     test_client = client()
@@ -402,6 +445,21 @@ def test_preview_asset_serves_workspace_javascript_with_content_type(
     assert response.status_code == 200
     assert response.text == "window.todoReady = true;\n"
     assert response.headers["content-type"].startswith("text/javascript")
+
+
+def test_preview_asset_returns_no_store_header(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+    write_response = test_client.post(
+        "/api/workspaces/ws_asset_no_store/files",
+        json={"path": "script.js", "content": "window.todoReady = true;\n"},
+    )
+    assert write_response.status_code == 201
+
+    response = test_client.get("/api/workspaces/ws_asset_no_store/preview-assets/script.js")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_preview_asset_serves_workspace_css_with_content_type(tmp_path, monkeypatch) -> None:

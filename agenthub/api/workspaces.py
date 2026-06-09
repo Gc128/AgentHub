@@ -22,6 +22,7 @@ from agenthub.schemas.workspace import (
 from agenthub.services.workspace_service import WorkspaceService
 
 router = APIRouter()
+NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
 
 @router.get("/workspaces/{workspace_id}/preview", response_model=WorkspacePreviewResponse)
@@ -42,7 +43,10 @@ async def get_workspace_preview_page(
     try:
         preview_file = await service.get_file_content(workspace_id, path)
         asset_base_url = _preview_asset_base_url(request, workspace_id, preview_file.path)
-        return HTMLResponse(_inject_preview_asset_base(preview_file.content, asset_base_url))
+        return HTMLResponse(
+            _inject_preview_asset_base(preview_file.content, asset_base_url),
+            headers=NO_STORE_HEADERS,
+        )
     except NotFoundError:
         preview = await service.get_preview(workspace_id)
         status = escape(preview.status)
@@ -58,7 +62,8 @@ async def get_workspace_preview_page(
             f'</head><body><section class="card"><h1>{safe_workspace_id}</h1>'
             f"<p>Preview status: <code>{status}</code></p>"
             f"<p>当前 workspace 尚未生成 <code>{safe_path}</code>，先展示预览状态页。</p>"
-            "</section></body></html>"
+            "</section></body></html>",
+            headers=NO_STORE_HEADERS,
         )
 
 
@@ -70,7 +75,7 @@ async def get_workspace_preview_asset(
 ) -> Response:
     content = await service.get_file_bytes(workspace_id, path)
     media_type = _media_type_for_path(path)
-    return Response(content=content, media_type=media_type)
+    return Response(content=content, media_type=media_type, headers=NO_STORE_HEADERS)
 
 
 @router.get("/workspaces/{workspace_id}/files", response_model=list[WorkspaceFile])

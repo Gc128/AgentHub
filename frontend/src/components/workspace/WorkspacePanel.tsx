@@ -8,7 +8,7 @@ import {
   RollbackOutlined,
 } from '@ant-design/icons'
 import { Alert, Badge, Button, Empty, Modal, Popconfirm, Tabs, Tag, Tooltip } from 'antd'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type {
@@ -29,6 +29,8 @@ type WorkspacePanelProps = {
   files: WorkspaceFile[]
   /** 当前 workspace 已应用 Diff 历史。 */
   appliedDiffs: AppliedDiffRecord[]
+  /** 当前 workspace 展示刷新版本，用于避免 iframe 复用旧资源。 */
+  workspaceRefreshToken: number
   /** 当前正在删除的文件路径。 */
   deletingFilePath: string | null
   /** 当前正在回退的 applied diff 记录 ID。 */
@@ -36,7 +38,7 @@ type WorkspacePanelProps = {
   /** 读取文件内容，用于打开预览弹窗。 */
   onPreviewFile: (file: WorkspaceFile) => Promise<WorkspaceFileContent>
   /** 生成某个 workspace 文件对应的 HTML 预览 URL。 */
-  getFilePreviewUrl: (path: string) => string
+  getFilePreviewUrl: (path?: string) => string
   /** 删除真实 workspace 文件。 */
   onDeleteFile: (file: WorkspaceFile) => Promise<void>
   /** 回退已应用 diff。 */
@@ -142,8 +144,9 @@ const renderFilePreview = (
           children: (
             filePreviewUrl ? (
               <iframe
+                key={filePreviewUrl}
                 className="workspace-file-preview-frame"
-                sandbox="allow-scripts allow-forms"
+                sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
                 src={filePreviewUrl}
                 title={`${file.path} preview`}
               />
@@ -173,6 +176,7 @@ export function WorkspacePanel({
   preview,
   files,
   appliedDiffs,
+  workspaceRefreshToken,
   deletingFilePath,
   revertingDiffRecordId,
   onPreviewFile,
@@ -190,6 +194,9 @@ export function WorkspacePanel({
     null,
   )
   const [fileActionError, setFileActionError] = useState<string | null>(null)
+  const workspacePreviewUrl = preview?.preview_url
+    ? getFilePreviewUrl(preview.entry_path ?? undefined)
+    : ''
 
   const handlePreviewFile = async (file: WorkspaceFile) => {
     setPreviewLoadingPath(file.path)
@@ -230,6 +237,41 @@ export function WorkspacePanel({
     }
   }
 
+  useEffect(() => {
+    if (!previewFile) {
+      return
+    }
+
+    const currentFile = files.find((file) => file.path === previewFile.path)
+    if (!currentFile) {
+      setPreviewFile(null)
+      return
+    }
+
+    let ignore = false
+    const refreshOpenFile = async () => {
+      try {
+        const nextPreviewFile = await onPreviewFile(currentFile)
+        if (!ignore) {
+          setPreviewFile(nextPreviewFile)
+          setFileActionError(null)
+        }
+      } catch (caughtError) {
+        if (!ignore) {
+          setFileActionError(
+            caughtError instanceof Error ? caughtError.message : '读取文件失败',
+          )
+        }
+      }
+    }
+
+    void refreshOpenFile()
+
+    return () => {
+      ignore = true
+    }
+  }, [workspaceRefreshToken])
+
   return (
     <section className="workspace-panel">
       <header className="panel-header">
@@ -259,8 +301,8 @@ export function WorkspacePanel({
           disabled={!preview?.preview_url}
           icon={<EyeOutlined />}
           onClick={() =>
-            preview?.preview_url
-              ? window.open(preview.preview_url, '_blank', 'noopener,noreferrer')
+            workspacePreviewUrl
+              ? window.open(workspacePreviewUrl, '_blank', 'noopener,noreferrer')
               : undefined
           }
           size="small"

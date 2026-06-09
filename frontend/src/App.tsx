@@ -114,6 +114,8 @@ function App() {
   const [preview, setPreview] = useState<WorkspacePreview | null>(null)
   // 当前 workspace 文件列表。
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([])
+  // 当前 workspace 预览刷新版本，Apply/回退/删除/切换后用于强制 iframe 读取最新文件。
+  const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0)
   // 当前 workspace 已应用 Diff 历史。
   const [appliedDiffRecords, setAppliedDiffRecords] = useState<
     AppliedDiffRecord[]
@@ -251,6 +253,10 @@ function App() {
     }))
   }
 
+  const bumpWorkspaceRefreshToken = () => {
+    setWorkspaceRefreshToken((currentToken) => currentToken + 1)
+  }
+
   /**
    * 当前会话实际可用的 Agent。
    * 这里严格按 conversation.agent_ids 取成员，聊天输入和 @ 路由都只能使用这批 Agent。
@@ -291,6 +297,7 @@ function App() {
       setWorkspaceFiles([])
       setAppliedDiffRecords([])
       setAppliedDiffIds(new Set())
+      bumpWorkspaceRefreshToken()
       return
     }
 
@@ -323,6 +330,7 @@ function App() {
         setWorkspaceFiles(nextWorkspaceFiles)
         setAppliedDiffRecords(nextAppliedDiffRecords)
         setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+        bumpWorkspaceRefreshToken()
         setError(null)
       } catch (caughtError) {
         if (!ignore) {
@@ -523,6 +531,7 @@ function App() {
       setWorkspaceFiles(nextWorkspaceFiles)
       setAppliedDiffRecords(nextAppliedDiffRecords)
       setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+      bumpWorkspaceRefreshToken()
       setError(null)
     } catch (caughtError) {
       const message =
@@ -559,6 +568,7 @@ function App() {
       setWorkspaceFiles(nextWorkspaceFiles)
       setAppliedDiffRecords(nextAppliedDiffRecords)
       setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+      bumpWorkspaceRefreshToken()
       setError(null)
     } catch (caughtError) {
       const message =
@@ -622,6 +632,7 @@ function App() {
       setWorkspaceFiles(nextWorkspaceFiles)
       setAppliedDiffRecords(nextAppliedDiffRecords)
       setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+      bumpWorkspaceRefreshToken()
       setError(null)
     } catch (caughtError) {
       const message =
@@ -804,6 +815,7 @@ function App() {
         const nextPreview = await apiClient.getWorkspacePreview(workspaceId)
         if (selectedConversationIdRef.current === conversationId) {
           setPreview(nextPreview)
+          bumpWorkspaceRefreshToken()
         }
       }
 
@@ -903,13 +915,16 @@ function App() {
             conversation={selectedConversation}
             deletingFilePath={deletingWorkspaceFilePath}
             files={workspaceFiles}
+            key={selectedConversation?.workspace_id ?? 'no-workspace'}
             preview={preview}
             revertingDiffRecordId={revertingDiffRecordId}
+            workspaceRefreshToken={workspaceRefreshToken}
             getFilePreviewUrl={(path) =>
               selectedConversation
                 ? apiClient.getWorkspacePreviewPageUrl(
                     selectedConversation.workspace_id,
                     path,
+                    workspaceRefreshToken,
                   )
                 : ''
             }
