@@ -135,7 +135,7 @@ export function ChatPanel({
         ) : messages.length === 0 ? (
           <Empty
             className="empty-chat-state"
-            description="使用下方 Demo Prompt 或输入 @Agent 开始协作。"
+            description="输入开发需求，或使用 @Agent 指定当前会话成员开始协作。"
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         ) : (

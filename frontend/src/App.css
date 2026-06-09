@@ -1021,10 +1021,6 @@
   background: #eef5f1;
 }
 
-.demo-prompt-button {
-  white-space: nowrap;
-}
-
 .artifact-panel,
 .workspace-panel {
   display: flex;
