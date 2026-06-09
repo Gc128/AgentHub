@@ -49,10 +49,24 @@ class ApplyDiffResponse(BaseModel):
     applied_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class RevertDiffResponse(BaseModel):
+    workspace_id: str
+    reverted_record_id: str
+    path: str
+    status: str
+    preview_url: str | None = None
+    entry_path: str | None = None
+    reverted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class AppliedDiffRecord(BaseModel):
     id: str
     workspace_id: str
     artifact_id: str
     diff: str
     path: str | None = None
+    before_content: str | None = None
+    after_content: str | None = None
+    before_exists: bool = True
+    reverted_at: datetime | None = None
     applied_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

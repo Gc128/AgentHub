@@ -307,7 +307,8 @@ class TestCreatePlan:
         assert all(
             "@Orchestrator 帮我做一个 Todo 页面" not in task.instruction for task in plan.tasks
         )
-        assert "context.user_request" in plan.tasks[0].instruction
+        assert "context.user_request" not in plan.tasks[0].instruction
+        assert "开发需求" in plan.tasks[0].instruction
         assert "审查前序代码" in plan.tasks[1].instruction
         assert "验证预览" in plan.tasks[2].instruction
 

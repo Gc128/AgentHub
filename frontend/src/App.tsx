@@ -50,7 +50,11 @@ const hasPreviewArtifact = (items: Message[]) =>
 
 /** 从 workspace 变更历史恢复已应用 diff id 集合，保证切换会话后按钮状态不丢。 */
 const getAppliedDiffIds = (records: AppliedDiffRecord[]) =>
-  new Set(records.map((record) => record.artifact_id))
+  new Set(
+    records
+      .filter((record) => !record.reverted_at)
+      .map((record) => record.artifact_id),
+  )
 
 /** 会话模式由成员数量推导，避免 UI 手动选择后和 agent_ids 语义不一致。 */
 const inferConversationMode = (agentIds: string[]): ConversationMode =>
@@ -133,6 +137,9 @@ function App() {
   )
   // 当前正在应用的 diff artifact ID；用于让同一张卡片展示“应用中”。
   const [applyingDiffId, setApplyingDiffId] = useState<string | null>(null)
+  const [revertingDiffRecordId, setRevertingDiffRecordId] = useState<
+    string | null
+  >(null)
   // 当前正在删除的 workspace 文件路径，用于文件行按钮 loading。
   const [deletingWorkspaceFilePath, setDeletingWorkspaceFilePath] = useState<
     string | null
@@ -527,6 +534,42 @@ function App() {
     }
   }
 
+  const handleRevertAppliedDiff = async (record: AppliedDiffRecord) => {
+    if (!selectedConversation) {
+      throw new Error('请先选择一个会话')
+    }
+
+    setRevertingDiffRecordId(record.id)
+
+    try {
+      const result = await apiClient.revertAppliedDiff(
+        selectedConversation.workspace_id,
+        record.id,
+      )
+      const [nextWorkspaceFiles, nextAppliedDiffRecords] = await Promise.all([
+        apiClient.listWorkspaceFiles(selectedConversation.workspace_id),
+        apiClient.listAppliedDiffs(selectedConversation.workspace_id),
+      ])
+      setPreview({
+        workspace_id: result.workspace_id,
+        status: result.status,
+        preview_url: result.preview_url ?? null,
+        entry_path: result.entry_path ?? null,
+      })
+      setWorkspaceFiles(nextWorkspaceFiles)
+      setAppliedDiffRecords(nextAppliedDiffRecords)
+      setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+      setError(null)
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : '回退 Diff 失败'
+      setError(message)
+      throw new Error(message)
+    } finally {
+      setRevertingDiffRecordId(null)
+    }
+  }
+
   /**
    * 读取当前 workspace 文件内容。
    * WorkspacePanel 用它打开预览弹窗；后端仍负责路径安全校验。
@@ -846,6 +889,7 @@ function App() {
               harnessStatus={selectedHarnessStatus}
               loading={loadingMessages && selectedMessages.length === 0}
               messages={selectedMessages}
+              workspacePreviewUrl={preview?.preview_url ?? null}
               onApplyDiff={handleApplyDiff}
               onOpenMemberManager={() => setMemberManagerOpen(true)}
               onSendMessage={handleSendMessage}
@@ -860,6 +904,7 @@ function App() {
             deletingFilePath={deletingWorkspaceFilePath}
             files={workspaceFiles}
             preview={preview}
+            revertingDiffRecordId={revertingDiffRecordId}
             getFilePreviewUrl={(path) =>
               selectedConversation
                 ? apiClient.getWorkspacePreviewPageUrl(
@@ -870,6 +915,7 @@ function App() {
             }
             onDeleteFile={handleDeleteWorkspaceFile}
             onPreviewFile={handlePreviewWorkspaceFile}
+            onRevertAppliedDiff={handleRevertAppliedDiff}
           />
         }
       />

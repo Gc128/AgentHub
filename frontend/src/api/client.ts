@@ -13,6 +13,7 @@ import type {
   Message,
   MessageSendResponse,
   MessageStreamEvent,
+  RevertDiffResult,
   UpdateConversationInput,
   WorkspaceFile,
   WorkspaceFileContent,
@@ -396,6 +397,18 @@ export const apiClient = {
       {
         method: 'POST',
         body: JSON.stringify(input),
+      },
+    )
+  },
+
+  revertAppliedDiff(
+    workspaceId: string,
+    recordId: string,
+  ): Promise<RevertDiffResult> {
+    return requestJson<RevertDiffResult>(
+      `/api/workspaces/${workspaceId}/applied-diffs/${recordId}/revert`,
+      {
+        method: 'POST',
       },
     )
   },

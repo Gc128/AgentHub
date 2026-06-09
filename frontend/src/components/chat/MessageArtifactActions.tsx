@@ -19,6 +19,8 @@ type MessageArtifactActionsProps = {
   appliedDiffIds: ReadonlySet<string>
   /** 当前正在应用的 Diff artifact id。 */
   applyingDiffId: string | null
+  /** 当前 workspace 可用的预览 URL，用于补齐 pending preview artifact。 */
+  workspacePreviewUrl?: string | null
   /** 点击 Apply Diff 时由父组件调用后端接口。 */
   onApplyDiff: (artifact: Artifact, diff: string) => Promise<void>
 }
@@ -42,6 +44,7 @@ export function MessageArtifactActions({
   artifacts,
   appliedDiffIds,
   applyingDiffId,
+  workspacePreviewUrl,
   onApplyDiff,
 }: MessageArtifactActionsProps) {
   const [expandedArtifactIds, setExpandedArtifactIds] = useState<ReadonlySet<string>>(
@@ -120,7 +123,7 @@ export function MessageArtifactActions({
         }
 
         if (artifact.type === 'preview') {
-          const previewUrl = getArtifactString(artifact, 'preview_url')
+          const previewUrl = getArtifactString(artifact, 'preview_url') || workspacePreviewUrl || ''
           const status = getArtifactString(artifact, 'status', 'not_started')
           return (
             <div className="message-artifact-action" key={artifact.id}>

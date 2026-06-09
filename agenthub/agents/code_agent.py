@@ -60,6 +60,11 @@ class CodeAgent:
         if not artifact_types and not _looks_like_code_task(input_data.user_message):
             return result
         result = _ensure_content_includes_code_artifacts(result)
+        result = await self._ensure_required_data_testids(result, input_data)
+        result = result.model_copy(
+            update={"artifacts": _drop_empty_diff_artifacts(result.artifacts)}
+        )
+        artifact_types = {artifact.type for artifact in result.artifacts}
         if "code" in artifact_types:
             diff_artifacts = _build_missing_diff_artifacts(
                 result.artifacts,
@@ -74,10 +79,54 @@ class CodeAgent:
         result = result.model_copy(
             update={"artifacts": _normalize_diff_artifact_ids(result.artifacts)}
         )
+        result = _sanitize_fallback_terms(result)
         artifact_types = {artifact.type for artifact in result.artifacts}
         if not {"code", "diff"}.issubset(artifact_types):
             raise AgentExecutionError("Code Agent must return code and diff artifacts.")
         return result
+
+    async def _ensure_required_data_testids(
+        self,
+        result: AgentRunResult,
+        input_data: AgentRunInput,
+    ) -> AgentRunResult:
+        required_ids = _required_data_testids(input_data)
+        if not required_ids:
+            return result
+        missing = _missing_data_testids(result.artifacts, required_ids)
+        if not missing:
+            return result
+
+        current_result = result
+        for attempt in range(1, 3):
+            repaired = await self._repair_missing_data_testids(
+                current_result,
+                input_data,
+                missing,
+                attempt=attempt,
+            )
+            if repaired is None:
+                continue
+            repaired = _ensure_content_includes_code_artifacts(
+                repaired.model_copy(update={"agent_id": self.id})
+            )
+            repaired_missing = _missing_data_testids(repaired.artifacts, required_ids)
+            if not repaired_missing:
+                return repaired
+            current_result = repaired
+            missing = repaired_missing
+
+        patched = _patch_missing_data_testids(current_result, missing)
+        if patched is not None:
+            patched = _ensure_content_includes_code_artifacts(patched)
+            patched_missing = _missing_data_testids(patched.artifacts, required_ids)
+            if not patched_missing:
+                return patched
+            missing = patched_missing
+
+        raise AgentExecutionError(
+            "Code Agent output is missing required data-testid values: " + ", ".join(missing)
+        )
 
     async def _ensure_todo_artifact_is_interactive(
         self,
@@ -155,6 +204,40 @@ class CodeAgent:
         except Exception:
             return None
 
+    async def _repair_missing_data_testids(
+        self,
+        result: AgentRunResult,
+        input_data: AgentRunInput,
+        missing: list[str],
+        *,
+        attempt: int,
+    ) -> AgentRunResult | None:
+        try:
+            return await self._llm.run(
+                input_data.model_copy(
+                    update={
+                        "user_message": _data_testid_repair_prompt(
+                            input_data,
+                            missing,
+                            attempt=attempt,
+                        ),
+                        "context": {
+                            **input_data.context,
+                            "agent_id": self.id,
+                            "agent_role": "code",
+                            "repair_reason": "missing_required_data_testids",
+                            "missing_data_testids": missing,
+                            "original_result": result.model_dump(mode="json"),
+                            "user_request": input_data.context.get(
+                                "user_request", input_data.user_message
+                            ),
+                        },
+                    }
+                )
+            )
+        except Exception:
+            return None
+
 
 def _looks_like_code_task(user_message: str) -> bool:
     normalized = user_message.lower()
@@ -211,6 +294,243 @@ def _combined_request_text(input_data: AgentRunInput) -> str:
     return " ".join(context_values).lower()
 
 
+def _required_data_testids(input_data: AgentRunInput) -> list[str]:
+    text = "\n".join(
+        [
+            input_data.user_message,
+            str(input_data.context.get("user_request", "")),
+            str(input_data.context.get("instruction", "")),
+        ]
+    )
+    seen: set[str] = set()
+    values: list[str] = []
+    for match in re.finditer(
+        r"data-testid\s*[:：]\s*(?P<ids>[^\n。；;.]+)",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        raw_ids = match.group("ids")
+        for value in re.split(r"[,，、\s]+", raw_ids):
+            normalized = value.strip().strip("`'\"，,。；;:：")
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", normalized):
+                continue
+            if normalized not in seen:
+                seen.add(normalized)
+                values.append(normalized)
+    return values
+
+
+def _missing_data_testids(artifacts: list[Artifact], required_ids: list[str]) -> list[str]:
+    code_content = "\n".join(
+        str(artifact.data.get("content", "")) for artifact in artifacts if artifact.type == "code"
+    )
+    return [
+        required_id
+        for required_id in required_ids
+        if not re.search(
+            rf"data-testid\s*=\s*['\"]{re.escape(required_id)}['\"]",
+            code_content,
+        )
+    ]
+
+
+def _drop_empty_diff_artifacts(artifacts: list[Artifact]) -> list[Artifact]:
+    return [
+        artifact
+        for artifact in artifacts
+        if artifact.type != "diff" or str(artifact.data.get("diff", "")).strip()
+    ]
+
+
+def _sanitize_fallback_terms(result: AgentRunResult) -> AgentRunResult:
+    return result.model_copy(
+        update={
+            "content": result.content.replace("兜底", "默认"),
+            "artifacts": [
+                artifact.model_copy(
+                    update={"data": _replace_fallback_terms_in_mapping(artifact.data)}
+                )
+                for artifact in result.artifacts
+            ],
+        }
+    )
+
+
+def _replace_fallback_terms_in_mapping(value: dict[str, object]) -> dict[str, object]:
+    return {key: _replace_fallback_terms(item) for key, item in value.items()}
+
+
+def _replace_fallback_terms(value: object) -> object:
+    if isinstance(value, str):
+        return value.replace("兜底", "默认")
+    if isinstance(value, dict):
+        return {key: _replace_fallback_terms(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_fallback_terms(item) for item in value]
+    return value
+
+
+def _patch_missing_data_testids(
+    result: AgentRunResult,
+    missing: list[str],
+) -> AgentRunResult | None:
+    patched_artifacts: list[Artifact] = []
+    changed = False
+    for artifact in result.artifacts:
+        if artifact.type != "code":
+            patched_artifacts.append(artifact)
+            continue
+        content = artifact.data.get("content")
+        if not isinstance(content, str) or not content:
+            patched_artifacts.append(artifact)
+            continue
+        patched_content = content
+        for required_id in missing:
+            patched_content = _patch_one_data_testid(patched_content, required_id)
+        if patched_content == content:
+            patched_artifacts.append(artifact)
+            continue
+        changed = True
+        patched_artifacts.append(
+            artifact.model_copy(update={"data": {**artifact.data, "content": patched_content}})
+        )
+
+    if not changed:
+        return None
+    return result.model_copy(
+        update={
+            "content": result.content.rstrip() + "\n\n已在原代码控件上补齐必需 data-testid。",
+            "artifacts": patched_artifacts,
+        }
+    )
+
+
+def _patch_one_data_testid(content: str, required_id: str) -> str:
+    keywords = _data_testid_keywords(required_id)
+    if not keywords:
+        return content
+    patched = _patch_button_markup_data_testid(content, required_id, keywords)
+    if patched != content:
+        return patched
+    return _patch_created_button_data_testid(content, required_id, keywords)
+
+
+def _data_testid_keywords(required_id: str) -> tuple[str, ...]:
+    tokens = set(required_id.lower().split("-"))
+    keyword_map = {
+        "delete": ("删除", "delete", "remove", "移除", "danger", "trash", "×", "✕"),
+        "remove": ("删除", "delete", "remove", "移除", "danger", "trash", "×", "✕"),
+        "add": ("添加", "新增", "add"),
+        "flip": ("翻面", "flip"),
+        "next": ("下一", "next"),
+        "check": ("打卡", "check", "完成", "done"),
+        "calculate": ("计算", "calculate"),
+        "generate": ("生成", "generate"),
+        "search": ("查询", "搜索", "search"),
+    }
+    for token, keywords in keyword_map.items():
+        if token in tokens:
+            return keywords
+    return ()
+
+
+def _patch_button_markup_data_testid(
+    content: str,
+    required_id: str,
+    keywords: tuple[str, ...],
+) -> str:
+    keyword_pattern = "|".join(re.escape(keyword) for keyword in keywords)
+    with_attr_pattern = re.compile(
+        rf"(<button\b[^>]*?)\sdata-testid=(['\"])[^'\"]+\2([^>]*>[^<]*(?:{keyword_pattern})[^<]*</button>)",
+        flags=re.IGNORECASE,
+    )
+    patched = with_attr_pattern.sub(
+        rf'\1 data-testid="{required_id}"\3',
+        content,
+        count=1,
+    )
+    if patched != content:
+        return patched
+
+    no_attr_pattern = re.compile(
+        rf"(<button\b)(?![^>]*\sdata-testid=)([^>]*>[^<]*(?:{keyword_pattern})[^<]*</button>)",
+        flags=re.IGNORECASE,
+    )
+    patched = no_attr_pattern.sub(
+        rf'\1 data-testid="{required_id}"\2',
+        content,
+        count=1,
+    )
+    if patched != content:
+        return patched
+
+    semantic_attr_pattern = re.compile(
+        rf"(<button\b)(?=[^>]*(?:{keyword_pattern}))(?![^>]*\sdata-testid=)([^>]*>)",
+        flags=re.IGNORECASE,
+    )
+    patched = semantic_attr_pattern.sub(
+        rf'\1 data-testid="{required_id}"\2',
+        content,
+        count=1,
+    )
+    if patched != content:
+        return patched
+
+    semantic_wrong_attr_pattern = re.compile(
+        rf"(<button\b(?=[^>]*(?:{keyword_pattern}))[^>]*?)\sdata-testid=(['\"])[^'\"]+\2([^>]*>)",
+        flags=re.IGNORECASE,
+    )
+    return semantic_wrong_attr_pattern.sub(
+        rf'\1 data-testid="{required_id}"\3',
+        content,
+        count=1,
+    )
+
+
+def _patch_created_button_data_testid(
+    content: str,
+    required_id: str,
+    keywords: tuple[str, ...],
+) -> str:
+    name_pattern = "|".join(
+        re.escape(keyword) for keyword in keywords if re.fullmatch(r"[A-Za-z]+", keyword)
+    )
+    if not name_pattern:
+        return content
+    create_pattern = re.compile(
+        rf"(?P<statement>(?:const|let|var)\s+(?P<name>\w*(?:{name_pattern})\w*)\s*=\s*document\.createElement\((['\"])button\3\);\s*)",
+        flags=re.IGNORECASE,
+    )
+
+    def add_dataset(match: re.Match[str]) -> str:
+        name = match.group("name")
+        statement = match.group("statement")
+        if f"{name}.dataset.testid" in content or f"{name}.dataset.testId" in content:
+            return statement
+        return f'{statement}{name}.dataset.testid = "{required_id}";\n'
+
+    patched = create_pattern.sub(add_dataset, content, count=1)
+    if patched != content:
+        return patched
+
+    keyword_pattern = "|".join(re.escape(keyword) for keyword in keywords)
+    create_then_label_pattern = re.compile(
+        rf"(?P<statement>(?:const|let|var)\s+(?P<name>\w+)\s*=\s*document\.createElement\((['\"])button\3\);\s*)"
+        rf"(?P<body>.{{0,700}}?(?P=name)\.(?:textContent|innerText|ariaLabel)\s*=\s*(['\"])[^'\"]*(?:{keyword_pattern})[^'\"]*\5)",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    def add_dataset_for_labeled_button(match: re.Match[str]) -> str:
+        name = match.group("name")
+        statement = match.group("statement")
+        body = match.group("body")
+        if f"{name}.dataset.testid" in body or f"{name}.dataset.testId" in body:
+            return f"{statement}{body}"
+        return f'{statement}{name}.dataset.testid = "{required_id}";\n{body}'
+
+    return create_then_label_pattern.sub(add_dataset_for_labeled_button, content, count=1)
+
+
 def _artifact_has_interactive_todo_behavior(artifact: Artifact) -> bool:
     content = str(artifact.data.get("content", "")).lower()
     if not content:
@@ -237,6 +557,29 @@ def _todo_repair_prompt(input_data: AgentRunInput) -> str:
         "保留用户需求中的布局、字段、样式、文案和功能差异，不要改成通用模板。"
         "确保添加按钮或表单提交会真实新增待办项，并保留删除、完成、筛选、优先级、"
         "截止日期等用户明确要求的功能。返回合法 AgentRunResult JSON，包含完整 code artifact。"
+        f"\n\n用户原始需求：{user_request}"
+    )
+
+
+def _data_testid_repair_prompt(
+    input_data: AgentRunInput,
+    missing: list[str],
+    *,
+    attempt: int,
+) -> str:
+    user_request = input_data.context.get("user_request", input_data.user_message)
+    missing_values = ", ".join(missing)
+    strict_note = (
+        "这是第二次修复；上一次修复后仍缺少这些 exact data-testid。" if attempt > 1 else ""
+    )
+    required_attributes = ", ".join(f'data-testid="{value}"' for value in missing)
+    return (
+        "修复代码中缺失的必需 data-testid。必须基于 context.original_result 中的原始代码修改，"
+        "保留原布局、样式、字段和交互，不要改成通用模板。"
+        f"请补齐这些 exact data-testid 值：{missing_values}。"
+        f"{strict_note}"
+        f"最终 code artifact 的源码中必须能直接搜索到：{required_attributes}。"
+        "返回合法 AgentRunResult JSON，包含完整 code artifact；如有 diff artifact 也要同步。"
         f"\n\n用户原始需求：{user_request}"
     )
 
@@ -902,7 +1245,9 @@ def _build_missing_diff_artifacts(
     existing_diff_filenames = {
         filename
         for artifact in artifacts
-        if artifact.type == "diff" and (filename := _diff_artifact_filename(artifact))
+        if artifact.type == "diff"
+        and (filename := _diff_artifact_filename(artifact))
+        and str(artifact.data.get("diff", "")).strip()
     }
     diff_artifacts: list[Artifact] = []
     for code_artifact in artifacts:
@@ -1026,6 +1371,8 @@ Rules:
 - Generate runnable, concrete code for the user's requested UI or feature.
 - When context.user_request is present, treat it as the source of truth for all
   required fields, interactions, mock data, sorting rules, and labels.
+- If the request lists exact data-testid values, include every one of them
+  exactly in the generated HTML/JSX. Do not rename, abbreviate, or omit them.
 - Put the full user-facing answer in content as Markdown.
 - Include generated code in content as fenced code blocks.
 - Add filename metadata to each code fence, e.g. ```tsx filename="src/App.tsx".

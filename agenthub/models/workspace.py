@@ -30,4 +30,8 @@ class AppliedDiffRecordRow(SQLModel, table=True):
     artifact_id: str
     diff: str
     path: str | None = None
+    before_content: str | None = None
+    after_content: str | None = None
+    before_exists: bool = True
+    reverted_at: datetime | None = None
     applied_at: datetime

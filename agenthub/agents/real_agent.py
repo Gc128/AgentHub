@@ -1,8 +1,9 @@
+import asyncio
 import json
 import re
 import shlex
 from collections.abc import AsyncIterator
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -92,13 +93,23 @@ class RealAgent:
                     f"模型连续返回了不符合 {schema_name} 结构的内容。"
                 ) from repaired_exc
 
-    async def _request_content(self, input_data: AgentRunInput) -> str:
+    async def request_text(self, input_data: AgentRunInput, *, force_text: bool = False) -> str:
+        return await self._request_content(input_data, force_text=force_text)
+
+    async def _request_content(
+        self,
+        input_data: AgentRunInput,
+        *,
+        force_text: bool = False,
+    ) -> str:
         if not self.api_key:
             raise RealAgentConfigurationError("Real agent integration is not configured yet.")
         if self.provider not in {"openai", "openai-compatible"}:
             raise RealAgentConfigurationError(f"Provider {self.provider!r} is not supported yet.")
 
         payload = self._build_payload(input_data)
+        if force_text:
+            payload.pop("response_format", None)
         headers = {"Authorization": f"Bearer {self.api_key}"}
         response = await self._post_chat_completion(payload, headers)
         content = self._extract_content(response.json())
@@ -109,36 +120,48 @@ class RealAgent:
         payload: dict[str, Any],
         headers: dict[str, str],
     ) -> httpx.Response:
-        try:
-            if self._http_client is not None:
-                response = await self._http_client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-            else:
-                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                    response = await client.post(
+        attempts = 3
+        for attempt in range(attempts):
+            try:
+                if self._http_client is not None:
+                    response = await self._http_client.post(
                         f"{self.base_url}/chat/completions",
                         headers=headers,
                         json=payload,
                     )
-            response.raise_for_status()
-            return response
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in {401, 403}:
-                raise RealAgentConfigurationError(self._status_error_message(exc)) from exc
-            raise RealAgentTransportError(self._status_error_message(exc)) from exc
-        except httpx.TimeoutException as exc:
-            raise RealAgentTransportError(
-                f"LLM request timed out after {self.timeout_seconds:g} seconds "
-                f"({type(exc).__name__}). Increase AGENT_REQUEST_TIMEOUT_SECONDS, "
-                "disable provider-side thinking, or check provider latency."
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise RealAgentTransportError(
-                f"LLM request failed before completion ({type(exc).__name__})."
-            ) from exc
+                else:
+                    async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                        response = await client.post(
+                            f"{self.base_url}/chat/completions",
+                            headers=headers,
+                            json=payload,
+                        )
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in {401, 403}:
+                    raise RealAgentConfigurationError(self._status_error_message(exc)) from exc
+                if exc.response.status_code >= 500 and attempt < attempts - 1:
+                    await asyncio.sleep(0.4 * (attempt + 1))
+                    continue
+                raise RealAgentTransportError(self._status_error_message(exc)) from exc
+            except httpx.TimeoutException as exc:
+                if attempt < attempts - 1:
+                    await asyncio.sleep(0.4 * (attempt + 1))
+                    continue
+                raise RealAgentTransportError(
+                    f"LLM request timed out after {self.timeout_seconds:g} seconds "
+                    f"({type(exc).__name__}). Increase AGENT_REQUEST_TIMEOUT_SECONDS, "
+                    "disable provider-side thinking, or check provider latency."
+                ) from exc
+            except httpx.HTTPError as exc:
+                if attempt < attempts - 1:
+                    await asyncio.sleep(0.4 * (attempt + 1))
+                    continue
+                raise RealAgentTransportError(
+                    f"LLM request failed before completion ({type(exc).__name__})."
+                ) from exc
+        raise RealAgentTransportError("LLM request failed before completion.")
 
     async def _request_repair(
         self,
@@ -412,12 +435,28 @@ def _parse_structured_model(content: str, model: type[StructuredModel]) -> Struc
         extracted_payload = _extract_json_object(payload_text)
         if not extracted_payload:
             if _looks_like_json(payload_text):
+                salvaged = _salvage_structured_model_payload(
+                    content,
+                    None,
+                    model,
+                    chat_if_no_tasks=False,
+                )
+                if salvaged is not None:
+                    return model.model_validate(salvaged)
                 raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
-            salvaged = _salvage_structured_model_payload(content, None, model)
+            salvaged = _salvage_structured_model_payload(
+                content,
+                None,
+                model,
+                chat_if_no_tasks=False,
+            )
             if salvaged is not None:
                 return model.model_validate(salvaged)
             raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
         if _looks_like_json(payload_text):
+            salvaged = _salvage_structured_model_payload(content, None, model)
+            if salvaged is not None:
+                return model.model_validate(salvaged)
             raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
         try:
             payload = json.loads(extracted_payload)
@@ -448,6 +487,8 @@ def _salvage_structured_model_payload(
     content: str,
     payload: object,
     model: type[StructuredModel],
+    *,
+    chat_if_no_tasks: bool = True,
 ) -> dict[str, Any] | None:
     if model.__name__ != "OrchestratorDecision":
         return None
@@ -472,7 +513,18 @@ def _salvage_structured_model_payload(
         if isinstance(content_value, str):
             return _salvage_orchestrator_decision_from_text(content_value, chat_if_no_tasks=False)
         return None
-    return _salvage_orchestrator_decision_from_text(content)
+    display_content = _display_content_from_unstructured_output(content)
+    if display_content != content:
+        salvaged = _salvage_orchestrator_decision_from_text(
+            display_content,
+            chat_if_no_tasks=chat_if_no_tasks,
+        )
+        if salvaged is not None:
+            return salvaged
+    return _salvage_orchestrator_decision_from_text(
+        content,
+        chat_if_no_tasks=chat_if_no_tasks,
+    )
 
 
 def _salvage_orchestrator_decision_from_text(
@@ -530,17 +582,91 @@ def _salvage_orchestrator_decision_from_text(
 
 
 def _salvage_unstructured_agent_result(content: str, agent_id: str) -> AgentRunResult | None:
-    artifacts = _extract_markdown_code_artifacts(content, agent_id)
+    normalized_content = _display_content_from_unstructured_output(content)
+    artifacts = _extract_markdown_code_artifacts(normalized_content, agent_id)
     if not artifacts:
+        artifacts = _extract_html_document_artifacts(normalized_content, agent_id)
+    if not artifacts and normalized_content != content:
+        artifacts = _extract_markdown_code_artifacts(content, agent_id)
+    if not artifacts and normalized_content != content:
         artifacts = _extract_html_document_artifacts(content, agent_id)
     if not artifacts:
         return None
     return AgentRunResult(
         agent_id=agent_id,
-        content=content,
+        content=normalized_content,
         artifacts=artifacts,
         next_actions=[],
     )
+
+
+def _display_content_from_unstructured_output(content: str) -> str:
+    parsed = _parse_json_like_string(content)
+    if isinstance(parsed, dict):
+        normalized = _normalize_agent_result_payload(parsed, "agent")
+        content_value = normalized.get("content")
+        if isinstance(content_value, str) and content_value.strip():
+            return content_value
+    content_match = re.search(r'"content"\s*:\s*"(?P<content>(?:\\.|[^"\\])*)"', content)
+    if content_match:
+        try:
+            decoded = json.loads(f'"{content_match.group("content")}"')
+            return decoded if isinstance(decoded, str) else str(decoded)
+        except json.JSONDecodeError:
+            return content_match.group("content")
+    loose_content = _extract_loose_json_string_field(content, "content")
+    if loose_content:
+        return loose_content
+    return content
+
+
+def _extract_loose_json_string_field(content: str, field_name: str) -> str:
+    pattern = re.compile(rf'"{re.escape(field_name)}"\s*:\s*"')
+    match = pattern.search(content)
+    if match is None:
+        return ""
+
+    start = match.end()
+    delimiter = re.search(
+        r'"\s*,\s*"(?:artifacts|next_actions|agent_id|plan|mode)"\s*:',
+        content[start:],
+    )
+    if delimiter is not None:
+        raw_value = content[start : start + delimiter.start()]
+    else:
+        raw_value = content[start:].strip()
+        raw_value = re.sub(r'"\s*[,}]?\s*$', "", raw_value, count=1, flags=re.DOTALL)
+
+    return _decode_loose_json_text(raw_value.strip())
+
+
+def _decode_loose_json_text(value: str) -> str:
+    if not value:
+        return ""
+    return (
+        value.replace(r"\/", "/")
+        .replace(r"\n", "\n")
+        .replace(r"\r", "\r")
+        .replace(r"\t", "\t")
+        .replace(r"\"", '"')
+        .replace(r"\\", "\\")
+    ).strip()
+
+
+def _parse_json_like_string(value: str) -> object | None:
+    stripped = value.strip()
+    if not _looks_like_json(stripped):
+        return None
+    try:
+        return cast(object, json.loads(stripped))
+    except json.JSONDecodeError:
+        extracted = _extract_json_object(stripped)
+        if not extracted:
+            return None
+        try:
+            return cast(object, json.loads(extracted))
+        except json.JSONDecodeError:
+            return None
 
 
 def _looks_like_json(content: str) -> bool:
@@ -586,6 +712,8 @@ def _normalize_agent_result_payload(payload: dict[str, Any], agent_id: str) -> d
     if not isinstance(values.get("agent_id"), str) or not values.get("agent_id"):
         values["agent_id"] = agent_id
 
+    values = _unwrap_nested_json_content_payload(values, agent_id)
+
     if "content" not in values or not isinstance(values.get("content"), str):
         for key in ("summary", "message", "reply", "description"):
             value = values.get(key)
@@ -615,6 +743,31 @@ def _normalize_agent_result_payload(payload: dict[str, Any], agent_id: str) -> d
         values["next_actions"] = []
 
     return values
+
+
+def _unwrap_nested_json_content_payload(payload: dict[str, Any], agent_id: str) -> dict[str, Any]:
+    content = payload.get("content")
+    if not isinstance(content, str):
+        return payload
+    nested = _parse_json_like_string(content)
+    if not isinstance(nested, dict) or not _looks_like_agent_result_payload(nested):
+        return payload
+
+    nested_values = _normalize_agent_result_payload(
+        {**nested, "agent_id": nested.get("agent_id") or agent_id},
+        agent_id,
+    )
+    merged = dict(payload)
+    merged["content"] = nested_values.get("content", "")
+    existing_artifacts = payload.get("artifacts", [])
+    if not isinstance(existing_artifacts, list):
+        existing_artifacts = []
+    nested_artifacts = nested_values.get("artifacts", [])
+    if isinstance(nested_artifacts, list):
+        merged["artifacts"] = [*existing_artifacts, *nested_artifacts]
+    if "next_actions" not in merged and "next_actions" in nested_values:
+        merged["next_actions"] = nested_values["next_actions"]
+    return merged
 
 
 def _unwrap_agent_result_payload(payload: dict[str, Any]) -> dict[str, Any]:

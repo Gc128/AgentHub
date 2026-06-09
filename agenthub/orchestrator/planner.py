@@ -429,7 +429,7 @@ def create_plan(user_message: str) -> OrchestratorPlan:
                 task_id="task-code",
                 agent_id=AGENT_CODE,
                 instruction=(
-                    "根据 context.user_request 设计并实现可运行的代码变更；"
+                    "实现用户提出的开发需求，保留所有明确要求的字段、交互和数据规则；"
                     "输出 Markdown 说明、code artifact，并为每个变更文件提供 diff artifact。"
                 ),
             )

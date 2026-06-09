@@ -20,98 +20,138 @@ class TaskSpec:
 
 TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
-        name="counter",
+        name="student-search",
         prompt=(
-            "做一个计数器网页，支持增加、减少、归零，界面要清晰。"
-            "必须包含 data-testid: counter-app, count-value, increment, decrement, reset。"
-        ),
-        required_terms=("counter-app", "count-value", "increment", "decrement", "reset"),
-    ),
-    TaskSpec(
-        name="todo",
-        prompt=(
-            "做一个 Todo List 网页，支持新增、完成、删除、按全部/未完成/已完成筛选。"
-            "必须包含 data-testid: todo-app, todo-input, add-todo, todo-list, filter-active。"
-        ),
-        required_terms=("todo-app", "todo-input", "add-todo", "todo-list", "filter-active"),
-    ),
-    TaskSpec(
-        name="gradebook",
-        prompt=(
-            "做一个学生成绩管理网页，初始模拟 10 个学生，支持添加、删除、按成绩排序。"
-            "必须包含 data-testid: grade-app, student-table, add-student, "
-            "delete-student, sort-score。"
+            "做一个学生成绩查询网页，初始模拟 10 个学生。支持按姓名模糊查询，"
+            "也支持按最低分和最高分筛选成绩。"
+            "必须包含 data-testid: grade-search-app, student-search-input, "
+            "score-min-input, score-max-input, search-results。"
         ),
         required_terms=(
-            "grade-app",
-            "student-table",
-            "add-student",
-            "delete-student",
-            "sort-score",
+            "grade-search-app",
+            "student-search-input",
+            "score-min-input",
+            "score-max-input",
+            "search-results",
         ),
     ),
     TaskSpec(
-        name="pomodoro",
+        name="contact-form",
         prompt=(
-            "做一个番茄钟网页，支持开始、暂停、重置，并显示当前剩余时间。"
-            "必须包含 data-testid: pomodoro-app, time-display, start-timer, "
-            "pause-timer, reset-timer。"
+            "做一个联系表单网页，用户输入姓名、邮箱和消息，提交后在页面中显示确认卡片，"
+            "并清空表单。"
+            "必须包含 data-testid: contact-app, contact-form, "
+            "submit-contact, confirmation-panel。"
         ),
         required_terms=(
-            "pomodoro-app",
-            "time-display",
-            "start-timer",
-            "pause-timer",
-            "reset-timer",
+            "contact-app",
+            "contact-form",
+            "submit-contact",
+            "confirmation-panel",
         ),
     ),
     TaskSpec(
-        name="expense-tracker",
+        name="password-generator",
         prompt=(
-            "做一个记账网页，支持输入项目名和金额，添加支出列表，并自动计算总金额。"
-            "必须包含 data-testid: expense-app, expense-form, expense-list, total-amount。"
+            "做一个密码生成器网页，支持选择长度、是否包含数字和符号，点击后生成密码，"
+            "并显示强度提示。"
+            "必须包含 data-testid: password-app, password-length, include-number, "
+            "include-symbol, generate-password, password-output。"
         ),
-        required_terms=("expense-app", "expense-form", "expense-list", "total-amount"),
+        required_terms=(
+            "password-app",
+            "password-length",
+            "include-number",
+            "include-symbol",
+            "generate-password",
+            "password-output",
+        ),
     ),
     TaskSpec(
-        name="palette",
+        name="water-tracker",
         prompt=(
-            "做一个配色板生成器网页，点击按钮生成 5 个随机颜色，并能复制颜色值。"
-            "必须包含 data-testid: palette-app, generate-palette, palette-grid, copy-color。"
+            "做一个饮水记录网页，显示今日已喝杯数，支持点击添加一杯和重置今日记录。"
+            "必须包含 data-testid: water-app, glass-count, add-glass, reset-water。"
         ),
-        required_terms=("palette-app", "generate-palette", "palette-grid", "copy-color"),
+        required_terms=(
+            "water-app",
+            "glass-count",
+            "add-glass",
+            "reset-water",
+        ),
     ),
     TaskSpec(
-        name="converter",
+        name="inventory-manager",
         prompt=(
-            "做一个单位换算网页，包含长度和重量两个模式，输入数值后实时显示换算结果。"
-            "必须包含 data-testid: converter-app, length-input, weight-input, converter-result。"
+            "做一个库存管理网页，支持添加商品名称、库存数量、分类，库存低于 5 时显示低库存提示。"
+            "必须包含 data-testid: inventory-app, product-form, inventory-list, "
+            "stock-warning, add-product。"
         ),
-        required_terms=("converter-app", "length-input", "weight-input", "converter-result"),
+        required_terms=(
+            "inventory-app",
+            "product-form",
+            "inventory-list",
+            "stock-warning",
+            "add-product",
+        ),
     ),
     TaskSpec(
-        name="quiz",
+        name="shopping-cart",
         prompt=(
-            "做一个 5 题小测验网页，支持选择答案、下一题、最后展示分数。"
-            "必须包含 data-testid: quiz-app, question-card, next-question, score-panel。"
+            "做一个购物车网页，展示三种商品，支持加入购物车、调整数量、移除商品并计算总价。"
+            "必须包含 data-testid: cart-app, product-list, add-to-cart, "
+            "cart-items, cart-total。"
         ),
-        required_terms=("quiz-app", "question-card", "next-question", "score-panel"),
+        required_terms=("cart-app", "product-list", "add-to-cart", "cart-items", "cart-total"),
     ),
     TaskSpec(
-        name="kanban",
+        name="gallery-filter",
         prompt=(
-            "做一个简易看板网页，包含待办、进行中、已完成三列，支持新增卡片和移动卡片。"
-            "必须包含 data-testid: kanban-app, add-card, todo-column, doing-column, done-column。"
+            "做一个图片画廊筛选网页，用彩色占位卡片模拟图片，支持按分类按钮筛选，"
+            "并显示当前分类。"
+            "必须包含 data-testid: gallery-app, category-filter, gallery-grid, "
+            "active-category。"
         ),
-        required_terms=("kanban-app", "add-card", "todo-column", "doing-column", "done-column"),
+        required_terms=("gallery-app", "category-filter", "gallery-grid", "active-category"),
     ),
     TaskSpec(
-        name="notes",
+        name="bmi-calculator",
         prompt=(
-            "做一个 Markdown 笔记网页，左侧编辑 Markdown，右侧实时预览，并支持保存当前笔记。"
-            "必须包含 data-testid: notes-app, note-editor, preview-panel, save-note。"
+            "做一个 BMI 计算器网页，输入身高和体重后计算 BMI，并根据结果显示健康区间提示。"
+            "必须包含 data-testid: bmi-app, height-input, weight-input, "
+            "calculate-bmi, bmi-result。"
         ),
-        required_terms=("notes-app", "note-editor", "preview-panel", "save-note"),
+        required_terms=(
+            "bmi-app",
+            "height-input",
+            "weight-input",
+            "calculate-bmi",
+            "bmi-result",
+        ),
+    ),
+    TaskSpec(
+        name="agenda-builder",
+        prompt=(
+            "做一个会议议程编辑网页，可以添加议题、负责人和预计分钟数，并自动汇总总时长。"
+            "必须包含 data-testid: agenda-app, topic-form, agenda-list, "
+            "agenda-total, add-topic。"
+        ),
+        required_terms=("agenda-app", "topic-form", "agenda-list", "agenda-total", "add-topic"),
+    ),
+    TaskSpec(
+        name="flashcard-trainer",
+        prompt=(
+            "做一个单词卡片练习网页，内置 5 张卡片，支持翻面、下一张，并统计已练习数量。"
+            "必须包含 data-testid: flashcard-app, flashcard-card, flip-card, "
+            "next-card, practice-count。"
+        ),
+        required_terms=(
+            "flashcard-app",
+            "flashcard-card",
+            "flip-card",
+            "next-card",
+            "practice-count",
+        ),
     ),
 )
 
@@ -195,6 +235,7 @@ def _run_task(client: Any, index: int, task: TaskSpec) -> dict[str, Any]:
         raise VerificationFailure(
             f"{task.name}: response contains fallback marker: {fallback_excerpts!r}"
         )
+    _assert_no_raw_json_agent_messages(task, agent_messages)
 
     code_message = next(
         message for message in agent_messages if message.get("sender_id") == "code-agent"
@@ -337,6 +378,25 @@ def _collect_fallback_marker_excerpts(
             start = normalized.find(marker)
             if start >= 0:
                 excerpts.append(f"{path}={value[max(0, start - 80) : start + 120]}")
+
+
+def _assert_no_raw_json_agent_messages(
+    task: TaskSpec,
+    agent_messages: list[dict[str, Any]],
+) -> None:
+    for message in agent_messages:
+        sender = str(message.get("sender_id", "unknown"))
+        content = str(message.get("content", "")).strip()
+        compact = content.replace("\n", " ")
+        raw_json_markers = (
+            compact.startswith('{"agent_id"'),
+            '"agent_id"' in compact and '"artifacts"' in compact and "\\n" in compact,
+            '"content"' in compact and '\\"' in compact and "<html" in compact.lower(),
+        )
+        if any(raw_json_markers):
+            raise VerificationFailure(
+                f"{task.name}: {sender} exposed raw structured JSON: {compact[:240]}"
+            )
 
 
 def _message_summaries(messages: list[dict[str, Any]]) -> list[dict[str, str]]:

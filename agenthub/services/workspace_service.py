@@ -9,6 +9,7 @@ from agenthub.schemas.workspace import (
     AppliedDiffRecord,
     ApplyDiffRequest,
     ApplyDiffResponse,
+    RevertDiffResponse,
     WorkspaceFile,
     WorkspaceFileContent,
     WorkspaceFileDeleteResponse,
@@ -44,13 +45,18 @@ class WorkspaceService:
         preview_url: str | None = None,
         entry_path: str | None = None,
         preserve_entry_path: bool = True,
+        preserve_preview_url: bool = True,
     ) -> WorkspacePreviewResponse:
         current = await self._repository.get_preview(workspace_id)
         return await self._repository.save_preview(
             WorkspacePreviewResponse(
                 workspace_id=workspace_id,
                 status=status,
-                preview_url=preview_url if preview_url is not None else current.preview_url,
+                preview_url=(
+                    current.preview_url
+                    if preserve_preview_url and preview_url is None
+                    else preview_url
+                ),
                 entry_path=current.entry_path if preserve_entry_path else entry_path,
             )
         )
@@ -155,6 +161,10 @@ class WorkspaceService:
         preview_page_url: str,
     ) -> ApplyDiffResponse:
         target_path = self._extract_diff_target_path(request.diff)
+        before_exists = self._file_exists_on_disk(
+            workspace_id,
+            target_path,
+        ) or await self._metadata_file_exists(workspace_id, target_path)
         old_content = self._read_file_content_or_empty(workspace_id, target_path)
         try:
             new_content = apply_workspace_diff(old_content, request.diff)
@@ -178,6 +188,9 @@ class WorkspaceService:
                 artifact_id=request.artifact_id,
                 diff=request.diff,
                 path=target_path,
+                before_content=old_content,
+                after_content=new_content,
+                before_exists=before_exists,
                 applied_at=applied_at,
             )
         )
@@ -198,6 +211,76 @@ class WorkspaceService:
             preview_url=preview_url,
             entry_path=entry_path,
             applied_at=applied_at,
+        )
+
+    async def revert_applied_diff(
+        self,
+        workspace_id: str,
+        record_id: str,
+        *,
+        preview_page_url: str,
+    ) -> RevertDiffResponse:
+        record = await self._get_applied_diff_record(workspace_id, record_id)
+        if record.reverted_at is not None:
+            raise BadRequestError(
+                "diff_already_reverted",
+                f"Applied diff '{record_id}' has already been reverted.",
+            )
+        if record.path is None:
+            raise BadRequestError(
+                "diff_revert_unavailable",
+                f"Applied diff '{record_id}' does not record a workspace path.",
+            )
+        if record.before_content is None or record.after_content is None:
+            raise BadRequestError(
+                "diff_revert_unavailable",
+                f"Applied diff '{record_id}' was created before revert snapshots existed.",
+            )
+
+        path = self._normalize_path(record.path)
+        current_content = self._read_file_content_or_empty(workspace_id, path)
+        if current_content != record.after_content:
+            raise BadRequestError(
+                "diff_revert_conflict",
+                "当前文件内容已不再等于该 diff 应用后的快照。请先确认后续变更，再回退。",
+            )
+
+        reverted_at = datetime.now(UTC)
+        if record.before_exists:
+            self._write_file_to_disk(workspace_id, path, record.before_content, reverted_at)
+            await self._repository.save_file(
+                WorkspaceFileContent(
+                    workspace_id=workspace_id,
+                    path=path,
+                    content=record.before_content,
+                    updated_at=reverted_at,
+                )
+            )
+        else:
+            await self._delete_file_if_exists(workspace_id, path)
+
+        reverted_record = record.model_copy(update={"reverted_at": reverted_at})
+        await self._repository.save_applied_diff(reverted_record)
+
+        entry_path = await self._select_preview_entry_path_after_revert(workspace_id, path)
+        preview_status = "ready" if entry_path else "not_started"
+        preview_url = _build_preview_url(preview_page_url, entry_path) if entry_path else None
+        await self.set_preview(
+            workspace_id,
+            preview_status,
+            preview_url,
+            entry_path=entry_path,
+            preserve_entry_path=False,
+            preserve_preview_url=False,
+        )
+        return RevertDiffResponse(
+            workspace_id=workspace_id,
+            reverted_record_id=record_id,
+            path=path,
+            status=preview_status,
+            preview_url=preview_url,
+            entry_path=entry_path,
+            reverted_at=reverted_at,
         )
 
     def _extract_diff_target_path(self, diff_text: str) -> str:
@@ -245,6 +328,22 @@ class WorkspaceService:
         file_path = self._file_path(workspace_id, path)
         return file_path.read_text(encoding="utf-8") if file_path.exists() else ""
 
+    def _file_exists_on_disk(self, workspace_id: str, path: str) -> bool:
+        file_path = self._file_path(workspace_id, path)
+        return file_path.exists() and file_path.is_file()
+
+    async def _delete_file_if_exists(self, workspace_id: str, path: str) -> None:
+        file_path = self._file_path(workspace_id, path)
+        if file_path.exists():
+            if not file_path.is_file():
+                raise BadRequestError(
+                    "invalid_workspace_path",
+                    f"Workspace path '{path}' is not a file.",
+                )
+            file_path.unlink()
+            self._remove_empty_parent_dirs(file_path.parent, self._workspace_dir(workspace_id))
+        await self._repository.delete_file(workspace_id, path)
+
     async def _metadata_file_exists(self, workspace_id: str, path: str) -> bool:
         try:
             await self._repository.get_file(workspace_id, path)
@@ -257,6 +356,19 @@ class WorkspaceService:
         return (file_path.exists() and file_path.is_file()) or await self._metadata_file_exists(
             workspace_id,
             path,
+        )
+
+    async def _get_applied_diff_record(
+        self,
+        workspace_id: str,
+        record_id: str,
+    ) -> AppliedDiffRecord:
+        for record in await self._repository.list_applied_diffs(workspace_id):
+            if record.id == record_id:
+                return record
+        raise NotFoundError(
+            "applied_diff_not_found",
+            f"Applied diff '{record_id}' does not exist.",
         )
 
     async def _select_preview_entry_path(
@@ -277,6 +389,27 @@ class WorkspaceService:
         if await self._workspace_file_exists(workspace_id, "index.html"):
             return "index.html"
 
+        return None
+
+    async def _select_preview_entry_path_after_revert(
+        self,
+        workspace_id: str,
+        reverted_path: str,
+    ) -> str | None:
+        current_preview = await self._repository.get_preview(workspace_id)
+        if (
+            current_preview.entry_path
+            and current_preview.entry_path != reverted_path
+            and await self._workspace_file_exists(workspace_id, current_preview.entry_path)
+        ):
+            return current_preview.entry_path
+        if _is_html_path(reverted_path) and await self._workspace_file_exists(
+            workspace_id,
+            reverted_path,
+        ):
+            return reverted_path
+        if await self._workspace_file_exists(workspace_id, "index.html"):
+            return "index.html"
         return None
 
     def _remove_empty_parent_dirs(self, start: Path, stop: Path) -> None:

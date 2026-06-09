@@ -5,6 +5,7 @@ import {
   EyeOutlined,
   FileTextOutlined,
   HistoryOutlined,
+  RollbackOutlined,
 } from '@ant-design/icons'
 import { Alert, Badge, Button, Empty, Modal, Popconfirm, Tabs, Tag, Tooltip } from 'antd'
 import { useState } from 'react'
@@ -30,12 +31,16 @@ type WorkspacePanelProps = {
   appliedDiffs: AppliedDiffRecord[]
   /** 当前正在删除的文件路径。 */
   deletingFilePath: string | null
+  /** 当前正在回退的 applied diff 记录 ID。 */
+  revertingDiffRecordId: string | null
   /** 读取文件内容，用于打开预览弹窗。 */
   onPreviewFile: (file: WorkspaceFile) => Promise<WorkspaceFileContent>
   /** 生成某个 workspace 文件对应的 HTML 预览 URL。 */
   getFilePreviewUrl: (path: string) => string
   /** 删除真实 workspace 文件。 */
   onDeleteFile: (file: WorkspaceFile) => Promise<void>
+  /** 回退已应用 diff。 */
+  onRevertAppliedDiff: (record: AppliedDiffRecord) => Promise<void>
 }
 
 const getPreviewBadgeStatus = (
@@ -159,9 +164,11 @@ export function WorkspacePanel({
   files,
   appliedDiffs,
   deletingFilePath,
+  revertingDiffRecordId,
   onPreviewFile,
   getFilePreviewUrl,
   onDeleteFile,
+  onRevertAppliedDiff,
 }: WorkspacePanelProps) {
   const workspaceId = conversation?.workspace_id ?? '未选择'
   const previewStatus = preview?.status ?? 'not_started'
@@ -172,7 +179,6 @@ export function WorkspacePanel({
     null,
   )
   const [fileActionError, setFileActionError] = useState<string | null>(null)
-  const [workspacePreviewOpen, setWorkspacePreviewOpen] = useState(false)
 
   const handlePreviewFile = async (file: WorkspaceFile) => {
     setPreviewLoadingPath(file.path)
@@ -198,6 +204,17 @@ export function WorkspacePanel({
     } catch (caughtError) {
       setFileActionError(
         caughtError instanceof Error ? caughtError.message : '删除文件失败',
+      )
+    }
+  }
+
+  const handleRevertAppliedDiff = async (record: AppliedDiffRecord) => {
+    setFileActionError(null)
+    try {
+      await onRevertAppliedDiff(record)
+    } catch (caughtError) {
+      setFileActionError(
+        caughtError instanceof Error ? caughtError.message : '回退 Diff 失败',
       )
     }
   }
@@ -230,7 +247,11 @@ export function WorkspacePanel({
         <Button
           disabled={!preview?.preview_url}
           icon={<EyeOutlined />}
-          onClick={() => setWorkspacePreviewOpen(true)}
+          onClick={() =>
+            preview?.preview_url
+              ? window.open(preview.preview_url, '_blank', 'noopener,noreferrer')
+              : undefined
+          }
           size="small"
         >
           打开预览
@@ -325,6 +346,25 @@ export function WorkspacePanel({
                     </span>
                   </div>
                   <Tag>{getDiffSummary(diff.diff)}</Tag>
+                  {diff.reverted_at ? (
+                    <Tag>已回退</Tag>
+                  ) : (
+                    <Popconfirm
+                      cancelText="取消"
+                      description={`回退后 ${diff.path ?? diff.artifact_id} 会恢复到应用该 diff 之前的内容。`}
+                      okText="回退"
+                      onConfirm={() => void handleRevertAppliedDiff(diff)}
+                      title="回退这次变更？"
+                    >
+                      <Button
+                        icon={<RollbackOutlined />}
+                        loading={revertingDiffRecordId === diff.id}
+                        size="small"
+                      >
+                        回退
+                      </Button>
+                    </Popconfirm>
+                  )}
                 </div>
                 <div className="diff-viewer workspace-diff-viewer">
                   {parseDiffLines(diff.diff).map((line, index) => (
@@ -351,22 +391,6 @@ export function WorkspacePanel({
         {previewFile
           ? renderFilePreview(previewFile, getFilePreviewUrl(previewFile.path))
           : null}
-      </Modal>
-      <Modal
-        footer={null}
-        onCancel={() => setWorkspacePreviewOpen(false)}
-        open={workspacePreviewOpen}
-        title={`${workspaceId} 预览`}
-        width={1040}
-      >
-        {preview?.preview_url ? (
-          <iframe
-            className="workspace-modal-preview-frame"
-            sandbox="allow-scripts allow-forms"
-            src={preview.preview_url}
-            title={`${workspaceId} full preview`}
-          />
-        ) : null}
       </Modal>
     </section>
   )

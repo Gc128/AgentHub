@@ -188,6 +188,65 @@ def test_apply_diff_writes_real_workspace_file(tmp_path, monkeypatch) -> None:
     assert target_file.read_text(encoding="utf-8") == "<main>new</main>\n"
 
 
+def test_revert_applied_diff_restores_previous_file_content(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+
+    test_client.post(
+        "/api/workspaces/ws_revert/files",
+        json={"path": "index.html", "content": "<main>old</main>\n"},
+    )
+    diff = create_unified_diff("<main>old</main>\n", "<main>new</main>\n", "index.html")
+    apply_response = test_client.post(
+        "/api/workspaces/ws_revert/apply-diff",
+        json={"artifact_id": "artifact_diff_revert", "diff": diff},
+    )
+    assert apply_response.status_code == 200
+    history_response = test_client.get("/api/workspaces/ws_revert/applied-diffs")
+    record_id = history_response.json()[0]["id"]
+    assert history_response.json()[0]["reverted_at"] is None
+
+    revert_response = test_client.post(
+        f"/api/workspaces/ws_revert/applied-diffs/{record_id}/revert"
+    )
+
+    assert revert_response.status_code == 200
+    assert revert_response.json()["path"] == "index.html"
+    content_response = test_client.get(
+        "/api/workspaces/ws_revert/files/content",
+        params={"path": "index.html"},
+    )
+    assert content_response.json()["content"] == "<main>old</main>\n"
+    preview_response = test_client.get("/api/workspaces/ws_revert/preview")
+    assert preview_response.json()["entry_path"] == "index.html"
+    reverted_history = test_client.get("/api/workspaces/ws_revert/applied-diffs").json()
+    assert reverted_history[0]["reverted_at"] is not None
+
+
+def test_revert_applied_diff_removes_file_created_by_diff(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+    diff = create_unified_diff("", "<main>created</main>\n", "created.html")
+    apply_response = test_client.post(
+        "/api/workspaces/ws_revert_created/apply-diff",
+        json={"artifact_id": "artifact_diff_created", "diff": diff},
+    )
+    assert apply_response.status_code == 200
+    record_id = test_client.get("/api/workspaces/ws_revert_created/applied-diffs").json()[0]["id"]
+
+    revert_response = test_client.post(
+        f"/api/workspaces/ws_revert_created/applied-diffs/{record_id}/revert"
+    )
+
+    assert revert_response.status_code == 200
+    assert not (tmp_path / "ws_revert_created" / "created.html").exists()
+    content_response = test_client.get(
+        "/api/workspaces/ws_revert_created/files/content",
+        params={"path": "created.html"},
+    )
+    assert content_response.status_code == 404
+
+
 def test_workspace_file_is_created_only_after_apply_diff(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
     test_client = client()

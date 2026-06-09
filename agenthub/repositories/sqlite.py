@@ -32,6 +32,7 @@ class _SqliteRepositoryMixin:
         self._engine = create_engine(database_url)
         SQLModel.metadata.create_all(self._engine)
         _ensure_workspace_preview_columns(self._engine)
+        _ensure_applied_diff_columns(self._engine)
 
 
 def _ensure_workspace_preview_columns(engine: Engine) -> None:
@@ -44,6 +45,33 @@ def _ensure_workspace_preview_columns(engine: Engine) -> None:
         if column_names and "entry_path" not in column_names:
             connection.execute(
                 text("ALTER TABLE workspacepreviewrecord ADD COLUMN entry_path VARCHAR")
+            )
+
+
+def _ensure_applied_diff_columns(engine: Engine) -> None:
+    if not engine.url.get_backend_name().startswith("sqlite"):
+        return
+
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(applieddiffrecordrow)")).mappings()
+        column_names = {str(column["name"]) for column in columns}
+        if not column_names:
+            return
+        if "before_content" not in column_names:
+            connection.execute(
+                text("ALTER TABLE applieddiffrecordrow ADD COLUMN before_content VARCHAR")
+            )
+        if "after_content" not in column_names:
+            connection.execute(
+                text("ALTER TABLE applieddiffrecordrow ADD COLUMN after_content VARCHAR")
+            )
+        if "before_exists" not in column_names:
+            connection.execute(
+                text("ALTER TABLE applieddiffrecordrow ADD COLUMN before_exists BOOLEAN DEFAULT 1")
+            )
+        if "reverted_at" not in column_names:
+            connection.execute(
+                text("ALTER TABLE applieddiffrecordrow ADD COLUMN reverted_at DATETIME")
             )
 
 
@@ -275,6 +303,10 @@ def _applied_diff_to_record(record: AppliedDiffRecord) -> AppliedDiffRecordRow:
         artifact_id=record.artifact_id,
         diff=record.diff,
         path=record.path,
+        before_content=record.before_content,
+        after_content=record.after_content,
+        before_exists=record.before_exists,
+        reverted_at=record.reverted_at,
         applied_at=record.applied_at,
     )
 
@@ -286,6 +318,10 @@ def _applied_diff_from_record(record: AppliedDiffRecordRow) -> AppliedDiffRecord
         artifact_id=record.artifact_id,
         diff=record.diff,
         path=record.path,
+        before_content=record.before_content,
+        after_content=record.after_content,
+        before_exists=record.before_exists,
+        reverted_at=_ensure_utc(record.reverted_at) if record.reverted_at else None,
         applied_at=_ensure_utc(record.applied_at),
     )
 

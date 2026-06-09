@@ -22,6 +22,8 @@ type ChatPanelProps = {
   agentRunning: boolean
   /** 当前 Orchestrator harness 状态。 */
   harnessStatus: string | null
+  /** 当前 workspace 的可打开 preview URL。 */
+  workspacePreviewUrl?: string | null
   /** 已经成功应用的 diff artifact ID 集合。 */
   appliedDiffIds: ReadonlySet<string>
   /** 当前正在应用的 diff artifact ID。 */
@@ -68,6 +70,7 @@ export function ChatPanel({
   loading,
   agentRunning,
   harnessStatus,
+  workspacePreviewUrl,
   appliedDiffIds,
   applyingDiffId,
   onApplyDiff,
@@ -156,6 +159,7 @@ export function ChatPanel({
                 appliedDiffIds={appliedDiffIds}
                 applyingDiffId={applyingDiffId}
                 artifacts={message.artifacts}
+                workspacePreviewUrl={workspacePreviewUrl}
                 onApplyDiff={onApplyDiff}
               />
             </article>

@@ -613,7 +613,7 @@ def _build_orchestrator_safe_fallback_content(plan: OrchestratorPlan) -> str:
     lines = [
         "## 任务拆解",
         "",
-        "我已理解这是开发任务，将按安全兜底计划继续执行。",
+        "Orchestrator 将按以下分工继续调用后续 Agent。",
         "",
     ]
     for index, task in enumerate(_child_tasks(plan), start=1):

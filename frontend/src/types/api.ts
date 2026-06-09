@@ -252,10 +252,30 @@ export type AppliedDiffRecord = {
   artifact_id: string
   /** 实际修改的 workspace 文件路径；历史数据可能没有该字段。 */
   path?: string
+  /** 回退时间；为空表示仍处于已应用状态。 */
+  reverted_at?: string | null
   /** 原始 unified diff 内容。 */
   diff: string
   /** 应用时间，使用 ISO 字符串。 */
   applied_at: string
+}
+
+/** 回退已应用 diff 的响应体。 */
+export type RevertDiffResult = {
+  /** 所属 workspace。 */
+  workspace_id: string
+  /** 被回退的 applied diff 记录 ID。 */
+  reverted_record_id: string
+  /** 回退的 workspace 内相对路径。 */
+  path: string
+  /** 回退后预览状态。 */
+  status: WorkspacePreview['status']
+  /** 回退后可打开的预览 URL。 */
+  preview_url?: string | null
+  /** 回退后预览入口。 */
+  entry_path?: string | null
+  /** 回退时间，使用 ISO 字符串。 */
+  reverted_at: string
 }
 
 /**

@@ -148,6 +148,49 @@ async def test_real_agent_parses_structured_artifacts() -> None:
 
 
 @pytest.mark.asyncio
+async def test_real_agent_retries_transient_transport_error() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.RemoteProtocolError("server disconnected")
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"agent_id":"code-agent","content":"ok",'
+                                '"artifacts":[],"next_actions":[]}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成页面",
+        )
+    )
+
+    assert calls == 2
+    assert result.content == "ok"
+
+
+@pytest.mark.asyncio
 async def test_real_agent_streams_openai_compatible_deltas() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/chat/completions"
@@ -645,6 +688,226 @@ async def test_code_agent_repairs_static_todo_before_fallback(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_code_agent_repairs_missing_required_data_testids(tmp_path) -> None:
+    captured_missing: list[list[str]] = []
+
+    class MissingTestIdAdapter:
+        id = "real-code"
+        name = "Real Code"
+        capabilities = ["code"]
+        calls = 0
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            self.calls += 1
+            captured_missing.append(list(input_data.context.get("missing_data_testids", [])))
+            if self.calls == 2:
+                content = (
+                    '<main data-testid="flashcard-app">'
+                    '<section data-testid="flashcard-card">Apple</section>'
+                    '<button data-testid="flip-card">翻面</button>'
+                    "</main>"
+                )
+            else:
+                content = (
+                    '<main data-testid="flashcard-app">'
+                    '<section data-testid="flashcard-card">Apple</section>'
+                    '<button data-testid="flip-button">翻面</button>'
+                    "</main>"
+                )
+            return AgentRunResult(
+                agent_id="code-agent",
+                content=f'```html filename="index.html"\n{content}\n```',
+                artifacts=[
+                    Artifact(
+                        id=f"code-{self.calls}",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": content,
+                        },
+                    )
+                ],
+            )
+
+    workspace_id = "ws_001"
+    (tmp_path / workspace_id).mkdir()
+    adapter = MissingTestIdAdapter()
+    agent = CodeAgent(adapter, workspace_root=tmp_path)
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id=workspace_id,
+            user_message=(
+                "做一个单词卡片练习网页。必须包含 data-testid: "
+                "flashcard-app, flashcard-card, flip-card。"
+            ),
+        )
+    )
+
+    code_artifact = next(artifact for artifact in result.artifacts if artifact.type == "code")
+    diff_artifact = next(artifact for artifact in result.artifacts if artifact.type == "diff")
+    assert adapter.calls == 2
+    assert captured_missing[-1] == ["flip-card"]
+    assert 'data-testid="flip-card"' in str(code_artifact.data["content"])
+    assert diff_artifact.data["filename"] == "index.html"
+
+
+@pytest.mark.asyncio
+async def test_code_agent_patches_existing_button_when_testid_repair_still_missing(
+    tmp_path,
+) -> None:
+    class StillMissingTestIdAdapter:
+        id = "real-code"
+        name = "Real Code"
+        capabilities = ["code"]
+        calls = 0
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            self.calls += 1
+            content = (
+                '<main data-testid="appointment-app">'
+                '<form data-testid="appointment-form">'
+                '<button data-testid="add-appointment">添加预约</button>'
+                "</form>"
+                '<ul data-testid="appointment-list">'
+                '<li><button class="delete-button">删除</button></li>'
+                "</ul>"
+                "</main>"
+            )
+            return AgentRunResult(
+                agent_id="code-agent",
+                content=f'```html filename="index.html"\n{content}\n```',
+                artifacts=[
+                    Artifact(
+                        id=f"code-{self.calls}",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": content,
+                        },
+                    )
+                ],
+            )
+
+    workspace_id = "ws_001"
+    (tmp_path / workspace_id).mkdir()
+    adapter = StillMissingTestIdAdapter()
+    agent = CodeAgent(adapter, workspace_root=tmp_path)
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id=workspace_id,
+            user_message=(
+                "做一个预约登记网页。必须包含 data-testid: appointment-app, "
+                "appointment-form, appointment-list, add-appointment, delete-appointment。"
+            ),
+        )
+    )
+
+    code_artifact = next(artifact for artifact in result.artifacts if artifact.type == "code")
+    assert adapter.calls == 3
+    assert 'data-testid="delete-appointment"' in str(code_artifact.data["content"])
+    assert "删除" in str(code_artifact.data["content"])
+
+
+@pytest.mark.asyncio
+async def test_code_agent_replaces_empty_diff_artifact(tmp_path) -> None:
+    class EmptyDiffAdapter:
+        id = "real-code"
+        name = "Real Code"
+        capabilities = ["code"]
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            return AgentRunResult(
+                agent_id="code-agent",
+                content="已生成页面。",
+                artifacts=[
+                    Artifact(
+                        id="code",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": "<main>ok</main>",
+                        },
+                    ),
+                    Artifact(
+                        id="empty-diff",
+                        type="diff",
+                        title="index.html diff",
+                        data={"filename": "index.html", "diff": ""},
+                    ),
+                ],
+            )
+
+    workspace_id = "ws_001"
+    (tmp_path / workspace_id).mkdir()
+    agent = CodeAgent(EmptyDiffAdapter(), workspace_root=tmp_path)
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id=workspace_id,
+            user_message="做一个简单网页",
+        )
+    )
+
+    diff_artifacts = [artifact for artifact in result.artifacts if artifact.type == "diff"]
+    assert diff_artifacts
+    assert all(str(artifact.data.get("diff", "")).strip() for artifact in diff_artifacts)
+    assert diff_artifacts[0].id != "empty-diff"
+
+
+@pytest.mark.asyncio
+async def test_code_agent_sanitizes_fallback_terms_in_generated_code(tmp_path) -> None:
+    class FallbackCommentAdapter:
+        id = "real-code"
+        name = "Real Code"
+        capabilities = ["code"]
+
+        async def run(self, input_data: AgentRunInput) -> AgentRunResult:
+            content = "<script>// 兜底逻辑\nconst mode = 'ok';</script>"
+            return AgentRunResult(
+                agent_id="code-agent",
+                content=f'说明：兜底分支。\n\n```html filename="index.html"\n{content}\n```',
+                artifacts=[
+                    Artifact(
+                        id="code",
+                        type="code",
+                        title="index.html",
+                        data={
+                            "filename": "index.html",
+                            "language": "html",
+                            "content": content,
+                        },
+                    )
+                ],
+            )
+
+    workspace_id = "ws_001"
+    (tmp_path / workspace_id).mkdir()
+    agent = CodeAgent(FallbackCommentAdapter(), workspace_root=tmp_path)
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id=workspace_id,
+            user_message="做一个简单网页",
+        )
+    )
+
+    assert "兜底" not in result.model_dump_json()
+    assert "默认" in result.model_dump_json()
+
+
+@pytest.mark.asyncio
 async def test_code_agent_todo_fallback_is_request_aware(tmp_path) -> None:
     class EmptyCodeAdapter:
         id = "real-code"
@@ -1028,14 +1291,17 @@ async def test_orchestrator_schema_failure_falls_back_to_executable_plan() -> No
         )
     )
 
-    assert calls == 2
+    assert calls == 3
     assert [result.agent_id for result in results] == [
         "orchestrator",
         "code-agent",
         "review-agent",
         "preview-agent",
     ]
-    assert "安全兜底计划继续执行" in results[0].content
+    assert "继续调用后续 Agent" in results[0].content
+    assert "context.user_request" not in results[0].content
+    assert "兜底" not in results[0].content
+    assert "fallback" not in results[0].content.lower()
     assert "不符合结构要求" not in results[0].content
 
 
@@ -1072,12 +1338,80 @@ async def test_orchestrator_schema_failure_falls_back_to_chat_for_greeting() -> 
         )
     )
 
-    assert calls == 2
+    assert calls == 3
     assert len(results) == 1
     assert results[0].agent_id == "orchestrator"
     assert "你好，我是 AgentHub Orchestrator" in results[0].content
     assert "Agent orchestrator failed" not in results[0].content
     assert "不符合结构要求" not in results[0].content
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_schema_failure_recovers_with_relaxed_llm_plan() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": '{"mode":"plan","content":"bad"'}}]},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "## 任务拆解\n\n"
+                                "1. code-agent - 实现学生成绩查询页面，包含姓名查询、"
+                                "成绩范围查询和真实 DOM 更新。\n"
+                                "2. review-agent - 审查查询逻辑、交互完整性和边界情况。\n"
+                                "3. preview-agent - 验证应用 diff 后的 index.html "
+                                "预览入口和可访问状态。"
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    registry = AgentRegistry(
+        [
+            OrchestratorAdapter(
+                RealAgent(
+                    agent_id="orchestrator",
+                    api_key="test-key",
+                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                )
+            ),
+            MockAgent(agent_id="code-agent"),
+            MockAgent(agent_id="review-agent"),
+            MockAgent(agent_id="preview-agent"),
+        ]
+    )
+    service = AgentService(registry=registry)
+
+    results = await service.run_for_message(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="@Orchestrator 帮我做一个学生成绩查询网页",
+        )
+    )
+
+    assert calls == 3
+    assert [result.agent_id for result in results] == [
+        "orchestrator",
+        "code-agent",
+        "review-agent",
+        "preview-agent",
+    ]
+    assert "学生成绩查询页面" in results[0].content
+    assert "context.user_request" not in results[0].content
+    assert "兜底" not in results[0].content
 
 
 @pytest.mark.asyncio
@@ -1196,6 +1530,68 @@ async def test_real_agent_normalizes_string_list_as_content() -> None:
     assert result.agent_id == "review-agent"
     assert "交互完整" in result.content
     assert "建议确认空输入提示" in result.content
+
+
+@pytest.mark.asyncio
+async def test_real_agent_unwraps_nested_json_content_instead_of_showing_raw_json() -> None:
+    inner = {
+        "agent_id": "code-agent",
+        "content": "## 添加查询功能\n\n已添加按姓名和成绩范围查询。",
+        "artifacts": [
+            {
+                "id": "artifact-code",
+                "type": "code",
+                "title": "index.html",
+                "data": {
+                    "filename": "index.html",
+                    "language": "html",
+                    "content": '<main data-testid="search-app">ok</main>',
+                },
+            }
+        ],
+        "next_actions": [],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "agent_id": "code-agent",
+                                    "content": json.dumps(inner, ensure_ascii=False),
+                                    "artifacts": [],
+                                    "next_actions": [],
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="添加查询功能",
+        )
+    )
+
+    assert result.content.startswith("## 添加查询功能")
+    assert not result.content.lstrip().startswith("{")
+    assert result.artifacts[0].type == "code"
+    assert result.artifacts[0].data["filename"] == "index.html"
 
 
 @pytest.mark.asyncio
@@ -1430,6 +1826,47 @@ async def test_real_agent_salvages_html_document_after_repair_failure() -> None:
     assert result.artifacts[0].type == "code"
     assert result.artifacts[0].data["filename"] == "index.html"
     assert result.artifacts[0].data["content"] == html
+
+
+@pytest.mark.asyncio
+async def test_real_agent_salvages_broken_json_content_without_exposing_raw_json() -> None:
+    broken_content = (
+        "{\n"
+        '  "agent_id": "code-agent",\n'
+        '  "content": "## BMI 计算器\\n\\n'
+        '```html filename=\\"index.html\\"\\n'
+        '<!doctype html><html lang="zh-CN"><body><button id="calculate-bmi">'
+        '计算</button></body></html>\\n```",\n'
+        '  "artifacts": []\n'
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": broken_content}}]},
+        )
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await agent.run(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="生成 BMI 页面",
+        )
+    )
+
+    assert not result.content.lstrip().startswith("{")
+    assert '"agent_id"' not in result.content
+    assert "## BMI 计算器" in result.content
+    assert "```html" in result.content
+    html_artifacts = [artifact for artifact in result.artifacts if artifact.type == "code"]
+    assert html_artifacts
+    assert html_artifacts[0].data["filename"] == "index.html"
 
 
 @pytest.mark.asyncio

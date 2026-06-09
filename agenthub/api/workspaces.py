@@ -12,6 +12,7 @@ from agenthub.schemas.workspace import (
     AppliedDiffRecord,
     ApplyDiffRequest,
     ApplyDiffResponse,
+    RevertDiffResponse,
     WorkspaceFile,
     WorkspaceFileContent,
     WorkspaceFileDeleteResponse,
@@ -130,6 +131,24 @@ async def apply_diff(
     return await service.apply_diff(
         workspace_id,
         request_data,
+        preview_page_url=preview_page_url,
+    )
+
+
+@router.post(
+    "/workspaces/{workspace_id}/applied-diffs/{record_id}/revert",
+    response_model=RevertDiffResponse,
+)
+async def revert_applied_diff(
+    workspace_id: str,
+    record_id: str,
+    request: Request,
+    service: Annotated[WorkspaceService, Depends(get_workspace_service)],
+) -> RevertDiffResponse:
+    preview_page_url = str(request.url_for("get_workspace_preview_page", workspace_id=workspace_id))
+    return await service.revert_applied_diff(
+        workspace_id,
+        record_id,
         preview_page_url=preview_page_url,
     )
 

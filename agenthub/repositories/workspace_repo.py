@@ -54,5 +54,9 @@ class WorkspaceRepository:
 
     async def save_applied_diff(self, record: AppliedDiffRecord) -> AppliedDiffRecord:
         records = self._applied_diffs.setdefault(record.workspace_id, [])
+        for index, existing in enumerate(records):
+            if existing.id == record.id:
+                records[index] = record
+                return record
         records.append(record)
         return record
