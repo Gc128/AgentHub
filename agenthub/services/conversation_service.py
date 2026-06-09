@@ -15,8 +15,11 @@ class ConversationService:
     def __init__(self, repository: ConversationRepository) -> None:
         self._repository = repository
 
-    async def list_conversations(self) -> list[Conversation]:
-        return await self._repository.list()
+    async def list_conversations(
+        self,
+        status: Literal["active", "archived", "all"] = "active",
+    ) -> list[Conversation]:
+        return await self._repository.list(status=status)
 
     async def create_conversation(self, request: ConversationCreate) -> Conversation:
         conversation_id = new_id("conv")
@@ -55,6 +58,7 @@ class ConversationService:
                 "is_pinned": request.is_pinned
                 if request.is_pinned is not None
                 else conversation.is_pinned,
+                "status": request.status if request.status is not None else conversation.status,
                 "updated_at": datetime.now(UTC),
             }
         )

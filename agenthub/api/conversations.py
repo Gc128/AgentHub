@@ -1,6 +1,6 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from agenthub.api.deps import get_conversation_service, get_message_service
 from agenthub.schemas.conversation import (
@@ -18,8 +18,9 @@ router = APIRouter()
 @router.get("/conversations", response_model=list[Conversation])
 async def list_conversations(
     service: Annotated[ConversationService, Depends(get_conversation_service)],
+    status: Annotated[Literal["active", "archived", "all"], Query()] = "active",
 ) -> list[Conversation]:
-    return await service.list_conversations()
+    return await service.list_conversations(status=status)
 
 
 @router.post("/conversations", response_model=Conversation, status_code=201)

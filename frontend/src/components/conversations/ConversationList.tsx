@@ -1,13 +1,27 @@
 import {
+  InboxOutlined,
   DeleteOutlined,
   MessageOutlined,
   PlusOutlined,
   PushpinFilled,
   PushpinOutlined,
+  UndoOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
-import { Badge, Button, Empty, Input, Popconfirm, Tag, Tooltip } from 'antd'
-import type { Conversation } from '../../types/api'
+import {
+  Badge,
+  Button,
+  Empty,
+  Input,
+  Popconfirm,
+  Segmented,
+  Tag,
+  Tooltip,
+} from 'antd'
+import type {
+  Conversation,
+  ConversationStatusFilter,
+} from '../../types/api'
 
 /** 会话列表组件的入参。 */
 type ConversationListProps = {
@@ -17,6 +31,8 @@ type ConversationListProps = {
   selectedConversationId: string | null
   /** 会话搜索关键词；第二天先做前端本地过滤。 */
   searchTerm: string
+  /** 当前会话状态筛选。 */
+  statusFilter: ConversationStatusFilter
   /** 点击会话时通知父组件切换当前会话。 */
   onSelectConversation: (conversationId: string) => void
   /** 搜索框输入变化时通知父组件更新过滤条件。 */
@@ -28,6 +44,12 @@ type ConversationListProps = {
     conversationId: string,
     nextPinned: boolean,
   ) => Promise<void>
+  /** 切换 active/archived/all 筛选。 */
+  onStatusFilterChange: (status: ConversationStatusFilter) => void
+  /** 归档会话，不删除消息。 */
+  onArchiveConversation: (conversationId: string) => void
+  /** 恢复归档会话。 */
+  onRestoreConversation: (conversationId: string) => void
   /** 点击删除确认后通知父组件 DELETE 会话。 */
   onDeleteConversation: (conversationId: string) => Promise<void>
 }
@@ -47,10 +69,14 @@ export function ConversationList({
   conversations,
   selectedConversationId,
   searchTerm,
+  statusFilter,
   onSelectConversation,
   onSearchTermChange,
   onOpenNewConversation,
   onTogglePinConversation,
+  onStatusFilterChange,
+  onArchiveConversation,
+  onRestoreConversation,
   onDeleteConversation,
 }: ConversationListProps) {
   return (
@@ -75,6 +101,17 @@ export function ConversationList({
         prefix={<SearchOutlined />}
         allowClear
         value={searchTerm}
+      />
+      <Segmented<ConversationStatusFilter>
+        block
+        className="conversation-status-filter"
+        onChange={onStatusFilterChange}
+        options={[
+          { label: '活跃', value: 'active' },
+          { label: '归档', value: 'archived' },
+          { label: '全部', value: 'all' },
+        ]}
+        value={statusFilter}
       />
 
       <div className="conversation-list">
@@ -108,6 +145,11 @@ export function ConversationList({
                       置顶
                     </Tag>
                   ) : null}
+                  {conversation.status === 'archived' ? (
+                    <Tag className="conversation-pin-tag" icon={<InboxOutlined />}>
+                      已归档
+                    </Tag>
+                  ) : null}
                 </span>
                 <span className="conversation-meta">
                   {/* mode 字段来自后端 schema，前端只做文案映射。 */}
@@ -137,6 +179,34 @@ export function ConversationList({
                         conversation.id,
                         !conversation.is_pinned,
                       )
+                    }
+                    size="small"
+                    type="text"
+                  />
+                </Tooltip>
+                <Tooltip
+                  title={
+                    conversation.status === 'archived' ? '恢复会话' : '归档会话'
+                  }
+                >
+                  <Button
+                    aria-label={
+                      conversation.status === 'archived'
+                        ? '恢复会话'
+                        : '归档会话'
+                    }
+                    className="conversation-action-button"
+                    icon={
+                      conversation.status === 'archived' ? (
+                        <UndoOutlined />
+                      ) : (
+                        <InboxOutlined />
+                      )
+                    }
+                    onClick={() =>
+                      conversation.status === 'archived'
+                        ? onRestoreConversation(conversation.id)
+                        : onArchiveConversation(conversation.id)
                     }
                     size="small"
                     type="text"

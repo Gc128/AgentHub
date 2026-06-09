@@ -46,7 +46,14 @@ async def test_sqlite_conversation_repository_persists_agent_ids_and_pin(
     fetched = await repository.get("conv_sqlite")
     assert fetched.agent_ids == ["orchestrator", "code-agent"]
     assert fetched.is_pinned is True
+    assert fetched.status == "active"
     assert [item.id for item in await repository.list()] == ["conv_sqlite"]
+
+    archived = fetched.model_copy(update={"status": "archived"})
+    await repository.save(archived)
+    assert await repository.list() == []
+    assert [item.id for item in await repository.list(status="archived")] == ["conv_sqlite"]
+    assert [item.id for item in await repository.list(status="all")] == ["conv_sqlite"]
 
     await repository.delete("conv_sqlite")
     assert await repository.exists("conv_sqlite") is False
@@ -70,6 +77,9 @@ async def test_sqlite_message_repository_persists_artifacts(tmp_path: Path) -> N
                 data={"filename": "src/App.tsx"},
             )
         ],
+        reply_to_id="msg_parent",
+        regenerated_from_id="msg_user",
+        is_context_pinned=True,
         created_at=now,
     )
 
@@ -77,6 +87,13 @@ async def test_sqlite_message_repository_persists_artifacts(tmp_path: Path) -> N
 
     messages = await repository.list_by_conversation("conv_sqlite")
     assert messages == [message]
+    assert await repository.get("conv_sqlite", "msg_sqlite") == message
+    assert await repository.list_pinned_by_conversation("conv_sqlite") == [message]
+
+    unpinned = message.model_copy(update={"is_context_pinned": False})
+    await repository.save(unpinned)
+    assert await repository.list_by_conversation("conv_sqlite") == [unpinned]
+    assert await repository.list_pinned_by_conversation("conv_sqlite") == []
 
     await repository.delete_by_conversation("conv_sqlite")
     assert await repository.list_by_conversation("conv_sqlite") == []

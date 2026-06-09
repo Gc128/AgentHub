@@ -257,6 +257,119 @@ def test_update_and_delete_conversation_match_frontend_contract() -> None:
     assert missing_response.status_code == 404
 
 
+def test_conversation_archive_filter_defaults_to_active() -> None:
+    test_client = client()
+    active_response = test_client.post(
+        "/api/conversations",
+        json={"title": "Active", "agent_ids": ["orchestrator"]},
+    )
+    archived_response = test_client.post(
+        "/api/conversations",
+        json={"title": "Archived", "agent_ids": ["orchestrator"]},
+    )
+    active_conversation = active_response.json()
+    archived_conversation = archived_response.json()
+
+    patch_response = test_client.patch(
+        f"/api/conversations/{archived_conversation['id']}",
+        json={"status": "archived"},
+    )
+    assert patch_response.status_code == 200
+    assert patch_response.json()["status"] == "archived"
+
+    default_list = test_client.get("/api/conversations").json()
+    archived_list = test_client.get("/api/conversations?status=archived").json()
+    all_list = test_client.get("/api/conversations?status=all").json()
+
+    assert [conversation["id"] for conversation in default_list] == [active_conversation["id"]]
+    assert [conversation["id"] for conversation in archived_list] == [archived_conversation["id"]]
+    assert {conversation["id"] for conversation in all_list} == {
+        active_conversation["id"],
+        archived_conversation["id"],
+    }
+
+    restore_response = test_client.patch(
+        f"/api/conversations/{archived_conversation['id']}",
+        json={"status": "active"},
+    )
+    assert restore_response.status_code == 200
+    assert restore_response.json()["status"] == "active"
+    assert len(test_client.get("/api/conversations").json()) == 2
+
+
+def test_message_reply_soft_delete_and_pin_context() -> None:
+    test_client = client()
+    create_response = test_client.post(
+        "/api/conversations",
+        json={"title": "IM", "agent_ids": ["orchestrator"]},
+    )
+    conversation = create_response.json()
+
+    first_response = test_client.post(
+        f"/api/conversations/{conversation['id']}/messages",
+        json={"content": "第一条", "sender_id": "user"},
+    )
+    first_message = first_response.json()
+    reply_response = test_client.post(
+        f"/api/conversations/{conversation['id']}/messages",
+        json={
+            "content": "回复第一条",
+            "sender_id": "user",
+            "reply_to_id": first_message["id"],
+        },
+    )
+    reply_message = reply_response.json()
+
+    assert reply_message["reply_to_id"] == first_message["id"]
+    assert reply_message["is_context_pinned"] is False
+    assert reply_message["deleted_at"] is None
+
+    pin_response = test_client.post(
+        f"/api/conversations/{conversation['id']}/messages/{reply_message['id']}/pin-context"
+    )
+    assert pin_response.status_code == 200
+    assert pin_response.json()["is_context_pinned"] is True
+
+    unpin_response = test_client.delete(
+        f"/api/conversations/{conversation['id']}/messages/{reply_message['id']}/pin-context"
+    )
+    assert unpin_response.status_code == 200
+    assert unpin_response.json()["is_context_pinned"] is False
+
+    artifact_message_response = test_client.post(
+        f"/api/conversations/{conversation['id']}/messages",
+        json={
+            "content": "带产物",
+            "sender_id": "code-agent",
+            "artifacts": [
+                {
+                    "id": "artifact_delete_test",
+                    "type": "code",
+                    "title": "demo",
+                    "data": {"content": "<html></html>"},
+                }
+            ],
+        },
+    )
+    artifact_message = artifact_message_response.json()
+    delete_response = test_client.delete(
+        f"/api/conversations/{conversation['id']}/messages/{artifact_message['id']}"
+    )
+
+    assert delete_response.status_code == 200
+    deleted_message = delete_response.json()
+    assert deleted_message["deleted_at"] is not None
+    assert deleted_message["artifacts"] == []
+    assert deleted_message["content"] == "消息已删除"
+
+    history_response = test_client.get(f"/api/conversations/{conversation['id']}/messages")
+    assert [message["id"] for message in history_response.json()] == [
+        first_message["id"],
+        reply_message["id"],
+        artifact_message["id"],
+    ]
+
+
 def test_missing_conversation_returns_error() -> None:
     response = client().get("/api/conversations/missing/messages")
     assert response.status_code == 404
@@ -317,3 +430,34 @@ def test_message_stream_persists_user_and_agent_messages() -> None:
         "review-agent",
         "preview-agent",
     ]
+
+
+def test_regenerate_stream_reuses_user_message_without_duplication() -> None:
+    test_client = client()
+    create_response = test_client.post(
+        "/api/conversations",
+        json={"title": "Regenerate", "agent_ids": ["code-agent"]},
+    )
+    conversation = create_response.json()
+    message_response = test_client.post(
+        f"/api/conversations/{conversation['id']}/messages",
+        json={"content": "@CodeAgent 做一个按钮", "sender_id": "user"},
+    )
+    user_message = message_response.json()
+
+    with test_client.stream(
+        "POST",
+        f"/api/conversations/{conversation['id']}/messages/{user_message['id']}/regenerate/stream",
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: user_message" not in body
+    assert "event: agent_started" in body
+    assert "event: agent_done" in body
+    assert "event: done" in body
+
+    history_response = test_client.get(f"/api/conversations/{conversation['id']}/messages")
+    messages = history_response.json()
+    assert [message["sender_id"] for message in messages] == ["user", "code-agent"]
+    assert messages[1]["regenerated_from_id"] == user_message["id"]

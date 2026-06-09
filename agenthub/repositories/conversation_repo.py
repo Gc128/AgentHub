@@ -1,13 +1,22 @@
+from typing import Literal
+
 from agenthub.core.errors import NotFoundError
 from agenthub.schemas.conversation import Conversation
+
+ConversationStatusFilter = Literal["active", "archived", "all"]
 
 
 class ConversationRepository:
     def __init__(self) -> None:
         self._conversations: dict[str, Conversation] = {}
 
-    async def list(self) -> list[Conversation]:
-        return sorted(self._conversations.values(), key=lambda item: item.updated_at, reverse=True)
+    async def list(self, status: ConversationStatusFilter = "active") -> list[Conversation]:
+        conversations = list(self._conversations.values())
+        if status != "all":
+            conversations = [
+                conversation for conversation in conversations if conversation.status == status
+            ]
+        return sorted(conversations, key=lambda item: item.updated_at, reverse=True)
 
     async def get(self, conversation_id: str) -> Conversation:
         conversation = self._conversations.get(conversation_id)

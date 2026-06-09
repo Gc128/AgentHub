@@ -54,3 +54,51 @@ async def stream_message_with_agent(
         service.stream_message(conversation_id, request),
         media_type="text/event-stream",
     )
+
+
+@router.delete(
+    "/conversations/{conversation_id}/messages/{message_id}",
+    response_model=Message,
+)
+async def delete_message(
+    conversation_id: str,
+    message_id: str,
+    service: Annotated[MessageService, Depends(get_message_service)],
+) -> Message:
+    return await service.soft_delete_message(conversation_id, message_id)
+
+
+@router.post(
+    "/conversations/{conversation_id}/messages/{message_id}/pin-context",
+    response_model=Message,
+)
+async def pin_message_context(
+    conversation_id: str,
+    message_id: str,
+    service: Annotated[MessageService, Depends(get_message_service)],
+) -> Message:
+    return await service.set_message_context_pin(conversation_id, message_id, True)
+
+
+@router.delete(
+    "/conversations/{conversation_id}/messages/{message_id}/pin-context",
+    response_model=Message,
+)
+async def unpin_message_context(
+    conversation_id: str,
+    message_id: str,
+    service: Annotated[MessageService, Depends(get_message_service)],
+) -> Message:
+    return await service.set_message_context_pin(conversation_id, message_id, False)
+
+
+@router.post("/conversations/{conversation_id}/messages/{message_id}/regenerate/stream")
+async def regenerate_message_with_agent(
+    conversation_id: str,
+    message_id: str,
+    service: Annotated[MessageService, Depends(get_message_service)],
+) -> StreamingResponse:
+    return StreamingResponse(
+        service.stream_regenerated_message(conversation_id, message_id),
+        media_type="text/event-stream",
+    )

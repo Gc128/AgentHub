@@ -1,7 +1,7 @@
-import { SendOutlined } from '@ant-design/icons'
+import { CloseOutlined, SendOutlined } from '@ant-design/icons'
 import { Alert, Button, Input, Tag } from 'antd'
 import { useState, type FormEvent } from 'react'
-import type { Agent } from '../../types/api'
+import type { Agent, Message } from '../../types/api'
 import {
   getActiveMentionQuery,
   getAgentMentionLabel,
@@ -14,8 +14,12 @@ type MessageComposerProps = {
   agents: Agent[]
   /** 当前是否有可发送的会话；没有会话时输入框禁用。 */
   disabled: boolean
+  /** 当前引用回复的消息。 */
+  replyTarget: Message | null
+  /** 取消引用态。 */
+  onCancelReply: () => void
   /** 消息提交回调，父组件负责调用 apiClient.createMessage。 */
-  onSendMessage: (content: string) => Promise<void>
+  onSendMessage: (content: string, replyToId?: string | null) => Promise<void>
 }
 
 /**
@@ -25,6 +29,8 @@ type MessageComposerProps = {
 export function MessageComposer({
   agents,
   disabled,
+  replyTarget,
+  onCancelReply,
   onSendMessage,
 }: MessageComposerProps) {
   // 输入框文本，提交成功后清空。
@@ -63,7 +69,7 @@ export function MessageComposer({
     setComposerError(null)
 
     try {
-      await onSendMessage(normalizedContent)
+      await onSendMessage(normalizedContent, replyTarget?.id ?? null)
       setContent('')
     } catch (caughtError) {
       setComposerError(
@@ -93,6 +99,23 @@ export function MessageComposer({
         )}
       </div>
       <div className="composer-input-wrap">
+        {replyTarget ? (
+          <div className="composer-reply-preview">
+            <span>
+              回复 {replyTarget.sender_id === 'user' ? 'You' : replyTarget.sender_id}：
+              {replyTarget.deleted_at
+                ? '消息已删除'
+                : replyTarget.content.slice(0, 90)}
+            </span>
+            <Button
+              aria-label="取消引用"
+              icon={<CloseOutlined />}
+              onClick={onCancelReply}
+              size="small"
+              type="text"
+            />
+          </div>
+        ) : null}
         <MentionMenu
           agents={agents}
           query={mentionQuery}

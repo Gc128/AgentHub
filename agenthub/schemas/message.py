@@ -13,6 +13,10 @@ class Message(BaseModel):
     sender_id: str
     content: str
     artifacts: list[Artifact] = Field(default_factory=list)
+    reply_to_id: str | None = None
+    regenerated_from_id: str | None = None
+    is_context_pinned: bool = False
+    deleted_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(from_attributes=True)
@@ -22,6 +26,7 @@ class MessageCreate(BaseModel):
     content: str = Field(min_length=1)
     sender_id: str = "user"
     artifacts: list[Artifact] = Field(default_factory=list)
+    reply_to_id: str | None = None
     run_agent: bool = True
 
 

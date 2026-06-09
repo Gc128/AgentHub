@@ -9,6 +9,8 @@ class Conversation(BaseModel):
     title: str
     mode: Literal["single", "group"] = "group"
     agent_ids: list[str] = Field(default_factory=list)
+    # 会话状态；归档只影响列表可见性，不删除消息或 workspace。
+    status: Literal["active", "archived"] = "active"
     # 是否置顶；前端会用它把重要会话固定在列表顶部。
     is_pinned: bool = False
     workspace_id: str
@@ -35,6 +37,8 @@ class ConversationUpdate(BaseModel):
     agent_ids: list[str] | None = Field(default=None, min_length=1)
     # 置顶状态可选更新。
     is_pinned: bool | None = None
+    # 归档/恢复会话；未传时不修改。
+    status: Literal["active", "archived"] | None = None
 
 
 class ConversationDeleteResult(BaseModel):

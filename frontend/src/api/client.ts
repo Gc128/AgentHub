@@ -7,6 +7,7 @@ import type {
   ApplyDiffInput,
   ApplyDiffResult,
   Conversation,
+  ConversationStatusFilter,
   CreateConversationInput,
   CreateMessageInput,
   DeleteConversationResult,
@@ -194,8 +195,12 @@ export const apiClient = {
    * 获取会话列表。
    * 始终发起 GET /api/conversations，由 FastAPI 后端返回真实持久化数据。
    */
-  listConversations(): Promise<Conversation[]> {
-    return requestJson<Conversation[]>('/api/conversations')
+  listConversations(
+    status: ConversationStatusFilter = 'active',
+  ): Promise<Conversation[]> {
+    return requestJson<Conversation[]>(
+      `/api/conversations?status=${encodeURIComponent(status)}`,
+    )
   },
 
   /**
@@ -292,6 +297,53 @@ export const apiClient = {
       {
         method: 'POST',
         body: JSON.stringify(input),
+      },
+      onEvent,
+    )
+  },
+
+  deleteMessage(conversationId: string, messageId: string): Promise<Message> {
+    return requestJson<Message>(
+      `/api/conversations/${conversationId}/messages/${messageId}`,
+      {
+        method: 'DELETE',
+      },
+    )
+  },
+
+  pinMessageContext(
+    conversationId: string,
+    messageId: string,
+  ): Promise<Message> {
+    return requestJson<Message>(
+      `/api/conversations/${conversationId}/messages/${messageId}/pin-context`,
+      {
+        method: 'POST',
+      },
+    )
+  },
+
+  unpinMessageContext(
+    conversationId: string,
+    messageId: string,
+  ): Promise<Message> {
+    return requestJson<Message>(
+      `/api/conversations/${conversationId}/messages/${messageId}/pin-context`,
+      {
+        method: 'DELETE',
+      },
+    )
+  },
+
+  regenerateMessageStream(
+    conversationId: string,
+    messageId: string,
+    onEvent: (event: MessageStreamEvent) => void,
+  ): Promise<void> {
+    return requestSse(
+      `/api/conversations/${conversationId}/messages/${messageId}/regenerate/stream`,
+      {
+        method: 'POST',
       },
       onEvent,
     )

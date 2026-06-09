@@ -18,6 +18,7 @@ import type {
   Message,
   MessageStreamEvent,
   ConversationMode,
+  ConversationStatusFilter,
   WorkspaceFile,
   WorkspaceFileContent,
   WorkspacePreview,
@@ -71,6 +72,10 @@ const createDraftMessage = (
   sender_id: agentId,
   content: '',
   artifacts: [],
+  reply_to_id: null,
+  regenerated_from_id: null,
+  is_context_pinned: false,
+  deleted_at: null,
   created_at: new Date().toISOString(),
 })
 
@@ -124,6 +129,9 @@ function App() {
   const [loadingMessages, setLoadingMessages] = useState(false)
   // 会话搜索关键词；搜索接口文档未明确，第二天先做前端本地过滤。
   const [conversationSearchTerm, setConversationSearchTerm] = useState('')
+  // 会话状态筛选；默认只展示 active，会话归档不删除历史。
+  const [conversationStatusFilter, setConversationStatusFilter] =
+    useState<ConversationStatusFilter>('active')
   // 控制新建会话弹窗是否打开。
   const [newConversationOpen, setNewConversationOpen] = useState(false)
   // 控制当前会话成员管理弹窗是否打开。
@@ -133,6 +141,8 @@ function App() {
     useState<Record<string, boolean>>({})
   const [generationNoticeByConversationId, setGenerationNoticeByConversationId] =
     useState<Record<string, string | null>>({})
+  const [replyTargetsByConversationId, setReplyTargetsByConversationId] =
+    useState<Record<string, Message | null>>({})
   // 已成功应用的 diff artifact ID；聊天流和右侧产物栏共享这份状态。
   const [appliedDiffIds, setAppliedDiffIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -166,7 +176,7 @@ function App() {
     const loadInitialData = async () => {
       try {
         const [nextConversations, nextAgents, nextRuntime] = await Promise.all([
-          apiClient.listConversations(),
+          apiClient.listConversations(conversationStatusFilter),
           apiClient.listAgents(),
           apiClient.getAgentRuntime(),
         ])
@@ -179,8 +189,14 @@ function App() {
         setAgents(nextAgents)
         setAgentRuntime(nextRuntime)
         setError(null)
-        // 默认选中最近活跃的第一条会话，后端已按置顶和 updated_at 排序返回。
-        setSelectedConversationId(nextConversations[0]?.id ?? null)
+        // 默认保留当前可见会话；筛选后不存在时切到新列表第一条。
+        setSelectedConversationId((currentSelectedId) =>
+          nextConversations.some(
+            (conversation) => conversation.id === currentSelectedId,
+          )
+            ? currentSelectedId
+            : nextConversations[0]?.id ?? null,
+        )
       } catch (caughtError) {
         if (!ignore) {
           setError(
@@ -197,7 +213,7 @@ function App() {
     return () => {
       ignore = true
     }
-  }, [])
+  }, [conversationStatusFilter])
 
   /**
    * 根据 selectedConversationId 推导完整会话对象。
@@ -220,6 +236,9 @@ function App() {
   const selectedGenerationNotice = selectedConversationId
     ? generationNoticeByConversationId[selectedConversationId] ?? null
     : null
+  const selectedReplyTarget = selectedConversationId
+    ? replyTargetsByConversationId[selectedConversationId] ?? null
+    : null
 
   const setConversationMessages = (
     conversationId: string,
@@ -231,6 +250,20 @@ function App() {
         currentMessagesByConversationId[conversationId] ?? [],
       ),
     }))
+  }
+
+  const upsertConversationMessage = (conversationId: string, message: Message) => {
+    setConversationMessages(conversationId, (currentMessages) => {
+      const existingIndex = currentMessages.findIndex(
+        (currentMessage) => currentMessage.id === message.id,
+      )
+      if (existingIndex === -1) {
+        return [...currentMessages, message]
+      }
+      return currentMessages.map((currentMessage) =>
+        currentMessage.id === message.id ? message : currentMessage,
+      )
+    })
   }
 
   const setConversationRunning = (
@@ -250,6 +283,16 @@ function App() {
     setGenerationNoticeByConversationId((current) => ({
       ...current,
       [conversationId]: notice,
+    }))
+  }
+
+  const setConversationReplyTarget = (
+    conversationId: string,
+    message: Message | null,
+  ) => {
+    setReplyTargetsByConversationId((current) => ({
+      ...current,
+      [conversationId]: message,
     }))
   }
 
@@ -379,6 +422,7 @@ function App() {
       sortConversationsByUpdatedAt([conversation, ...currentConversations]),
     )
     setConversationSearchTerm('')
+    setConversationStatusFilter('active')
     setSelectedConversationId(conversation.id)
   }
 
@@ -483,6 +527,11 @@ function App() {
         delete next[conversationId]
         return next
       })
+      setReplyTargetsByConversationId((current) => {
+        const next = { ...current }
+        delete next[conversationId]
+        return next
+      })
 
       if (selectedConversationId === conversationId) {
         setSelectedConversationId(nextConversations[0]?.id ?? null)
@@ -492,6 +541,49 @@ function App() {
     } catch (caughtError) {
       setError(
         caughtError instanceof Error ? caughtError.message : '删除会话失败',
+      )
+    }
+  }
+
+  const handleArchiveConversation = async (
+    conversationId: string,
+    nextStatus: Exclude<ConversationStatusFilter, 'all'>,
+  ) => {
+    try {
+      const updatedConversation = await apiClient.updateConversation(
+        conversationId,
+        {
+          status: nextStatus,
+        },
+      )
+
+      setConversations((currentConversations) => {
+        const nextConversations =
+          conversationStatusFilter === 'all' ||
+          updatedConversation.status === conversationStatusFilter
+            ? currentConversations.map((conversation) =>
+                conversation.id === conversationId
+                  ? updatedConversation
+                  : conversation,
+              )
+            : currentConversations.filter(
+                (conversation) => conversation.id !== conversationId,
+              )
+        const sortedConversations = sortConversationsByUpdatedAt(nextConversations)
+        if (
+          selectedConversationId === conversationId &&
+          !sortedConversations.some(
+            (conversation) => conversation.id === conversationId,
+          )
+        ) {
+          setSelectedConversationId(sortedConversations[0]?.id ?? null)
+        }
+        return sortedConversations
+      })
+      setError(null)
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : '更新会话状态失败',
       )
     }
   }
@@ -644,26 +736,18 @@ function App() {
     }
   }
 
-  /**
-   * 在当前会话中发送用户消息。
-   * 保存用户消息后，由 FastAPI 后端识别 @Agent 并完成 Agent 编排。
-   */
-  const handleSendMessage = async (content: string) => {
-    if (!selectedConversation) {
-      throw new Error('请先选择一个会话')
-    }
-
-    const conversationId = selectedConversation.id
-    const workspaceId = selectedConversation.workspace_id
+  const runConversationStream = async (
+    conversationId: string,
+    workspaceId: string,
+    startNotice: string,
+    invokeStream: (onEvent: (event: MessageStreamEvent) => void) => Promise<void>,
+  ) => {
     if (agentRunningByConversationId[conversationId]) {
       throw new Error('当前会话已有 Agent 正在回复')
     }
 
     setConversationRunning(conversationId, true)
-    setConversationGenerationNotice(
-      conversationId,
-      '正在连接 AgentHub harness',
-    )
+    setConversationGenerationNotice(conversationId, startNotice)
 
     try {
       const draftIds = new Map<string, string>()
@@ -743,10 +827,7 @@ function App() {
 
       const handleStreamEvent = (event: MessageStreamEvent) => {
         if (event.event === 'user_message') {
-          setConversationMessages(conversationId, (currentMessages) => [
-            ...currentMessages,
-            event.data.message,
-          ])
+          upsertConversationMessage(conversationId, event.data.message)
           updateConversationTimestamp(event.data.message)
           return
         }
@@ -819,14 +900,8 @@ function App() {
         }
       }
 
-      await apiClient.streamMessage(
-        conversationId,
-        {
-          sender_id: 'user',
-          content,
-        },
-        handleStreamEvent,
-      )
+      await invokeStream(handleStreamEvent)
+      await Promise.all(deltaChains.values())
       if (shouldRefreshPreview) {
         const nextPreview = await apiClient.getWorkspacePreview(workspaceId)
         if (selectedConversationIdRef.current === conversationId) {
@@ -840,9 +915,122 @@ function App() {
       setError(
         caughtError instanceof Error ? caughtError.message : 'Agent 回复失败',
       )
+      throw caughtError
     } finally {
       setConversationRunning(conversationId, false)
       setConversationGenerationNotice(conversationId, null)
+    }
+  }
+
+  /**
+   * 在当前会话中发送用户消息。
+   * 保存用户消息后，由 FastAPI 后端识别 @Agent 并完成 Agent 编排。
+   */
+  const handleSendMessage = async (content: string, replyToId?: string | null) => {
+    if (!selectedConversation) {
+      throw new Error('请先选择一个会话')
+    }
+
+    const conversationId = selectedConversation.id
+    await runConversationStream(
+      conversationId,
+      selectedConversation.workspace_id,
+      '正在连接 AgentHub harness',
+      (onEvent) =>
+        apiClient.streamMessage(
+          conversationId,
+          {
+            sender_id: 'user',
+            content,
+            reply_to_id: replyToId ?? undefined,
+          },
+          onEvent,
+        ),
+    )
+    setConversationReplyTarget(conversationId, null)
+  }
+
+  const handleRegenerateMessage = async (message: Message) => {
+    try {
+      const conversation = conversations.find(
+        (item) => item.id === message.conversation_id,
+      )
+      if (!conversation) {
+        throw new Error('找不到这条消息所属会话')
+      }
+      if (message.role !== 'user') {
+        throw new Error('只能基于用户消息重新生成')
+      }
+
+      await runConversationStream(
+        conversation.id,
+        conversation.workspace_id,
+        '正在重新生成 Agent 回复',
+        (onEvent) =>
+          apiClient.regenerateMessageStream(
+            conversation.id,
+            message.id,
+            onEvent,
+          ),
+      )
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : '重新生成失败',
+      )
+    }
+  }
+
+  const handleReplyToMessage = (message: Message) => {
+    setConversationReplyTarget(message.conversation_id, message)
+  }
+
+  const handleCancelReply = () => {
+    if (selectedConversationId) {
+      setConversationReplyTarget(selectedConversationId, null)
+    }
+  }
+
+  const handleCopyMessage = async (message: Message) => {
+    try {
+      await navigator.clipboard.writeText(message.content)
+      setConversationGenerationNotice(message.conversation_id, '已复制消息内容')
+      window.setTimeout(() => {
+        setConversationGenerationNotice(message.conversation_id, null)
+      }, 1200)
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : '复制失败')
+    }
+  }
+
+  const handleToggleMessagePin = async (message: Message, nextPinned: boolean) => {
+    try {
+      const updatedMessage = nextPinned
+        ? await apiClient.pinMessageContext(message.conversation_id, message.id)
+        : await apiClient.unpinMessageContext(message.conversation_id, message.id)
+      upsertConversationMessage(message.conversation_id, updatedMessage)
+      setError(null)
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : '更新长期上下文失败',
+      )
+    }
+  }
+
+  const handleDeleteMessage = async (message: Message) => {
+    try {
+      const deletedMessage = await apiClient.deleteMessage(
+        message.conversation_id,
+        message.id,
+      )
+      upsertConversationMessage(message.conversation_id, deletedMessage)
+      if (selectedReplyTarget?.id === message.id) {
+        setConversationReplyTarget(message.conversation_id, null)
+      }
+      setError(null)
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : '删除消息失败')
     }
   }
 
@@ -875,10 +1063,18 @@ function App() {
               conversations={filteredConversations}
               selectedConversationId={selectedConversationId}
               searchTerm={conversationSearchTerm}
+              statusFilter={conversationStatusFilter}
+              onArchiveConversation={(conversationId) =>
+                handleArchiveConversation(conversationId, 'archived')
+              }
+              onRestoreConversation={(conversationId) =>
+                handleArchiveConversation(conversationId, 'active')
+              }
               onOpenNewConversation={() => setNewConversationOpen(true)}
               onDeleteConversation={handleDeleteConversation}
               onSearchTermChange={setConversationSearchTerm}
               onSelectConversation={setSelectedConversationId}
+              onStatusFilterChange={setConversationStatusFilter}
               onTogglePinConversation={handleTogglePinConversation}
             />
             {/* 左侧下半区：可用 Agent 联系人和能力标签。 */}
@@ -917,10 +1113,17 @@ function App() {
               generationNotice={selectedGenerationNotice}
               loading={loadingMessages && selectedMessages.length === 0}
               messages={selectedMessages}
+              replyTarget={selectedReplyTarget}
               workspacePreviewUrl={preview?.preview_url ?? null}
               onApplyDiff={handleApplyDiff}
+              onCancelReply={handleCancelReply}
+              onCopyMessage={handleCopyMessage}
+              onDeleteMessage={handleDeleteMessage}
               onOpenMemberManager={() => setMemberManagerOpen(true)}
+              onRegenerateMessage={handleRegenerateMessage}
+              onReplyToMessage={handleReplyToMessage}
               onSendMessage={handleSendMessage}
+              onToggleMessagePin={handleToggleMessagePin}
             />
           </>
         }

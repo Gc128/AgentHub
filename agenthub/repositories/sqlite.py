@@ -14,7 +14,10 @@ from agenthub.models.workspace import (
     WorkspaceFileRecord,
     WorkspacePreviewRecord,
 )
-from agenthub.repositories.conversation_repo import ConversationRepository
+from agenthub.repositories.conversation_repo import (
+    ConversationRepository,
+    ConversationStatusFilter,
+)
 from agenthub.repositories.message_repo import MessageRepository
 from agenthub.repositories.workspace_repo import WorkspaceRepository
 from agenthub.schemas.artifact import Artifact
@@ -31,8 +34,46 @@ class _SqliteRepositoryMixin:
     def __init__(self, database_url: str) -> None:
         self._engine = create_engine(database_url)
         SQLModel.metadata.create_all(self._engine)
+        _ensure_conversation_columns(self._engine)
+        _ensure_message_columns(self._engine)
         _ensure_workspace_preview_columns(self._engine)
         _ensure_applied_diff_columns(self._engine)
+
+
+def _ensure_conversation_columns(engine: Engine) -> None:
+    if not engine.url.get_backend_name().startswith("sqlite"):
+        return
+
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(conversationrecord)")).mappings()
+        column_names = {str(column["name"]) for column in columns}
+        if column_names and "status" not in column_names:
+            connection.execute(
+                text("ALTER TABLE conversationrecord ADD COLUMN status VARCHAR DEFAULT 'active'")
+            )
+
+
+def _ensure_message_columns(engine: Engine) -> None:
+    if not engine.url.get_backend_name().startswith("sqlite"):
+        return
+
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(messagerecord)")).mappings()
+        column_names = {str(column["name"]) for column in columns}
+        if not column_names:
+            return
+        if "reply_to_id" not in column_names:
+            connection.execute(text("ALTER TABLE messagerecord ADD COLUMN reply_to_id VARCHAR"))
+        if "regenerated_from_id" not in column_names:
+            connection.execute(
+                text("ALTER TABLE messagerecord ADD COLUMN regenerated_from_id VARCHAR")
+            )
+        if "is_context_pinned" not in column_names:
+            connection.execute(
+                text("ALTER TABLE messagerecord ADD COLUMN is_context_pinned BOOLEAN DEFAULT 0")
+            )
+        if "deleted_at" not in column_names:
+            connection.execute(text("ALTER TABLE messagerecord ADD COLUMN deleted_at DATETIME"))
 
 
 def _ensure_workspace_preview_columns(engine: Engine) -> None:
@@ -76,9 +117,12 @@ def _ensure_applied_diff_columns(engine: Engine) -> None:
 
 
 class SqliteConversationRepository(_SqliteRepositoryMixin, ConversationRepository):
-    async def list(self) -> list[Conversation]:
+    async def list(self, status: ConversationStatusFilter = "active") -> list[Conversation]:
         with Session(self._engine) as session:
-            records = session.exec(select(ConversationRecord)).all()
+            statement = select(ConversationRecord)
+            if status != "all":
+                statement = statement.where(ConversationRecord.status == status)
+            records = session.exec(statement).all()
             conversations = [_conversation_from_record(record) for record in records]
             return sorted(conversations, key=lambda item: item.updated_at, reverse=True)
 
@@ -116,6 +160,25 @@ class SqliteMessageRepository(_SqliteRepositoryMixin, MessageRepository):
             ).all()
             messages = [_message_from_record(record) for record in records]
             return sorted(messages, key=lambda item: item.created_at)
+
+    async def list_pinned_by_conversation(self, conversation_id: str) -> list[Message]:
+        with Session(self._engine) as session:
+            records = session.exec(
+                select(MessageRecord).where(
+                    MessageRecord.conversation_id == conversation_id,
+                    MessageRecord.is_context_pinned == True,  # noqa: E712
+                )
+            ).all()
+            messages = [_message_from_record(record) for record in records]
+            active_messages = [message for message in messages if message.deleted_at is None]
+            return sorted(active_messages, key=lambda item: item.created_at)
+
+    async def get(self, conversation_id: str, message_id: str) -> Message:
+        with Session(self._engine) as session:
+            record = session.get(MessageRecord, message_id)
+            if record is None or record.conversation_id != conversation_id:
+                raise NotFoundError("message_not_found", "Message does not exist.")
+            return _message_from_record(record)
 
     async def save(self, message: Message) -> Message:
         with Session(self._engine) as session:
@@ -219,6 +282,7 @@ def _conversation_to_record(conversation: Conversation) -> ConversationRecord:
         title=conversation.title,
         mode=conversation.mode,
         agent_ids_json=json.dumps(conversation.agent_ids),
+        status=conversation.status,
         is_pinned=conversation.is_pinned,
         workspace_id=conversation.workspace_id,
         created_at=conversation.created_at,
@@ -233,6 +297,7 @@ def _conversation_from_record(record: ConversationRecord) -> Conversation:
         title=record.title,
         mode=cast(Literal["single", "group"], record.mode),
         agent_ids=[str(agent_id) for agent_id in agent_ids] if isinstance(agent_ids, list) else [],
+        status=cast(Literal["active", "archived"], record.status or "active"),
         is_pinned=record.is_pinned,
         workspace_id=record.workspace_id,
         created_at=_ensure_utc(record.created_at),
@@ -251,6 +316,10 @@ def _message_to_record(message: Message) -> MessageRecord:
             [artifact.model_dump(mode="json") for artifact in message.artifacts],
             ensure_ascii=False,
         ),
+        reply_to_id=message.reply_to_id,
+        regenerated_from_id=message.regenerated_from_id,
+        is_context_pinned=message.is_context_pinned,
+        deleted_at=message.deleted_at,
         created_at=message.created_at,
     )
 
@@ -269,6 +338,10 @@ def _message_from_record(record: MessageRecord) -> Message:
         sender_id=record.sender_id,
         content=record.content,
         artifacts=artifacts,
+        reply_to_id=record.reply_to_id,
+        regenerated_from_id=record.regenerated_from_id,
+        is_context_pinned=record.is_context_pinned,
+        deleted_at=_ensure_utc(record.deleted_at) if record.deleted_at else None,
         created_at=_ensure_utc(record.created_at),
     )
 

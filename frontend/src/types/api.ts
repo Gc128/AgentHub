@@ -4,6 +4,12 @@
  */
 export type ConversationMode = 'single' | 'group'
 
+/** 会话归档状态；archived 会隐藏在默认列表外，但不删除数据。 */
+export type ConversationStatus = 'active' | 'archived'
+
+/** 会话列表筛选状态。 */
+export type ConversationStatusFilter = ConversationStatus | 'all'
+
 /**
  * 消息角色，对齐后端 Message.role。
  * user 是用户消息；agent 是 Agent 回复；system 是系统状态或流程提示。
@@ -59,6 +65,8 @@ export type Conversation = {
   mode: ConversationMode
   /** 当前会话参与的 Agent ID 列表。 */
   agent_ids: string[]
+  /** active 默认展示，archived 仅在归档筛选中展示。 */
+  status: ConversationStatus
   /**
    * 是否置顶。
    * 这是本轮为会话列表操作补充的字段，后端 schema 需同步持久化；置顶会话在列表中优先展示。
@@ -107,6 +115,14 @@ export type Message = {
   content: string
   /** 消息携带的结构化产物列表。 */
   artifacts: Artifact[]
+  /** 被引用回复的消息 ID。 */
+  reply_to_id?: string | null
+  /** 重新生成的来源用户消息 ID。 */
+  regenerated_from_id?: string | null
+  /** 是否被固定为长期上下文。 */
+  is_context_pinned: boolean
+  /** 软删除时间；存在时前端隐藏正文和 artifact。 */
+  deleted_at?: string | null
   /** 消息创建时间，使用 ISO 字符串。 */
   created_at: string
 }
@@ -310,6 +326,8 @@ export type UpdateConversationInput = {
   agent_ids?: string[]
   /** 可选置顶状态；未传时不修改。 */
   is_pinned?: boolean
+  /** 可选归档状态；未传时不修改。 */
+  status?: ConversationStatus
 }
 
 /**
@@ -338,6 +356,10 @@ export type CreateMessageInput = {
    * 后端请求体尚未明确，当前用于保存 Agent 回复生成的 artifacts。
    */
   artifacts?: Artifact[]
+  /** 可选引用目标消息。 */
+  reply_to_id?: string | null
+  /** 是否运行 Agent；普通前端发送默认 true。 */
+  run_agent?: boolean
 }
 
 /**
