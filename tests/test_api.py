@@ -224,6 +224,86 @@ def test_agent_runtime_reports_mock_mode_without_secret() -> None:
     assert "secret" not in str(payload).lower()
 
 
+def test_custom_agent_crud_test_and_direct_run() -> None:
+    test_client = client()
+
+    create_response = test_client.post(
+        "/api/agents/custom",
+        json={
+            "name": "需求澄清 Agent",
+            "description": "帮助用户澄清需求",
+            "system_prompt": "你专门负责提出需求澄清问题。",
+            "capabilities": ["clarify", "product"],
+            "is_enabled": True,
+        },
+    )
+
+    assert create_response.status_code == 201
+    custom_agent = create_response.json()
+    assert custom_agent["id"].startswith("custom-agent")
+    assert custom_agent["system_prompt"] == "你专门负责提出需求澄清问题。"
+
+    custom_list = test_client.get("/api/agents/custom").json()
+    assert [agent["id"] for agent in custom_list] == [custom_agent["id"]]
+
+    visible_agents = test_client.get("/api/agents").json()
+    assert custom_agent["id"] in {agent["id"] for agent in visible_agents}
+
+    test_response = test_client.post(
+        f"/api/agents/custom/{custom_agent['id']}/test",
+        json={"message": "帮我确认需求"},
+    )
+    assert test_response.status_code == 200
+    test_result = test_response.json()
+    assert test_result["agent_id"] == custom_agent["id"]
+    assert "你专门负责提出需求澄清问题" in test_result["content"]
+
+    run_response = test_client.post(
+        "/api/agents/run",
+        json={
+            "conversation_id": "conv_custom",
+            "workspace_id": "ws_custom",
+            "user_message": "@需求澄清Agent 帮我确认需求",
+            "history": [],
+            "context": {},
+        },
+    )
+    assert run_response.status_code == 200
+    assert run_response.json()["agent_id"] == custom_agent["id"]
+
+    update_response = test_client.patch(
+        f"/api/agents/custom/{custom_agent['id']}",
+        json={
+            "system_prompt": "你现在负责输出三条问题。",
+            "is_enabled": False,
+        },
+    )
+    assert update_response.status_code == 200
+    updated_agent = update_response.json()
+    assert updated_agent["system_prompt"] == "你现在负责输出三条问题。"
+    assert updated_agent["is_enabled"] is False
+
+    hidden_agents = test_client.get("/api/agents").json()
+    assert custom_agent["id"] not in {agent["id"] for agent in hidden_agents}
+
+    delete_response = test_client.delete(f"/api/agents/custom/{custom_agent['id']}")
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"id": custom_agent["id"], "deleted": True}
+
+    missing_run_response = test_client.post(
+        "/api/agents/run",
+        json={
+            "conversation_id": "conv_custom",
+            "workspace_id": "ws_custom",
+            "user_message": "hello",
+            "history": [],
+            "context": {"agent_id": custom_agent["id"]},
+        },
+    )
+    assert missing_run_response.status_code == 404
+    assert missing_run_response.json()["code"] == "agent_not_found"
+
+
 def test_update_and_delete_conversation_match_frontend_contract() -> None:
     test_client = client()
     create_response = test_client.post(

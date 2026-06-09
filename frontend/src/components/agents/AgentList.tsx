@@ -5,11 +5,12 @@ import {
   EyeOutlined,
   ToolOutlined,
 } from '@ant-design/icons'
-import { Tag, Tooltip } from 'antd'
+import { Button, Tag, Tooltip } from 'antd'
 import type { Agent, AgentRole } from '../../types/api'
 
 type AgentListProps = {
   agents: Agent[]
+  onOpenAgentManager: () => void
 }
 
 const ROLE_CONFIG: Record<
@@ -77,10 +78,15 @@ function AgentTooltipCard({ agent }: { agent: Agent }) {
  * 左侧 Agent 图标区。
  * 四个图标并排，hover 时在图标上方弹出卡片式说明。
  */
-export function AgentList({ agents }: AgentListProps) {
+export function AgentList({ agents, onOpenAgentManager }: AgentListProps) {
   return (
     <section className="agent-icon-section">
-      <span className="agent-icon-label">AGENTS</span>
+      <div className="agent-icon-heading">
+        <span className="agent-icon-label">AGENTS</span>
+        <Button size="small" type="text" onClick={onOpenAgentManager}>
+          管理
+        </Button>
+      </div>
       <div className="agent-icon-row">
         {agents.slice(0, 4).map((agent) => {
           const cfg = ROLE_CONFIG[agent.role] ?? ROLE_CONFIG.custom

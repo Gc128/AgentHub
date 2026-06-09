@@ -7,11 +7,13 @@ import pytest
 from agenthub.core.errors import NotFoundError
 from agenthub.repositories.sqlite import (
     SqliteConversationRepository,
+    SqliteCustomAgentRepository,
     SqliteMessageRepository,
     SqliteWorkspaceRepository,
 )
 from agenthub.schemas.artifact import Artifact
 from agenthub.schemas.conversation import Conversation
+from agenthub.schemas.custom_agent import CustomAgent
 from agenthub.schemas.message import Message
 from agenthub.schemas.workspace import (
     AppliedDiffRecord,
@@ -97,6 +99,38 @@ async def test_sqlite_message_repository_persists_artifacts(tmp_path: Path) -> N
 
     await repository.delete_by_conversation("conv_sqlite")
     assert await repository.list_by_conversation("conv_sqlite") == []
+
+
+@pytest.mark.asyncio
+async def test_sqlite_custom_agent_repository_persists_agents(tmp_path: Path) -> None:
+    database_url = sqlite_url(tmp_path)
+    repository = SqliteCustomAgentRepository(database_url)
+    now = datetime.now(UTC)
+    agent = CustomAgent(
+        id="custom-agent-sqlite",
+        name="需求澄清 Agent",
+        description="clarify",
+        system_prompt="提出三个澄清问题。",
+        capabilities=["clarify", "product"],
+        is_enabled=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+    await repository.save(agent)
+
+    fetched = await repository.get(agent.id)
+    assert fetched == agent
+    assert await repository.list_enabled() == [agent]
+
+    disabled = agent.model_copy(update={"is_enabled": False})
+    await repository.save(disabled)
+    reloaded_repository = SqliteCustomAgentRepository(database_url)
+    assert await reloaded_repository.list() == [disabled]
+    assert await reloaded_repository.list_enabled() == []
+
+    await reloaded_repository.delete(agent.id)
+    assert await reloaded_repository.list() == []
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,13 @@ from fastapi.responses import StreamingResponse
 from agenthub.api.deps import get_agent_service
 from agenthub.config import get_settings
 from agenthub.schemas.agent import Agent, AgentRunInput, AgentRunResult, AgentRuntimeInfo
+from agenthub.schemas.custom_agent import (
+    CustomAgent,
+    CustomAgentCreate,
+    CustomAgentDeleteResult,
+    CustomAgentTestRequest,
+    CustomAgentUpdate,
+)
 from agenthub.services.agent_service import AgentService
 
 router = APIRouter()
@@ -16,7 +23,49 @@ router = APIRouter()
 async def list_agents(
     service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> list[Agent]:
-    return service.list_agents()
+    return await service.list_agents()
+
+
+@router.get("/agents/custom", response_model=list[CustomAgent])
+async def list_custom_agents(
+    service: Annotated[AgentService, Depends(get_agent_service)],
+) -> list[CustomAgent]:
+    return await service.list_custom_agents()
+
+
+@router.post("/agents/custom", response_model=CustomAgent, status_code=201)
+async def create_custom_agent(
+    request: CustomAgentCreate,
+    service: Annotated[AgentService, Depends(get_agent_service)],
+) -> CustomAgent:
+    return await service.create_custom_agent(request)
+
+
+@router.patch("/agents/custom/{agent_id}", response_model=CustomAgent)
+async def update_custom_agent(
+    agent_id: str,
+    request: CustomAgentUpdate,
+    service: Annotated[AgentService, Depends(get_agent_service)],
+) -> CustomAgent:
+    return await service.update_custom_agent(agent_id, request)
+
+
+@router.delete("/agents/custom/{agent_id}", response_model=CustomAgentDeleteResult)
+async def delete_custom_agent(
+    agent_id: str,
+    service: Annotated[AgentService, Depends(get_agent_service)],
+) -> CustomAgentDeleteResult:
+    await service.delete_custom_agent(agent_id)
+    return CustomAgentDeleteResult(id=agent_id, deleted=True)
+
+
+@router.post("/agents/custom/{agent_id}/test", response_model=AgentRunResult)
+async def test_custom_agent(
+    agent_id: str,
+    request: CustomAgentTestRequest,
+    service: Annotated[AgentService, Depends(get_agent_service)],
+) -> AgentRunResult:
+    return await service.test_custom_agent(agent_id, request.message)
 
 
 @router.get("/agents/runtime", response_model=AgentRuntimeInfo)

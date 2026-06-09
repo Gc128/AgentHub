@@ -2590,9 +2590,10 @@ def test_unknown_agent_raises_not_found() -> None:
         registry.get("missing-agent")
 
 
-def test_agent_service_lists_agents() -> None:
+@pytest.mark.asyncio
+async def test_agent_service_lists_agents() -> None:
     service = AgentService(registry=create_default_registry())
-    agent_ids = {agent.id for agent in service.list_agents()}
+    agent_ids = {agent.id for agent in await service.list_agents()}
     assert {"orchestrator", "code-agent", "review-agent", "preview-agent"}.issubset(agent_ids)
 
 

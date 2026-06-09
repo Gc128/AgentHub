@@ -9,6 +9,10 @@ import type {
   Conversation,
   ConversationStatusFilter,
   CreateConversationInput,
+  CustomAgent,
+  CustomAgentCreateInput,
+  CustomAgentDeleteResult,
+  CustomAgentUpdateInput,
   CreateMessageInput,
   DeleteConversationResult,
   Message,
@@ -355,6 +359,43 @@ export const apiClient = {
    */
   listAgents(): Promise<Agent[]> {
     return requestJson<Agent[]>('/api/agents')
+  },
+
+  listCustomAgents(): Promise<CustomAgent[]> {
+    return requestJson<CustomAgent[]>('/api/agents/custom')
+  },
+
+  createCustomAgent(input: CustomAgentCreateInput): Promise<CustomAgent> {
+    return requestJson<CustomAgent>('/api/agents/custom', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  },
+
+  updateCustomAgent(
+    agentId: string,
+    input: CustomAgentUpdateInput,
+  ): Promise<CustomAgent> {
+    return requestJson<CustomAgent>(`/api/agents/custom/${agentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    })
+  },
+
+  deleteCustomAgent(agentId: string): Promise<CustomAgentDeleteResult> {
+    return requestJson<CustomAgentDeleteResult>(
+      `/api/agents/custom/${agentId}`,
+      {
+        method: 'DELETE',
+      },
+    )
+  },
+
+  testCustomAgent(agentId: string, message: string): Promise<AgentRunResult> {
+    return requestJson<AgentRunResult>(`/api/agents/custom/${agentId}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    })
   },
 
   getAgentRuntime(): Promise<AgentRuntimeInfo> {

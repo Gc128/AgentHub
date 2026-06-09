@@ -179,6 +179,36 @@ export type Agent = {
   adapter_type: AgentAdapterType
 }
 
+/** 用户自建 Agent 的完整配置。 */
+export type CustomAgent = {
+  id: string
+  name: string
+  description: string
+  system_prompt: string
+  capabilities: string[]
+  is_enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** 创建自建 Agent 的请求体。 */
+export type CustomAgentCreateInput = {
+  name: string
+  description: string
+  system_prompt: string
+  capabilities: string[]
+  is_enabled: boolean
+}
+
+/** 更新自建 Agent 的请求体。 */
+export type CustomAgentUpdateInput = Partial<CustomAgentCreateInput>
+
+/** 删除自建 Agent 的响应体。 */
+export type CustomAgentDeleteResult = {
+  id: string
+  deleted: boolean
+}
+
 /**
  * 调用 Agent 的请求体，对齐当前后端 AgentRunInput。
  * 注意：项目文档里曾出现 agent_id/message 示例，当前仓库以后端 schema 为准。

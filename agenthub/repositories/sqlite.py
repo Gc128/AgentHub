@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import builtins
 import json
 from datetime import UTC, datetime
 from typing import Literal, cast
@@ -8,6 +11,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from agenthub.core.errors import NotFoundError
 from agenthub.models.conversation import ConversationRecord
+from agenthub.models.custom_agent import CustomAgentRecord
 from agenthub.models.message import MessageRecord
 from agenthub.models.workspace import (
     AppliedDiffRecordRow,
@@ -18,10 +22,12 @@ from agenthub.repositories.conversation_repo import (
     ConversationRepository,
     ConversationStatusFilter,
 )
+from agenthub.repositories.custom_agent_repo import CustomAgentRepository
 from agenthub.repositories.message_repo import MessageRepository
 from agenthub.repositories.workspace_repo import WorkspaceRepository
 from agenthub.schemas.artifact import Artifact
 from agenthub.schemas.conversation import Conversation
+from agenthub.schemas.custom_agent import CustomAgent
 from agenthub.schemas.message import Message
 from agenthub.schemas.workspace import (
     AppliedDiffRecord,
@@ -196,6 +202,43 @@ class SqliteMessageRepository(_SqliteRepositoryMixin, MessageRepository):
             session.commit()
 
 
+class SqliteCustomAgentRepository(_SqliteRepositoryMixin, CustomAgentRepository):
+    async def list(self) -> builtins.list[CustomAgent]:
+        with Session(self._engine) as session:
+            records = session.exec(select(CustomAgentRecord)).all()
+            agents = [_custom_agent_from_record(record) for record in records]
+            return sorted(agents, key=lambda item: item.updated_at, reverse=True)
+
+    async def list_enabled(self) -> builtins.list[CustomAgent]:
+        with Session(self._engine) as session:
+            records = session.exec(
+                select(CustomAgentRecord).where(CustomAgentRecord.is_enabled == True)  # noqa: E712
+            ).all()
+            agents = [_custom_agent_from_record(record) for record in records]
+            return sorted(agents, key=lambda item: item.updated_at, reverse=True)
+
+    async def get(self, agent_id: str) -> CustomAgent:
+        with Session(self._engine) as session:
+            record = session.get(CustomAgentRecord, agent_id)
+            if record is None:
+                raise NotFoundError("custom_agent_not_found", "Custom Agent does not exist.")
+            return _custom_agent_from_record(record)
+
+    async def save(self, agent: CustomAgent) -> CustomAgent:
+        with Session(self._engine) as session:
+            session.merge(_custom_agent_to_record(agent))
+            session.commit()
+            return agent
+
+    async def delete(self, agent_id: str) -> None:
+        with Session(self._engine) as session:
+            record = session.get(CustomAgentRecord, agent_id)
+            if record is None:
+                raise NotFoundError("custom_agent_not_found", "Custom Agent does not exist.")
+            session.delete(record)
+            session.commit()
+
+
 class SqliteWorkspaceRepository(_SqliteRepositoryMixin, WorkspaceRepository):
     async def get_preview(self, workspace_id: str) -> WorkspacePreviewResponse:
         with Session(self._engine) as session:
@@ -343,6 +386,35 @@ def _message_from_record(record: MessageRecord) -> Message:
         is_context_pinned=record.is_context_pinned,
         deleted_at=_ensure_utc(record.deleted_at) if record.deleted_at else None,
         created_at=_ensure_utc(record.created_at),
+    )
+
+
+def _custom_agent_to_record(agent: CustomAgent) -> CustomAgentRecord:
+    return CustomAgentRecord(
+        id=agent.id,
+        name=agent.name,
+        description=agent.description,
+        system_prompt=agent.system_prompt,
+        capabilities_json=json.dumps(agent.capabilities, ensure_ascii=False),
+        is_enabled=agent.is_enabled,
+        created_at=agent.created_at,
+        updated_at=agent.updated_at,
+    )
+
+
+def _custom_agent_from_record(record: CustomAgentRecord) -> CustomAgent:
+    capabilities_payload = json.loads(record.capabilities_json)
+    return CustomAgent(
+        id=record.id,
+        name=record.name,
+        description=record.description,
+        system_prompt=record.system_prompt,
+        capabilities=[str(capability) for capability in capabilities_payload]
+        if isinstance(capabilities_payload, list)
+        else [],
+        is_enabled=record.is_enabled,
+        created_at=_ensure_utc(record.created_at),
+        updated_at=_ensure_utc(record.updated_at),
     )
 
 

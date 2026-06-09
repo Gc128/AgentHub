@@ -23,7 +23,7 @@ export const getAgentMentionLabel = (agent: Pick<Agent, 'id' | 'name'>) =>
  * 例如 "帮我 @Co" 返回 "co"，没有正在输入 @ 时返回 null。
  */
 export const getActiveMentionQuery = (content: string): string | null => {
-  const match = content.match(/(?:^|\s)@([A-Za-z]*)$/)
+  const match = content.match(/(?:^|\s)@([^\s@]*)$/)
   return match ? match[1].toLowerCase() : null
 }
 
@@ -32,9 +32,9 @@ export const getActiveMentionQuery = (content: string): string | null => {
  * 如果光标前正在输入 "@Co"，就替换这段；否则追加到末尾。
  */
 export const insertAgentMention = (content: string, mentionLabel: string) => {
-  const hasActiveMention = /(?:^|\s)@[A-Za-z]*$/.test(content)
+  const hasActiveMention = /(?:^|\s)@[^\s@]*$/.test(content)
   if (hasActiveMention) {
-    return `${content.replace(/(?:^|\s)@[A-Za-z]*$/, (segment) =>
+    return `${content.replace(/(?:^|\s)@[^\s@]*$/, (segment) =>
       segment.startsWith(' ') ? ` ${mentionLabel}` : mentionLabel,
     )} `
   }

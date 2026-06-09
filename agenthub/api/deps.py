@@ -3,9 +3,11 @@ from functools import lru_cache
 from agenthub.agents.registry import AgentRegistry, create_default_registry
 from agenthub.config import get_settings
 from agenthub.repositories.conversation_repo import ConversationRepository
+from agenthub.repositories.custom_agent_repo import CustomAgentRepository
 from agenthub.repositories.message_repo import MessageRepository
 from agenthub.repositories.sqlite import (
     SqliteConversationRepository,
+    SqliteCustomAgentRepository,
     SqliteMessageRepository,
     SqliteWorkspaceRepository,
 )
@@ -33,6 +35,14 @@ def get_message_repository() -> MessageRepository:
 
 
 @lru_cache
+def get_custom_agent_repository() -> CustomAgentRepository:
+    settings = get_settings()
+    if settings.persistence_backend == "sqlite":
+        return SqliteCustomAgentRepository(settings.database_url)
+    return CustomAgentRepository()
+
+
+@lru_cache
 def get_workspace_repository() -> WorkspaceRepository:
     settings = get_settings()
     if settings.persistence_backend == "sqlite":
@@ -50,7 +60,11 @@ def get_conversation_service() -> ConversationService:
 
 
 def get_agent_service() -> AgentService:
-    return AgentService(registry=get_agent_registry())
+    return AgentService(
+        registry=get_agent_registry(),
+        custom_agent_repository=get_custom_agent_repository(),
+        settings=get_settings(),
+    )
 
 
 def get_message_service() -> MessageService:
@@ -72,5 +86,6 @@ def get_workspace_service() -> WorkspaceService:
 def reset_dependency_caches() -> None:
     get_conversation_repository.cache_clear()
     get_message_repository.cache_clear()
+    get_custom_agent_repository.cache_clear()
     get_workspace_repository.cache_clear()
     get_agent_registry.cache_clear()

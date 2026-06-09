@@ -2,10 +2,12 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from agenthub.agents.custom_agent import CustomAgentAdapter
 from agenthub.agents.real_agent import (
     RealAgentConfigurationError,
     RealAgentSchemaError,
@@ -13,7 +15,8 @@ from agenthub.agents.real_agent import (
     RealAgentUnavailableError,
 )
 from agenthub.agents.registry import AgentRegistry
-from agenthub.core.errors import AgentExecutionError, NotFoundError
+from agenthub.config import Settings
+from agenthub.core.errors import AgentExecutionError, BadRequestError, NotFoundError
 from agenthub.orchestrator.harness import ExecutionReport, StepRun, VerificationResult
 from agenthub.orchestrator.planner import (
     AGENT_CODE,
@@ -26,8 +29,11 @@ from agenthub.orchestrator.planner import (
     create_plan,
 )
 from agenthub.orchestrator.router import route_agent
-from agenthub.schemas.agent import Agent, AgentRunInput, AgentRunResult
+from agenthub.repositories.custom_agent_repo import CustomAgentRepository
+from agenthub.schemas.agent import Agent, AgentAdapter, AgentRunInput, AgentRunResult
+from agenthub.schemas.custom_agent import CustomAgent, CustomAgentCreate, CustomAgentUpdate
 from agenthub.schemas.message import Message
+from agenthub.utils.ids import new_id
 
 AgentRole = Literal["orchestrator", "code", "review", "preview", "custom"]
 AgentStreamEvent = tuple[str, dict[str, Any]]
@@ -41,13 +47,27 @@ _DEV_RE = re.compile(
     re.I,
 )
 
+_RESERVED_AGENT_IDS = {
+    AGENT_ORCHESTRATOR,
+    AGENT_CODE,
+    AGENT_REVIEW,
+    AGENT_PREVIEW,
+}
+
 
 class AgentService:
-    def __init__(self, registry: AgentRegistry) -> None:
+    def __init__(
+        self,
+        registry: AgentRegistry,
+        custom_agent_repository: CustomAgentRepository | None = None,
+        settings: Settings | None = None,
+    ) -> None:
         self._registry = registry
+        self._custom_agent_repository = custom_agent_repository
+        self._settings = settings
 
-    def list_agents(self) -> list[Agent]:
-        return [
+    async def list_agents(self) -> list[Agent]:
+        built_in_agents = [
             Agent(
                 id=adapter.id,
                 name=adapter.name,
@@ -58,13 +78,80 @@ class AgentService:
             )
             for adapter in self._registry.list()
         ]
+        return [*built_in_agents, *await self._list_enabled_custom_agent_summaries()]
+
+    async def list_custom_agents(self) -> list[CustomAgent]:
+        if self._custom_agent_repository is None:
+            return []
+        return await self._custom_agent_repository.list()
+
+    async def create_custom_agent(self, request: CustomAgentCreate) -> CustomAgent:
+        if self._custom_agent_repository is None:
+            raise AgentExecutionError("Custom Agent repository is not configured.")
+        await self._ensure_custom_agent_name_is_allowed(request.name)
+        now = _utc_now()
+        agent = CustomAgent(
+            id=new_id("custom-agent"),
+            name=request.name.strip(),
+            description=request.description.strip(),
+            system_prompt=request.system_prompt.strip(),
+            capabilities=_normalize_capabilities(request.capabilities),
+            is_enabled=request.is_enabled,
+            created_at=now,
+            updated_at=now,
+        )
+        return await self._custom_agent_repository.save(agent)
+
+    async def update_custom_agent(
+        self,
+        agent_id: str,
+        request: CustomAgentUpdate,
+    ) -> CustomAgent:
+        if self._custom_agent_repository is None:
+            raise NotFoundError("custom_agent_not_found", "Custom Agent does not exist.")
+        agent = await self._custom_agent_repository.get(agent_id)
+        next_name = request.name.strip() if request.name is not None else agent.name
+        if next_name != agent.name:
+            await self._ensure_custom_agent_name_is_allowed(next_name, exclude_agent_id=agent.id)
+        updated = agent.model_copy(
+            update={
+                "name": next_name,
+                "description": request.description.strip()
+                if request.description is not None
+                else agent.description,
+                "system_prompt": request.system_prompt.strip()
+                if request.system_prompt is not None
+                else agent.system_prompt,
+                "capabilities": _normalize_capabilities(request.capabilities)
+                if request.capabilities is not None
+                else agent.capabilities,
+                "is_enabled": request.is_enabled
+                if request.is_enabled is not None
+                else agent.is_enabled,
+                "updated_at": _utc_now(),
+            }
+        )
+        return await self._custom_agent_repository.save(updated)
+
+    async def delete_custom_agent(self, agent_id: str) -> None:
+        if self._custom_agent_repository is None:
+            raise NotFoundError("custom_agent_not_found", "Custom Agent does not exist.")
+        await self._custom_agent_repository.delete(agent_id)
+
+    async def test_custom_agent(self, agent_id: str, message: str) -> AgentRunResult:
+        adapter = await self._custom_agent_adapter(agent_id)
+        return await adapter.run(
+            AgentRunInput(
+                conversation_id="custom_agent_test",
+                workspace_id="custom_agent_test",
+                user_message=message,
+                history=[],
+                context={"agent_id": agent_id},
+            )
+        )
 
     async def run(self, input_data: AgentRunInput) -> AgentRunResult:
-        agent_id = str(
-            input_data.context.get("agent_id")
-            or route_agent(input_data.user_message)
-            or AGENT_ORCHESTRATOR
-        )
+        agent_id = await self._resolve_agent_id(input_data)
         if agent_id == AGENT_ORCHESTRATOR:
             try:
                 decision = await self._decide_orchestrator(input_data)
@@ -72,7 +159,7 @@ class AgentService:
                 return self._build_agent_error_result(AGENT_ORCHESTRATOR, exc)
             return self._result_from_orchestrator_decision(decision)
         try:
-            agent = self._registry.get(agent_id)
+            agent = await self._get_agent_adapter(agent_id)
             return await agent.run(input_data)
         except NotFoundError:
             raise
@@ -84,7 +171,7 @@ class AgentService:
             raise AgentExecutionError(str(exc)) from exc
 
     async def run_for_message(self, input_data: AgentRunInput) -> list[AgentRunResult]:
-        agent_id = route_agent(input_data.user_message)
+        agent_id = await self._route_message_agent(input_data.user_message)
         if agent_id is None or agent_id == AGENT_ORCHESTRATOR:
             try:
                 decision = await self._decide_orchestrator(input_data)
@@ -117,7 +204,7 @@ class AgentService:
     async def stream_for_message(
         self, input_data: AgentRunInput
     ) -> AsyncIterator[AgentStreamEvent]:
-        agent_id = route_agent(input_data.user_message)
+        agent_id = await self._route_message_agent(input_data.user_message)
         if agent_id is None:
             async for event in self._stream_orchestrator_entry(input_data):
                 yield event
@@ -127,12 +214,13 @@ class AgentService:
                 yield event
             return
 
+        agent_name = await self._agent_display_name(agent_id)
         yield (
             "harness_step",
             {
                 "status": "started",
                 "agent_id": agent_id,
-                "message": f"{agent_id} 正在生成回复",
+                "message": f"{agent_name} 正在生成回复",
             },
         )
         try:
@@ -168,6 +256,108 @@ class AgentService:
             "preview-agent": "preview",
         }
         return roles.get(agent_id, "custom")
+
+    async def _resolve_agent_id(self, input_data: AgentRunInput) -> str:
+        explicit_agent_id = input_data.context.get("agent_id")
+        if isinstance(explicit_agent_id, str) and explicit_agent_id:
+            return explicit_agent_id
+        routed_agent_id = await self._route_message_agent(input_data.user_message)
+        return routed_agent_id or AGENT_ORCHESTRATOR
+
+    async def _route_message_agent(self, message: str) -> str | None:
+        built_in_agent_id = route_agent(message)
+        if built_in_agent_id is not None:
+            return built_in_agent_id
+        return await self._route_custom_agent(message)
+
+    async def _get_agent_adapter(self, agent_id: str) -> AgentAdapter:
+        try:
+            return self._registry.get(agent_id)
+        except NotFoundError as exc:
+            try:
+                return await self._custom_agent_adapter(agent_id)
+            except NotFoundError as custom_exc:
+                raise NotFoundError(
+                    "agent_not_found",
+                    f"Agent '{agent_id}' does not exist.",
+                ) from (custom_exc if agent_id.startswith("custom-agent") else exc)
+
+    async def _agent_display_name(self, agent_id: str) -> str:
+        try:
+            return (await self._get_agent_adapter(agent_id)).name
+        except NotFoundError:
+            return agent_id
+
+    async def _custom_agent_adapter(self, agent_id: str) -> CustomAgentAdapter:
+        if self._custom_agent_repository is None:
+            raise NotFoundError("custom_agent_not_found", "Custom Agent does not exist.")
+        agent = await self._custom_agent_repository.get(agent_id)
+        if not agent.is_enabled:
+            raise NotFoundError("agent_not_found", f"Agent '{agent_id}' does not exist.")
+        return CustomAgentAdapter(agent, settings=self._settings)
+
+    async def _list_enabled_custom_agent_summaries(self) -> list[Agent]:
+        if self._custom_agent_repository is None:
+            return []
+        adapter_type: Literal["mock", "custom"] = "custom"
+        if self._settings is not None and self._settings.use_mock_agents:
+            adapter_type = "mock"
+        return [
+            Agent(
+                id=agent.id,
+                name=agent.name,
+                role="custom",
+                description=agent.description,
+                capabilities=agent.capabilities,
+                adapter_type=adapter_type,
+            )
+            for agent in await self._custom_agent_repository.list_enabled()
+        ]
+
+    async def _route_custom_agent(self, message: str) -> str | None:
+        if self._custom_agent_repository is None:
+            return None
+        normalized_message = _normalize_mention_text(message)
+        for agent in await self._custom_agent_repository.list_enabled():
+            labels = {
+                _normalize_mention_text(f"@{agent.name}"),
+                _normalize_mention_text(f"@{agent.id}"),
+            }
+            if any(label and label in normalized_message for label in labels):
+                return agent.id
+        return None
+
+    async def _ensure_custom_agent_name_is_allowed(
+        self,
+        name: str,
+        exclude_agent_id: str | None = None,
+    ) -> None:
+        normalized_name = _normalize_mention_text(name)
+        if not normalized_name:
+            raise BadRequestError("invalid_custom_agent_name", "Custom Agent name is required.")
+        reserved_names = {
+            _normalize_mention_text("Orchestrator"),
+            _normalize_mention_text("CodeAgent"),
+            _normalize_mention_text("ReviewAgent"),
+            _normalize_mention_text("PreviewAgent"),
+            *(_normalize_mention_text(agent_id) for agent_id in _RESERVED_AGENT_IDS),
+        }
+        if normalized_name in reserved_names:
+            raise BadRequestError(
+                "reserved_custom_agent_name",
+                "Custom Agent name conflicts with a built-in Agent.",
+            )
+        if self._custom_agent_repository is None:
+            return
+        for agent in await self._custom_agent_repository.list():
+            if (
+                agent.id != exclude_agent_id
+                and _normalize_mention_text(agent.name) == normalized_name
+            ):
+                raise BadRequestError(
+                    "duplicate_custom_agent_name",
+                    "Custom Agent name already exists.",
+                )
 
     async def _decide_orchestrator(self, input_data: AgentRunInput) -> OrchestratorDecision:
         adapter = self._registry.get(AGENT_ORCHESTRATOR)
@@ -507,6 +697,23 @@ def _looks_like_development_request(message: str) -> bool:
     if not message or _CHAT_RE.match(message.strip()):
         return False
     return bool(_DEV_RE.search(message))
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _normalize_capabilities(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for value in values:
+        capability = value.strip()
+        if capability and capability not in normalized:
+            normalized.append(capability)
+    return normalized
+
+
+def _normalize_mention_text(value: str) -> str:
+    return re.sub(r"\s+", "", value).lower()
 
 
 def _ensure_required_harness_tasks(decision: OrchestratorDecision) -> OrchestratorDecision:

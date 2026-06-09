@@ -120,6 +120,19 @@
   user-select: none;
 }
 
+.agent-icon-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-icon-heading .ant-btn {
+  color: #235b54;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 /* 图标一行并排，平分寻读宽度 */
 .agent-icon-row {
   display: flex;
@@ -1728,6 +1741,123 @@
   background: #eef5f1;
   color: #235b54;
   font-weight: 700;
+}
+
+.custom-agent-manager {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 18px;
+  min-height: 560px;
+}
+
+.custom-agent-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid #e6e0d6;
+  padding-right: 14px;
+}
+
+.custom-agent-list-header,
+.custom-agent-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.custom-agent-list-header {
+  color: #4d534c;
+  font-size: 13px;
+}
+
+.custom-agent-list-item {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #e5dfd4;
+  border-radius: 8px;
+  background: #ffffff;
+  color: inherit;
+  padding: 10px;
+  text-align: left;
+}
+
+.custom-agent-list-item.is-active,
+.custom-agent-list-item:hover {
+  border-color: #b8cbc5;
+  background: #eef5f1;
+}
+
+.custom-agent-list-item span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.custom-agent-list-item strong,
+.custom-agent-list-item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-agent-list-item small {
+  color: #71766d;
+  font-size: 12px;
+}
+
+.custom-agent-form {
+  min-width: 0;
+}
+
+.custom-agent-prompt-input {
+  min-height: 150px;
+  resize: vertical;
+}
+
+.custom-agent-switch-row {
+  margin-top: 14px;
+  border: 1px solid #e5dfd4;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #4d534c;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.custom-agent-test-box {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  border: 1px solid #e5dfd4;
+  border-radius: 8px;
+  background: #fffdf8;
+  padding: 10px;
+}
+
+.custom-agent-test-result {
+  border-left: 3px solid #b8cbc5;
+  background: #f3f8f5;
+  color: #202322;
+  padding: 8px 10px;
+}
+
+.custom-agent-test-result p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+
+.custom-agent-empty {
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
 }
 
 .form-error {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, ConfigProvider, theme } from 'antd'
 import { apiClient } from './api/client'
 import { AgentList } from './components/agents/AgentList'
+import { CustomAgentManagerModal } from './components/agents/CustomAgentManagerModal'
 import { ChatPanel } from './components/chat/ChatPanel'
 import { ConversationMembersModal } from './components/conversations/ConversationMembersModal'
 import { ConversationList } from './components/conversations/ConversationList'
@@ -136,6 +137,8 @@ function App() {
   const [newConversationOpen, setNewConversationOpen] = useState(false)
   // 控制当前会话成员管理弹窗是否打开。
   const [memberManagerOpen, setMemberManagerOpen] = useState(false)
+  // 控制自建 Agent 管理弹窗是否打开。
+  const [customAgentManagerOpen, setCustomAgentManagerOpen] = useState(false)
   // Agent 运行状态按会话隔离；切换会话时只展示当前会话的生成状态。
   const [agentRunningByConversationId, setAgentRunningByConversationId] =
     useState<Record<string, boolean>>({})
@@ -296,6 +299,23 @@ function App() {
     }))
   }
 
+  const getAgentDisplayName = (agentId: string) =>
+    agents.find((agent) => agent.id === agentId)?.name ?? agentId
+
+  const getGenerationNoticeText = (
+    status: string,
+    message?: string,
+    agentId?: string,
+  ) => {
+    if (!message) {
+      return status
+    }
+    if (!agentId) {
+      return message
+    }
+    return message.split(agentId).join(getAgentDisplayName(agentId))
+  }
+
   const bumpWorkspaceRefreshToken = () => {
     setWorkspaceRefreshToken((currentToken) => currentToken + 1)
   }
@@ -332,6 +352,15 @@ function App() {
     }
     return null
   }, [agentRuntime, agents])
+
+  const refreshAgents = async () => {
+    const [nextAgents, nextRuntime] = await Promise.all([
+      apiClient.listAgents(),
+      apiClient.getAgentRuntime(),
+    ])
+    setAgents(nextAgents)
+    setAgentRuntime(nextRuntime)
+  }
 
   useEffect(() => {
     // 没有选中会话时清空中间消息区和右侧预览，避免展示上一个会话的数据。
@@ -836,7 +865,11 @@ function App() {
           if (event.data.status === 'started') {
             setConversationGenerationNotice(
               conversationId,
-              event.data.message ?? event.data.status,
+              getGenerationNoticeText(
+                event.data.status,
+                event.data.message,
+                event.data.agent_id,
+              ),
             )
           }
           if (['succeeded', 'failed'].includes(event.data.status)) {
@@ -848,7 +881,7 @@ function App() {
         if (event.event === 'agent_started') {
           setConversationGenerationNotice(
             conversationId,
-            `${event.data.agent_id} 正在生成回复`,
+            `${getAgentDisplayName(event.data.agent_id)} 正在生成回复`,
           )
           ensureDraft(event.data.agent_id)
           return
@@ -1078,7 +1111,10 @@ function App() {
               onTogglePinConversation={handleTogglePinConversation}
             />
             {/* 左侧下半区：可用 Agent 联系人和能力标签。 */}
-            <AgentList agents={agents} />
+            <AgentList
+              agents={agents}
+              onOpenAgentManager={() => setCustomAgentManagerOpen(true)}
+            />
           </>
         }
         main={
@@ -1165,6 +1201,11 @@ function App() {
         open={memberManagerOpen}
         onClose={() => setMemberManagerOpen(false)}
         onUpdateMembers={handleUpdateConversationMembers}
+      />
+      <CustomAgentManagerModal
+        open={customAgentManagerOpen}
+        onAgentsChanged={refreshAgents}
+        onClose={() => setCustomAgentManagerOpen(false)}
       />
     </ConfigProvider>
   )
