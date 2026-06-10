@@ -42,6 +42,7 @@ class _SqliteRepositoryMixin:
         SQLModel.metadata.create_all(self._engine)
         _ensure_conversation_columns(self._engine)
         _ensure_message_columns(self._engine)
+        _ensure_custom_agent_columns(self._engine)
         _ensure_workspace_preview_columns(self._engine)
         _ensure_applied_diff_columns(self._engine)
 
@@ -80,6 +81,22 @@ def _ensure_message_columns(engine: Engine) -> None:
             )
         if "deleted_at" not in column_names:
             connection.execute(text("ALTER TABLE messagerecord ADD COLUMN deleted_at DATETIME"))
+
+
+def _ensure_custom_agent_columns(engine: Engine) -> None:
+    if not engine.url.get_backend_name().startswith("sqlite"):
+        return
+
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(customagentrecord)")).mappings()
+        column_names = {str(column["name"]) for column in columns}
+        if column_names and "backend_id" not in column_names:
+            connection.execute(
+                text(
+                    "ALTER TABLE customagentrecord "
+                    "ADD COLUMN backend_id VARCHAR DEFAULT 'openai-compatible'"
+                )
+            )
 
 
 def _ensure_workspace_preview_columns(engine: Engine) -> None:
@@ -395,6 +412,7 @@ def _custom_agent_to_record(agent: CustomAgent) -> CustomAgentRecord:
         name=agent.name,
         description=agent.description,
         system_prompt=agent.system_prompt,
+        backend_id=agent.backend_id,
         capabilities_json=json.dumps(agent.capabilities, ensure_ascii=False),
         is_enabled=agent.is_enabled,
         created_at=agent.created_at,
@@ -409,6 +427,7 @@ def _custom_agent_from_record(record: CustomAgentRecord) -> CustomAgent:
         name=record.name,
         description=record.description,
         system_prompt=record.system_prompt,
+        backend_id=record.backend_id or "openai-compatible",
         capabilities=[str(capability) for capability in capabilities_payload]
         if isinstance(capabilities_payload, list)
         else [],

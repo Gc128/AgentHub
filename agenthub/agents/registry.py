@@ -1,11 +1,21 @@
 import json
 import re
 
+from agenthub.agents.backends import (
+    CLAUDE_CODE_CLI_BACKEND_ID,
+    CODEX_CLI_BACKEND_ID,
+    OPENAI_COMPATIBLE_BACKEND_ID,
+)
 from agenthub.agents.base import AgentAdapter
 from agenthub.agents.code_agent import CODE_AGENT_SYSTEM_PROMPT, CodeAgent
+from agenthub.agents.external_cli_agent import ExternalCliAgentAdapter
 from agenthub.agents.mock_agent import MockAgent
 from agenthub.agents.preview_agent import PREVIEW_AGENT_SYSTEM_PROMPT, PreviewAgent
-from agenthub.agents.real_agent import RealAgent, RealAgentSchemaError
+from agenthub.agents.real_agent import (
+    RealAgent,
+    RealAgentConfigurationError,
+    RealAgentSchemaError,
+)
 from agenthub.agents.review_agent import REVIEW_AGENT_SYSTEM_PROMPT, ReviewAgent
 from agenthub.config import Settings
 from agenthub.core.errors import NotFoundError
@@ -19,6 +29,9 @@ from agenthub.orchestrator.planner import (
     create_plan,
 )
 from agenthub.schemas.agent import AgentRunInput, AgentRunResult
+
+AGENT_CODEX = "codex-agent"
+AGENT_CLAUDE_CODE = "claude-code-agent"
 
 
 class AgentRegistry:
@@ -121,6 +134,8 @@ def create_default_registry(settings: Settings | None = None) -> AgentRegistry:
                 MockAgent(agent_id="code-agent"),
                 MockAgent(agent_id="review-agent"),
                 MockAgent(agent_id="preview-agent"),
+                MockAgent(agent_id=AGENT_CODEX),
+                MockAgent(agent_id=AGENT_CLAUDE_CODE),
             ]
         )
 
@@ -128,7 +143,7 @@ def create_default_registry(settings: Settings | None = None) -> AgentRegistry:
         adapters=[
             OrchestratorAdapter(_real_agent("orchestrator", ORCHESTRATOR_SYSTEM_PROMPT, settings)),
             CodeAgent(
-                _real_agent("code-agent", CODE_AGENT_SYSTEM_PROMPT, settings),
+                _code_agent_backend(settings),
                 workspace_root=settings.workspace_root,
                 allow_fallbacks=settings.agent_allow_fallbacks,
             ),
@@ -139,6 +154,20 @@ def create_default_registry(settings: Settings | None = None) -> AgentRegistry:
             PreviewAgent(
                 _real_agent("preview-agent", PREVIEW_AGENT_SYSTEM_PROMPT, settings),
                 allow_fallbacks=settings.agent_allow_fallbacks,
+            ),
+            ExternalCliAgentAdapter(
+                agent_id=AGENT_CODEX,
+                name="Codex",
+                backend_id=CODEX_CLI_BACKEND_ID,
+                settings=settings,
+                system_prompt=CODEX_CLI_AGENT_SYSTEM_PROMPT,
+            ),
+            ExternalCliAgentAdapter(
+                agent_id=AGENT_CLAUDE_CODE,
+                name="Claude Code",
+                backend_id=CLAUDE_CODE_CLI_BACKEND_ID,
+                settings=settings,
+                system_prompt=CLAUDE_CODE_AGENT_SYSTEM_PROMPT,
             ),
         ]
     )
@@ -292,6 +321,22 @@ Rules:
 """.strip()
 
 
+CODEX_CLI_AGENT_SYSTEM_PROMPT = """
+You are AgentHub Codex CLI Agent.
+Use the local Codex CLI backend to help with coding, file edits, debugging, and concise technical
+answers. If editing code, modify files only in the provided temporary workspace copy. Keep replies
+short and mention important changed files.
+""".strip()
+
+
+CLAUDE_CODE_AGENT_SYSTEM_PROMPT = """
+You are AgentHub Claude Code Agent.
+Use the local Claude Code backend to help with coding, file edits, debugging, and concise technical
+answers. If editing code, modify files only in the provided temporary workspace copy. Keep replies
+short and mention important changed files.
+""".strip()
+
+
 def _real_agent(agent_id: str, system_prompt: str, settings: Settings) -> RealAgent:
     return RealAgent(
         agent_id=agent_id,
@@ -305,3 +350,18 @@ def _real_agent(agent_id: str, system_prompt: str, settings: Settings) -> RealAg
         max_tokens=settings.agent_max_tokens,
         system_prompt=system_prompt,
     )
+
+
+def _code_agent_backend(settings: Settings) -> AgentAdapter:
+    backend_id = settings.code_agent_backend_id
+    if backend_id in {CODEX_CLI_BACKEND_ID, CLAUDE_CODE_CLI_BACKEND_ID}:
+        return ExternalCliAgentAdapter(
+            agent_id="code-agent",
+            name="Code Agent",
+            backend_id=backend_id,
+            settings=settings,
+            system_prompt=CODE_AGENT_SYSTEM_PROMPT,
+        )
+    if backend_id != OPENAI_COMPATIBLE_BACKEND_ID:
+        raise RealAgentConfigurationError(f"Unsupported CODE_AGENT_BACKEND_ID: {backend_id}")
+    return _real_agent("code-agent", CODE_AGENT_SYSTEM_PROMPT, settings)

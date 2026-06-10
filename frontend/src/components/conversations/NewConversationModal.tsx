@@ -68,6 +68,16 @@ export function NewConversationModal({
     })
   }
 
+  const selectAllAgents = () => {
+    setSelectedAgentIds(agents.map((agent) => agent.id))
+    setFormError(null)
+  }
+
+  const clearSelectedAgents = () => {
+    setSelectedAgentIds([])
+    setFormError(null)
+  }
+
   /** 提交新建会话，输入结构严格使用 CreateConversationInput。 */
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -126,7 +136,17 @@ export function NewConversationModal({
         </label>
 
         <div className="field-label">
-          选择 Agent
+          <span className="field-label-row">
+            选择 Agent
+            <span className="field-label-actions">
+              <Button size="small" type="text" onClick={selectAllAgents}>
+                全选
+              </Button>
+              <Button size="small" type="text" onClick={clearSelectedAgents}>
+                取消全选
+              </Button>
+            </span>
+          </span>
           <div className="agent-checkbox-list">
             {agents.map((agent) => (
               <label className="agent-checkbox" key={agent.id}>

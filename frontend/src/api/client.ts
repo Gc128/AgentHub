@@ -1,5 +1,6 @@
 import type {
   Agent,
+  AgentBackend,
   AgentRuntimeInfo,
   AgentRunInput,
   AgentRunResult,
@@ -363,6 +364,10 @@ export const apiClient = {
 
   listCustomAgents(): Promise<CustomAgent[]> {
     return requestJson<CustomAgent[]>('/api/agents/custom')
+  },
+
+  listAgentBackends(): Promise<AgentBackend[]> {
+    return requestJson<AgentBackend[]>('/api/agents/backends')
   },
 
   createCustomAgent(input: CustomAgentCreateInput): Promise<CustomAgent> {

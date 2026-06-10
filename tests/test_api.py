@@ -224,6 +224,66 @@ def test_agent_runtime_reports_mock_mode_without_secret() -> None:
     assert "secret" not in str(payload).lower()
 
 
+def test_agent_backends_are_listed_without_secret() -> None:
+    response = client().get("/api/agents/backends")
+
+    assert response.status_code == 200
+    payload = response.json()
+    backend_ids = {backend["id"] for backend in payload}
+    assert {"openai-compatible", "codex-cli", "claude-code-cli"}.issubset(backend_ids)
+    assert "api_key" not in str(payload).lower()
+    assert "secret" not in str(payload).lower()
+
+
+def test_builtin_cli_agents_are_visible_and_do_not_change_orchestrator_plan() -> None:
+    test_client = client()
+
+    agents = test_client.get("/api/agents").json()
+    by_id = {agent["id"]: agent for agent in agents}
+    assert by_id["codex-agent"]["adapter_type"] == "mock"
+    assert by_id["claude-code-agent"]["adapter_type"] == "mock"
+
+    result = test_client.post(
+        "/api/agents/run",
+        json={
+            "conversation_id": "conv_001",
+            "workspace_id": "ws_001",
+            "user_message": "@Orchestrator 帮我做一个 Todo List 网页",
+            "history": [],
+            "context": {"agent_id": "orchestrator"},
+        },
+    ).json()
+    assert result["next_actions"] == ["code-agent", "review-agent", "preview-agent"]
+
+
+def test_builtin_cli_agent_mentions_route_directly() -> None:
+    test_client = client()
+
+    codex_result = test_client.post(
+        "/api/agents/run",
+        json={
+            "conversation_id": "conv_001",
+            "workspace_id": "ws_001",
+            "user_message": "@CodexAgent 你好",
+            "history": [],
+            "context": {},
+        },
+    ).json()
+    claude_result = test_client.post(
+        "/api/agents/run",
+        json={
+            "conversation_id": "conv_001",
+            "workspace_id": "ws_001",
+            "user_message": "@ClaudeCodeAgent 你好",
+            "history": [],
+            "context": {},
+        },
+    ).json()
+
+    assert codex_result["agent_id"] == "codex-agent"
+    assert claude_result["agent_id"] == "claude-code-agent"
+
+
 def test_custom_agent_crud_test_and_direct_run() -> None:
     test_client = client()
 
@@ -233,6 +293,7 @@ def test_custom_agent_crud_test_and_direct_run() -> None:
             "name": "需求澄清 Agent",
             "description": "帮助用户澄清需求",
             "system_prompt": "你专门负责提出需求澄清问题。",
+            "backend_id": "openai-compatible",
             "capabilities": ["clarify", "product"],
             "is_enabled": True,
         },
@@ -242,6 +303,7 @@ def test_custom_agent_crud_test_and_direct_run() -> None:
     custom_agent = create_response.json()
     assert custom_agent["id"].startswith("custom-agent")
     assert custom_agent["system_prompt"] == "你专门负责提出需求澄清问题。"
+    assert custom_agent["backend_id"] == "openai-compatible"
 
     custom_list = test_client.get("/api/agents/custom").json()
     assert [agent["id"] for agent in custom_list] == [custom_agent["id"]]

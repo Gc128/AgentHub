@@ -2594,7 +2594,14 @@ def test_unknown_agent_raises_not_found() -> None:
 async def test_agent_service_lists_agents() -> None:
     service = AgentService(registry=create_default_registry())
     agent_ids = {agent.id for agent in await service.list_agents()}
-    assert {"orchestrator", "code-agent", "review-agent", "preview-agent"}.issubset(agent_ids)
+    assert {
+        "orchestrator",
+        "code-agent",
+        "review-agent",
+        "preview-agent",
+        "codex-agent",
+        "claude-code-agent",
+    }.issubset(agent_ids)
 
 
 def json_from_request(request: httpx.Request) -> dict[str, object]:

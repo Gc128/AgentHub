@@ -3,6 +3,10 @@ AGENT_MENTIONS = {
     "@CodeAgent": "code-agent",
     "@ReviewAgent": "review-agent",
     "@PreviewAgent": "preview-agent",
+    "@CodexAgent": "codex-agent",
+    "@Codex": "codex-agent",
+    "@ClaudeCodeAgent": "claude-code-agent",
+    "@ClaudeCode": "claude-code-agent",
 }
 
 

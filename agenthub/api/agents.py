@@ -6,7 +6,13 @@ from fastapi.responses import StreamingResponse
 
 from agenthub.api.deps import get_agent_service
 from agenthub.config import get_settings
-from agenthub.schemas.agent import Agent, AgentRunInput, AgentRunResult, AgentRuntimeInfo
+from agenthub.schemas.agent import (
+    Agent,
+    AgentBackend,
+    AgentRunInput,
+    AgentRunResult,
+    AgentRuntimeInfo,
+)
 from agenthub.schemas.custom_agent import (
     CustomAgent,
     CustomAgentCreate,
@@ -31,6 +37,13 @@ async def list_custom_agents(
     service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> list[CustomAgent]:
     return await service.list_custom_agents()
+
+
+@router.get("/agents/backends", response_model=list[AgentBackend])
+async def list_agent_backends(
+    service: Annotated[AgentService, Depends(get_agent_service)],
+) -> list[AgentBackend]:
+    return await service.list_agent_backends()
 
 
 @router.post("/agents/custom", response_model=CustomAgent, status_code=201)

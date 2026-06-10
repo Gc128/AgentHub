@@ -7,6 +7,13 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from agenthub.agents.backends import (
+    CLAUDE_CODE_CLI_BACKEND_ID,
+    CODEX_CLI_BACKEND_ID,
+    OPENAI_COMPATIBLE_BACKEND_ID,
+    backend_exists,
+    list_agent_backends,
+)
 from agenthub.agents.custom_agent import CustomAgentAdapter
 from agenthub.agents.real_agent import (
     RealAgentConfigurationError,
@@ -14,7 +21,7 @@ from agenthub.agents.real_agent import (
     RealAgentTransportError,
     RealAgentUnavailableError,
 )
-from agenthub.agents.registry import AgentRegistry
+from agenthub.agents.registry import AGENT_CLAUDE_CODE, AGENT_CODEX, AgentRegistry
 from agenthub.config import Settings
 from agenthub.core.errors import AgentExecutionError, BadRequestError, NotFoundError
 from agenthub.orchestrator.harness import ExecutionReport, StepRun, VerificationResult
@@ -30,7 +37,7 @@ from agenthub.orchestrator.planner import (
 )
 from agenthub.orchestrator.router import route_agent
 from agenthub.repositories.custom_agent_repo import CustomAgentRepository
-from agenthub.schemas.agent import Agent, AgentAdapter, AgentRunInput, AgentRunResult
+from agenthub.schemas.agent import Agent, AgentAdapter, AgentBackend, AgentRunInput, AgentRunResult
 from agenthub.schemas.custom_agent import CustomAgent, CustomAgentCreate, CustomAgentUpdate
 from agenthub.schemas.message import Message
 from agenthub.utils.ids import new_id
@@ -74,7 +81,7 @@ class AgentService:
                 role=self._infer_role(adapter.id),
                 description=f"{adapter.name} adapter",
                 capabilities=adapter.capabilities,
-                adapter_type="mock" if adapter.__class__.__name__ == "MockAgent" else "custom",
+                adapter_type=self._adapter_type_for_builtin_agent(adapter),
             )
             for adapter in self._registry.list()
         ]
@@ -85,16 +92,23 @@ class AgentService:
             return []
         return await self._custom_agent_repository.list()
 
+    async def list_agent_backends(self) -> list[AgentBackend]:
+        if self._settings is None:
+            return []
+        return list_agent_backends(self._settings)
+
     async def create_custom_agent(self, request: CustomAgentCreate) -> CustomAgent:
         if self._custom_agent_repository is None:
             raise AgentExecutionError("Custom Agent repository is not configured.")
         await self._ensure_custom_agent_name_is_allowed(request.name)
+        backend_id = self._normalize_backend_id(request.backend_id)
         now = _utc_now()
         agent = CustomAgent(
             id=new_id("custom-agent"),
             name=request.name.strip(),
             description=request.description.strip(),
             system_prompt=request.system_prompt.strip(),
+            backend_id=backend_id,
             capabilities=_normalize_capabilities(request.capabilities),
             is_enabled=request.is_enabled,
             created_at=now,
@@ -122,6 +136,9 @@ class AgentService:
                 "system_prompt": request.system_prompt.strip()
                 if request.system_prompt is not None
                 else agent.system_prompt,
+                "backend_id": self._normalize_backend_id(request.backend_id)
+                if request.backend_id is not None
+                else agent.backend_id,
                 "capabilities": _normalize_capabilities(request.capabilities)
                 if request.capabilities is not None
                 else agent.capabilities,
@@ -257,6 +274,23 @@ class AgentService:
         }
         return roles.get(agent_id, "custom")
 
+    def _adapter_type_for_builtin_agent(
+        self,
+        adapter: AgentAdapter,
+    ) -> Literal["mock", "codex", "claude", "custom"]:
+        if adapter.__class__.__name__ == "MockAgent":
+            return "mock"
+        if adapter.id == AGENT_CODEX:
+            return "codex"
+        if adapter.id == AGENT_CLAUDE_CODE:
+            return "claude"
+        if adapter.id == AGENT_CODE and self._settings is not None:
+            if self._settings.code_agent_backend_id == CODEX_CLI_BACKEND_ID:
+                return "codex"
+            if self._settings.code_agent_backend_id == CLAUDE_CODE_CLI_BACKEND_ID:
+                return "claude"
+        return "custom"
+
     async def _resolve_agent_id(self, input_data: AgentRunInput) -> str:
         explicit_agent_id = input_data.context.get("agent_id")
         if isinstance(explicit_agent_id, str) and explicit_agent_id:
@@ -299,9 +333,6 @@ class AgentService:
     async def _list_enabled_custom_agent_summaries(self) -> list[Agent]:
         if self._custom_agent_repository is None:
             return []
-        adapter_type: Literal["mock", "custom"] = "custom"
-        if self._settings is not None and self._settings.use_mock_agents:
-            adapter_type = "mock"
         return [
             Agent(
                 id=agent.id,
@@ -309,7 +340,7 @@ class AgentService:
                 role="custom",
                 description=agent.description,
                 capabilities=agent.capabilities,
-                adapter_type=adapter_type,
+                adapter_type=self._adapter_type_for_custom_agent(agent),
             )
             for agent in await self._custom_agent_repository.list_enabled()
         ]
@@ -358,6 +389,27 @@ class AgentService:
                     "duplicate_custom_agent_name",
                     "Custom Agent name already exists.",
                 )
+
+    def _normalize_backend_id(self, backend_id: str) -> str:
+        normalized = backend_id.strip() or OPENAI_COMPATIBLE_BACKEND_ID
+        if not backend_exists(normalized):
+            raise BadRequestError(
+                "unsupported_agent_backend",
+                f"Agent backend '{backend_id}' is not supported.",
+            )
+        return normalized
+
+    def _adapter_type_for_custom_agent(
+        self,
+        agent: CustomAgent,
+    ) -> Literal["mock", "codex", "claude", "custom"]:
+        if self._settings is not None and self._settings.use_mock_agents:
+            return "mock"
+        if agent.backend_id == CODEX_CLI_BACKEND_ID:
+            return "codex"
+        if agent.backend_id == CLAUDE_CODE_CLI_BACKEND_ID:
+            return "claude"
+        return "custom"
 
     async def _decide_orchestrator(self, input_data: AgentRunInput) -> OrchestratorDecision:
         adapter = self._registry.get(AGENT_ORCHESTRATOR)

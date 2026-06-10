@@ -46,6 +46,19 @@ export type AgentRuntimeInfo = {
   api_key_configured: boolean
 }
 
+export type AgentBackend = {
+  id: string
+  name: string
+  type: 'mock' | 'openai-compatible' | 'codex-cli' | 'claude-code-cli'
+  description: string
+  configured: boolean
+  available: boolean
+  command?: string | null
+  model?: string | null
+  capabilities: string[]
+  unavailable_reason?: string | null
+}
+
 /**
  * 结构化产物类型，对齐后端 ArtifactType。
  * code/diff/preview 是 Demo 主链路优先展示的三类产物。
@@ -185,6 +198,7 @@ export type CustomAgent = {
   name: string
   description: string
   system_prompt: string
+  backend_id: string
   capabilities: string[]
   is_enabled: boolean
   created_at: string
@@ -196,6 +210,7 @@ export type CustomAgentCreateInput = {
   name: string
   description: string
   system_prompt: string
+  backend_id: string
   capabilities: string[]
   is_enabled: boolean
 }

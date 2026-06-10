@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Alert, Button, Checkbox, Modal, Tag } from 'antd'
+import { Alert, Button, Checkbox, Modal } from 'antd'
 import type { Agent, Conversation } from '../../types/api'
 
 type ConversationMembersModalProps = {
@@ -17,10 +17,6 @@ type ConversationMembersModalProps = {
     nextAgentIds: string[],
   ) => Promise<void>
 }
-
-/** 根据 Agent ID 在全局 Agent 列表中取展示名称，找不到时回退 ID。 */
-const getAgentName = (agentId: string, agents: Agent[]) =>
-  agents.find((agent) => agent.id === agentId)?.name ?? agentId
 
 /**
  * 当前会话成员管理弹窗。
@@ -68,6 +64,16 @@ export function ConversationMembersModal({
     })
   }
 
+  const selectAllAgents = () => {
+    setSelectedAgentIds(agents.map((agent) => agent.id))
+    setFormError(null)
+  }
+
+  const clearSelectedAgents = () => {
+    setSelectedAgentIds([])
+    setFormError(null)
+  }
+
   /** 提交成员变更；请求体只传 agent_ids，mode 由父组件按数量推导。 */
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -105,16 +111,18 @@ export function ConversationMembersModal({
           当前会话只能 @ 已加入的 Agent；历史消息会保留，不受成员变化影响。
         </p>
 
-        <div className="member-summary-row">
-          {selectedAgentIds.map((agentId) => (
-            <Tag className="member-summary-tag" key={agentId}>
-              {getAgentName(agentId, agents)}
-            </Tag>
-          ))}
-        </div>
-
         <div className="field-label">
-          会话 Agent
+          <span className="field-label-row">
+            会话 Agent
+            <span className="field-label-actions">
+              <Button size="small" type="text" onClick={selectAllAgents}>
+                全选
+              </Button>
+              <Button size="small" type="text" onClick={clearSelectedAgents}>
+                取消全选
+              </Button>
+            </span>
+          </span>
           <div className="agent-checkbox-list">
             {agents.map((agent) => {
               const checked = selectedAgentIds.includes(agent.id)

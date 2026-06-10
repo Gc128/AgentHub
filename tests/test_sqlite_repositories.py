@@ -111,6 +111,7 @@ async def test_sqlite_custom_agent_repository_persists_agents(tmp_path: Path) ->
         name="需求澄清 Agent",
         description="clarify",
         system_prompt="提出三个澄清问题。",
+        backend_id="codex-cli",
         capabilities=["clarify", "product"],
         is_enabled=True,
         created_at=now,

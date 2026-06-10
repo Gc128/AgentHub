@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     agent_thinking: Literal["auto", "enabled", "disabled"] = "auto"
     agent_max_tokens: int | None = None
     agent_allow_fallbacks: bool = False
+    agent_cli_timeout_seconds: float = 180.0
+    agent_cli_max_output_chars: int = 60000
+    codex_cli_path: str = "codex"
+    claude_code_cli_path: str = "claude"
+    code_agent_backend_id: str = "openai-compatible"
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
 

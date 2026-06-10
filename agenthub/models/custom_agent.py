@@ -8,6 +8,7 @@ class CustomAgentRecord(SQLModel, table=True):
     name: str = Field(index=True)
     description: str = ""
     system_prompt: str
+    backend_id: str = Field(default="openai-compatible", index=True)
     capabilities_json: str = "[]"
     is_enabled: bool = Field(default=True, index=True)
     created_at: datetime

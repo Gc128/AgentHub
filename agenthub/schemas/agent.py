@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 from agenthub.schemas.artifact import Artifact
 from agenthub.schemas.message import Message
 
+AgentBackendType = Literal["mock", "openai-compatible", "codex-cli", "claude-code-cli"]
+
 
 class Agent(BaseModel):
     id: str
@@ -22,6 +24,19 @@ class AgentRuntimeInfo(BaseModel):
     model: str
     base_url_host: str
     api_key_configured: bool
+
+
+class AgentBackend(BaseModel):
+    id: str
+    name: str
+    type: AgentBackendType
+    description: str
+    configured: bool
+    available: bool
+    command: str | None = None
+    model: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    unavailable_reason: str | None = None
 
 
 class AgentRunInput(BaseModel):

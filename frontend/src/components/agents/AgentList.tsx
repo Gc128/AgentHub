@@ -76,7 +76,7 @@ function AgentTooltipCard({ agent }: { agent: Agent }) {
 
 /**
  * 左侧 Agent 图标区。
- * 四个图标并排，hover 时在图标上方弹出卡片式说明。
+ * Agent 图标并排，hover 时在图标上方弹出卡片式说明。
  */
 export function AgentList({ agents, onOpenAgentManager }: AgentListProps) {
   return (
@@ -88,7 +88,7 @@ export function AgentList({ agents, onOpenAgentManager }: AgentListProps) {
         </Button>
       </div>
       <div className="agent-icon-row">
-        {agents.slice(0, 4).map((agent) => {
+        {agents.map((agent) => {
           const cfg = ROLE_CONFIG[agent.role] ?? ROLE_CONFIG.custom
           return (
             <Tooltip

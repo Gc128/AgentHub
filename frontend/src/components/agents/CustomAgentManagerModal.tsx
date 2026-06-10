@@ -6,12 +6,13 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Select,
   Switch,
   Tag,
 } from 'antd'
 import { apiClient } from '../../api/client'
 import { MarkdownMessage } from '../chat/MarkdownMessage'
-import type { AgentRunResult, CustomAgent } from '../../types/api'
+import type { AgentBackend, AgentRunResult, CustomAgent } from '../../types/api'
 
 type CustomAgentManagerModalProps = {
   open: boolean
@@ -23,6 +24,7 @@ type CustomAgentFormState = {
   name: string
   description: string
   systemPrompt: string
+  backendId: string
   capabilitiesText: string
   isEnabled: boolean
 }
@@ -31,6 +33,7 @@ const defaultFormState = (): CustomAgentFormState => ({
   name: '',
   description: '',
   systemPrompt: '你是一个 AgentHub 自建 Agent。请根据用户消息给出清晰、可执行的回复。',
+  backendId: 'openai-compatible',
   capabilitiesText: 'custom',
   isEnabled: true,
 })
@@ -39,6 +42,7 @@ const formStateFromAgent = (agent: CustomAgent): CustomAgentFormState => ({
   name: agent.name,
   description: agent.description,
   systemPrompt: agent.system_prompt,
+  backendId: agent.backend_id || 'openai-compatible',
   capabilitiesText: agent.capabilities.join(', '),
   isEnabled: agent.is_enabled,
 })
@@ -67,6 +71,7 @@ export function CustomAgentManagerModal({
   onAgentsChanged,
 }: CustomAgentManagerModalProps) {
   const [customAgents, setCustomAgents] = useState<CustomAgent[]>([])
+  const [agentBackends, setAgentBackends] = useState<AgentBackend[]>([])
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
   const [formState, setFormState] = useState<CustomAgentFormState>(() =>
     defaultFormState(),
@@ -95,9 +100,19 @@ export function CustomAgentManagerModal({
     }
   }
 
+  const loadAgentBackends = async () => {
+    try {
+      const nextBackends = await apiClient.listAgentBackends()
+      setAgentBackends(nextBackends)
+    } catch {
+      setAgentBackends([])
+    }
+  }
+
   useEffect(() => {
     if (open) {
       void loadCustomAgents()
+      void loadAgentBackends()
       setEditingAgentId(null)
       setFormState(defaultFormState())
       setTestResult(null)
@@ -146,6 +161,7 @@ export function CustomAgentManagerModal({
         name,
         description: formState.description.trim(),
         system_prompt: systemPrompt,
+        backend_id: formState.backendId,
         capabilities: parseCapabilities(formState.capabilitiesText),
         is_enabled: formState.isEnabled,
       }
@@ -256,7 +272,7 @@ export function CustomAgentManagerModal({
 
         <form className="modal-form custom-agent-form" onSubmit={handleSubmit}>
           <p className="modal-subtitle">
-            自建 Agent 会复用当前后端 LLM 配置；系统提示词决定它在对话中的角色和输出风格。
+            自建 Agent 默认复用当前后端 LLM，也可以选择本机 Codex 或 Claude Code CLI。
           </p>
 
           <label className="field-label">
@@ -302,6 +318,23 @@ export function CustomAgentManagerModal({
               placeholder="定义这个 Agent 的身份、边界、输出格式和工作方式"
               rows={6}
               value={formState.systemPrompt}
+            />
+          </label>
+
+          <label className="field-label">
+            执行后端
+            <Select
+              className="text-input"
+              onChange={(value) =>
+                setFormState((current) => ({ ...current, backendId: value }))
+              }
+              options={agentBackends.map((backend) => ({
+                value: backend.id,
+                label: `${backend.name}${backend.available ? '' : '（不可用）'}`,
+                disabled: !backend.available && backend.id !== formState.backendId,
+              }))}
+              placeholder="选择 Agent 执行后端"
+              value={formState.backendId}
             />
           </label>
 

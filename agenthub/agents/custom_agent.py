@@ -1,7 +1,10 @@
 import re
 
+from agenthub.agents.backends import OPENAI_COMPATIBLE_BACKEND_ID
+from agenthub.agents.external_cli_agent import ExternalCliAgentAdapter
 from agenthub.agents.real_agent import RealAgent
 from agenthub.config import Settings
+from agenthub.core.errors import AgentExecutionError
 from agenthub.schemas.agent import AgentRunInput, AgentRunResult
 from agenthub.schemas.custom_agent import CustomAgent
 
@@ -33,6 +36,23 @@ class CustomAgentAdapter:
                 artifacts=[],
                 next_actions=[],
             )
+
+        if self._agent.backend_id != OPENAI_COMPATIBLE_BACKEND_ID:
+            result = await ExternalCliAgentAdapter(
+                agent_id=self.id,
+                name=self.name,
+                backend_id=self._agent.backend_id,
+                settings=self._settings,
+                system_prompt=self._agent.system_prompt,
+            ).run(display_input)
+            return result.model_copy(
+                update={
+                    "content": _clean_custom_agent_output(result.content, self.id),
+                }
+            )
+
+        if self._settings.openai_api_key is None:
+            raise AgentExecutionError("OpenAI-compatible backend is not configured.")
 
         llm = RealAgent(
             agent_id=self.id,

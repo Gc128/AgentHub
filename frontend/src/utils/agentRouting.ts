@@ -9,6 +9,8 @@ export const AGENT_MENTION_LABELS: Record<string, string> = {
   'code-agent': '@CodeAgent',
   'review-agent': '@ReviewAgent',
   'preview-agent': '@PreviewAgent',
+  'codex-agent': '@CodexAgent',
+  'claude-code-agent': '@ClaudeCodeAgent',
 }
 
 /**
