@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from agenthub.agents.base import AgentAdapter
 from agenthub.agents.real_agent import RealAgentSchemaError
+from agenthub.core.errors import AgentExecutionError
 from agenthub.schemas.agent import AgentRunInput, AgentRunResult
 from agenthub.schemas.artifact import Artifact
 
@@ -28,7 +29,11 @@ class PreviewAgent:
                     }
                 )
             )
-        except RealAgentSchemaError:
+        except RealAgentSchemaError as exc:
+            if not self._fallbacks_allowed(input_data):
+                raise AgentExecutionError(
+                    "Preview Agent model output could not be parsed after repair."
+                ) from exc
             result = AgentRunResult(
                 agent_id=self.id,
                 content="Preview Agent 已完成 workspace preview 状态检查。",

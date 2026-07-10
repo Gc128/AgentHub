@@ -1,5 +1,6 @@
 from agenthub.agents.base import AgentAdapter
 from agenthub.agents.real_agent import RealAgentSchemaError
+from agenthub.core.errors import AgentExecutionError
 from agenthub.schemas.agent import AgentRunInput, AgentRunResult
 from agenthub.schemas.artifact import Artifact
 
@@ -26,7 +27,11 @@ class ReviewAgent:
                     }
                 )
             )
-        except RealAgentSchemaError:
+        except RealAgentSchemaError as exc:
+            if not self._fallbacks_allowed(input_data):
+                raise AgentExecutionError(
+                    "Review Agent model output could not be parsed after repair."
+                ) from exc
             return _build_review_recovery(input_data)
         result = result.model_copy(update={"agent_id": self.id})
         return _ensure_review_artifact(
@@ -84,12 +89,8 @@ def _ensure_review_artifact(
         )
 
     if not allow_fallbacks:
-        recovery = _build_review_recovery(input_data, content_prefix=result.content)
-        return result.model_copy(
-            update={
-                "content": recovery.content,
-                "artifacts": [*result.artifacts, *recovery.artifacts],
-            }
+        raise AgentExecutionError(
+            "Review Agent must return review findings instead of an empty result."
         )
 
     fallback = _build_review_fallback(input_data, content_prefix=result.content)

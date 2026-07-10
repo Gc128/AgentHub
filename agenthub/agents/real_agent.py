@@ -1,11 +1,9 @@
-import asyncio
 import json
 import re
 import shlex
-from collections.abc import AsyncIterator
-from typing import Any, TypeVar, cast
+from collections.abc import AsyncIterator, Callable
+from typing import Any, Protocol, TypeVar, cast
 
-import httpx
 from pydantic import BaseModel, ValidationError
 
 from agenthub.schemas.agent import AgentRunInput, AgentRunResult
@@ -31,9 +29,77 @@ class RealAgentSchemaError(RealAgentUnavailableError):
 StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
 
 
+class LangChainChatModel(Protocol):
+    async def ainvoke(self, messages: list[tuple[str, str]]) -> object: ...
+
+    def astream(self, messages: list[tuple[str, str]]) -> AsyncIterator[object]: ...
+
+
+ChatModelFactory = Callable[..., LangChainChatModel]
+
+
+def _default_chat_model_factory(**kwargs: Any) -> LangChainChatModel:
+    try:
+        from langchain_openai import ChatOpenAI
+    except ImportError as exc:
+        raise RealAgentConfigurationError(
+            "LangChain integration is not installed. Install langchain and langchain-openai."
+        ) from exc
+
+    return cast(LangChainChatModel, ChatOpenAI(**kwargs))
+
+
+def _extract_langchain_content(response: object, *, allow_empty: bool = False) -> str:
+    raw_content = getattr(response, "content", response)
+    if isinstance(raw_content, str):
+        content = raw_content
+    elif isinstance(raw_content, list):
+        content = "".join(_content_block_text(block) for block in raw_content)
+    else:
+        content = str(raw_content) if raw_content is not None else ""
+    if not content.strip() and not allow_empty:
+        raise RealAgentUnavailableError("LLM response content was empty.")
+    return content
+
+
+def _content_block_text(block: object) -> str:
+    if isinstance(block, str):
+        return block
+    if isinstance(block, dict):
+        text = block.get("text") or block.get("content")
+        return text if isinstance(text, str) else ""
+    text = getattr(block, "text", None) or getattr(block, "content", None)
+    return text if isinstance(text, str) else ""
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    if status_code in {401, 403}:
+        return True
+    response = getattr(exc, "response", None)
+    return getattr(response, "status_code", None) in {401, 403}
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    return isinstance(exc, TimeoutError) or "timeout" in type(exc).__name__.lower()
+
+
+def _safe_langchain_error_message(exc: Exception) -> str:
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    if status_code is None:
+        status_code = getattr(response, "status_code", None)
+    if status_code in {401, 403}:
+        return (
+            f"LLM request authentication failed with status {status_code}. "
+            "Verify OPENAI_API_KEY belongs to the provider configured by AGENT_BASE_URL."
+        )
+    return f"LLM request failed before completion ({type(exc).__name__})."
+
+
 class RealAgent:
     name = "Real Agent"
-    capabilities = ["external-agent", "llm"]
+    capabilities = ["external-agent", "llm", "langchain"]
 
     def __init__(
         self,
@@ -48,7 +114,8 @@ class RealAgent:
         thinking: str = "auto",
         max_tokens: int | None = None,
         system_prompt: str | None = None,
-        http_client: httpx.AsyncClient | None = None,
+        chat_model: LangChainChatModel | None = None,
+        chat_model_factory: ChatModelFactory | None = None,
     ) -> None:
         self.id = agent_id
         self.provider = provider
@@ -63,7 +130,10 @@ class RealAgent:
             "You are an AgentHub coding assistant. Return concise Markdown "
             "unless the caller asks for structured JSON."
         )
-        self._http_client = http_client
+        self._chat_model = chat_model
+        self._chat_model_factory = chat_model_factory
+        self._structured_chat_model: LangChainChatModel | None = None
+        self._text_chat_model: LangChainChatModel | None = None
 
     async def run(self, input_data: AgentRunInput) -> AgentRunResult:
         content = await self._request_content(input_data)
@@ -107,56 +177,34 @@ class RealAgent:
         if self.provider not in {"openai", "openai-compatible"}:
             raise RealAgentConfigurationError(f"Provider {self.provider!r} is not supported yet.")
 
-        payload = self._build_payload(input_data)
-        if force_text:
-            payload.pop("response_format", None)
-        headers = {"Authorization": f"Bearer {self.api_key}"}
-        response = await self._post_chat_completion(payload, headers)
-        content = self._extract_content(response.json())
-        return content
+        response = await self._invoke_chat_model(
+            self._build_messages(input_data),
+            force_text=force_text,
+        )
+        return _extract_langchain_content(response)
 
-    async def _post_chat_completion(
+    async def _invoke_chat_model(
         self,
-        payload: dict[str, Any],
-        headers: dict[str, str],
-    ) -> httpx.Response:
+        messages: list[tuple[str, str]],
+        *,
+        force_text: bool = False,
+    ) -> object:
         attempts = 3
         for attempt in range(attempts):
             try:
-                if self._http_client is not None:
-                    response = await self._http_client.post(
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                    )
-                else:
-                    async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                        response = await client.post(
-                            f"{self.base_url}/chat/completions",
-                            headers=headers,
-                            json=payload,
-                        )
-                response.raise_for_status()
-                return response
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code in {401, 403}:
-                    raise RealAgentConfigurationError(self._status_error_message(exc)) from exc
-                if exc.response.status_code >= 500 and attempt < attempts - 1:
-                    await asyncio.sleep(0.4 * (attempt + 1))
-                    continue
-                raise RealAgentTransportError(self._status_error_message(exc)) from exc
-            except httpx.TimeoutException as exc:
+                return await self._get_chat_model(force_text=force_text).ainvoke(messages)
+            except Exception as exc:
+                if _is_auth_error(exc):
+                    raise RealAgentConfigurationError(_safe_langchain_error_message(exc)) from exc
+                if _is_timeout_error(exc):
+                    if attempt < attempts - 1:
+                        continue
+                    raise RealAgentTransportError(
+                        f"LLM request timed out after {self.timeout_seconds:g} seconds "
+                        f"({type(exc).__name__}). Increase AGENT_REQUEST_TIMEOUT_SECONDS, "
+                        "disable provider-side thinking, or check provider latency."
+                    ) from exc
                 if attempt < attempts - 1:
-                    await asyncio.sleep(0.4 * (attempt + 1))
-                    continue
-                raise RealAgentTransportError(
-                    f"LLM request timed out after {self.timeout_seconds:g} seconds "
-                    f"({type(exc).__name__}). Increase AGENT_REQUEST_TIMEOUT_SECONDS, "
-                    "disable provider-side thinking, or check provider latency."
-                ) from exc
-            except httpx.HTTPError as exc:
-                if attempt < attempts - 1:
-                    await asyncio.sleep(0.4 * (attempt + 1))
                     continue
                 raise RealAgentTransportError(
                     f"LLM request failed before completion ({type(exc).__name__})."
@@ -173,19 +221,18 @@ class RealAgent:
     ) -> str:
         if not self.api_key:
             raise RealAgentConfigurationError("Real agent integration is not configured yet.")
-        repair_payload = self._build_payload(input_data)
-        repair_payload["messages"] = [
-            {
-                "role": "system",
-                "content": (
+        repair_messages = [
+            (
+                "system",
+                (
                     "You repair malformed structured JSON for AgentHub. "
                     f"Return only one valid JSON object matching {schema_name}. "
                     "Do not include markdown fences or explanation."
                 ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
+            ),
+            (
+                "user",
+                json.dumps(
                     {
                         "schema_name": schema_name,
                         "validation_error": validation_error,
@@ -193,11 +240,10 @@ class RealAgent:
                     },
                     ensure_ascii=False,
                 ),
-            },
+            ),
         ]
-        headers = {"Authorization": f"Bearer {self.api_key}"}
-        response = await self._post_chat_completion(repair_payload, headers)
-        return self._extract_content(response.json())
+        response = await self._invoke_chat_model(repair_messages)
+        return _extract_langchain_content(response)
 
     async def _parse_agent_result_with_repair(
         self,
@@ -232,50 +278,28 @@ class RealAgent:
         if self.provider not in {"openai", "openai-compatible"}:
             raise RealAgentConfigurationError(f"Provider {self.provider!r} is not supported yet.")
 
-        payload = {**self._build_payload(input_data), "stream": True}
-        headers = {"Authorization": f"Bearer {self.api_key}"}
-
         try:
-            if self._http_client is not None:
-                async with self._http_client.stream(
-                    "POST",
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                ) as response:
-                    response.raise_for_status()
-                    async for chunk in _iter_stream_deltas(response):
-                        yield chunk
-            else:
-                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                    async with client.stream(
-                        "POST",
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                    ) as response:
-                        response.raise_for_status()
-                        async for chunk in _iter_stream_deltas(response):
-                            yield chunk
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in {401, 403}:
-                raise RealAgentConfigurationError(self._status_error_message(exc)) from exc
-            raise RealAgentTransportError(self._status_error_message(exc)) from exc
-        except httpx.TimeoutException as exc:
-            raise RealAgentTransportError(
-                f"LLM streaming request timed out after {self.timeout_seconds:g} seconds."
-            ) from exc
-        except httpx.HTTPError as exc:
+            async for chunk in self._get_chat_model().astream(self._build_messages(input_data)):
+                content = _extract_langchain_content(chunk, allow_empty=True)
+                if content:
+                    yield content
+        except Exception as exc:
+            if _is_auth_error(exc):
+                raise RealAgentConfigurationError(_safe_langchain_error_message(exc)) from exc
+            if _is_timeout_error(exc):
+                raise RealAgentTransportError(
+                    f"LLM streaming request timed out after {self.timeout_seconds:g} seconds."
+                ) from exc
             raise RealAgentTransportError(
                 f"LLM streaming request failed before completion ({type(exc).__name__})."
             ) from exc
 
-    def _build_payload(self, input_data: AgentRunInput) -> dict[str, Any]:
+    def _build_messages(self, input_data: AgentRunInput) -> list[tuple[str, str]]:
         history_messages = [
-            {
-                "role": _message_role_for_llm(message.role),
-                "content": f"{message.sender_id}: {message.content}",
-            }
+            (
+                _message_role_for_llm(message.role),
+                f"{message.sender_id}: {message.content}",
+            )
             for message in input_data.history[-8:]
         ]
         user_payload = {
@@ -284,52 +308,51 @@ class RealAgent:
             "user_message": input_data.user_message,
             "context": input_data.context,
         }
-        payload: dict[str, Any] = {
+        return [
+            ("system", self.system_prompt),
+            *history_messages,
+            ("user", json.dumps(user_payload, ensure_ascii=False)),
+        ]
+
+    def _get_chat_model(self, *, force_text: bool = False) -> LangChainChatModel:
+        if self._chat_model is not None:
+            return self._chat_model
+
+        cached_model = self._text_chat_model if force_text else self._structured_chat_model
+        if cached_model is not None:
+            return cached_model
+
+        kwargs = self._build_chat_model_kwargs(force_text=force_text)
+        factory = self._chat_model_factory or _default_chat_model_factory
+        chat_model = factory(**kwargs)
+        if force_text:
+            self._text_chat_model = chat_model
+        else:
+            self._structured_chat_model = chat_model
+        return chat_model
+
+    def _build_chat_model_kwargs(self, *, force_text: bool) -> dict[str, Any]:
+        model_kwargs: dict[str, Any] = {}
+        extra_body: dict[str, Any] = {}
+        if not force_text and self.response_format == "json_object":
+            model_kwargs["response_format"] = {"type": "json_object"}
+        if self.thinking in {"enabled", "disabled"}:
+            extra_body["thinking"] = {"type": self.thinking}
+
+        kwargs: dict[str, Any] = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": self.system_prompt},
-                *history_messages,
-                {
-                    "role": "user",
-                    "content": json.dumps(user_payload, ensure_ascii=False),
-                },
-            ],
+            "api_key": self.api_key,
+            "base_url": self.base_url,
+            "timeout": self.timeout_seconds,
             "temperature": 0.2,
         }
-        if self.response_format == "json_object":
-            payload["response_format"] = {"type": "json_object"}
-        if self.thinking in {"enabled", "disabled"}:
-            payload["thinking"] = {"type": self.thinking}
         if self.max_tokens is not None:
-            payload["max_tokens"] = self.max_tokens
-        return payload
-
-    def _status_error_message(self, exc: httpx.HTTPStatusError) -> str:
-        status_code = exc.response.status_code
-        if status_code in {401, 403}:
-            return (
-                f"LLM request authentication failed with status {status_code}. "
-                "Verify OPENAI_API_KEY belongs to the provider configured by AGENT_BASE_URL."
-            )
-
-        detail = _safe_response_excerpt(exc.response)
-        suffix = f" Provider response: {detail}" if detail else ""
-        return f"LLM request failed with status {status_code}.{suffix}"
-
-    def _extract_content(self, payload: dict[str, Any]) -> str:
-        choices = payload.get("choices")
-        if not isinstance(choices, list) or not choices:
-            raise RealAgentUnavailableError("LLM response did not contain choices.")
-        first_choice = choices[0]
-        if not isinstance(first_choice, dict):
-            raise RealAgentUnavailableError("LLM response choice was malformed.")
-        message = first_choice.get("message")
-        if not isinstance(message, dict):
-            raise RealAgentUnavailableError("LLM response message was malformed.")
-        content = message.get("content")
-        if not isinstance(content, str) or not content.strip():
-            raise RealAgentUnavailableError("LLM response content was empty.")
-        return content
+            kwargs["max_completion_tokens"] = self.max_tokens
+        if model_kwargs:
+            kwargs["model_kwargs"] = model_kwargs
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        return kwargs
 
     def _parse_result(self, content: str) -> AgentRunResult:
         payload_text = _strip_json_fence(content)
@@ -1039,44 +1062,6 @@ def _message_role_for_llm(role: str) -> str:
     if role == "system":
         return "system"
     return "user"
-
-
-def _safe_response_excerpt(response: httpx.Response) -> str:
-    try:
-        text = response.text.strip()
-    except Exception:
-        return ""
-    if not text:
-        return ""
-    sanitized = re.sub(r"Bearer\s+[A-Za-z0-9._-]+", "Bearer ***", text)
-    sanitized = re.sub(r"sk-[A-Za-z0-9._-]+", "sk-***", sanitized)
-    return sanitized[:300]
-
-
-async def _iter_stream_deltas(response: httpx.Response) -> AsyncIterator[str]:
-    async for line in response.aiter_lines():
-        value = line.strip()
-        if not value or not value.startswith("data:"):
-            continue
-        data = value.removeprefix("data:").strip()
-        if data == "[DONE]":
-            break
-        try:
-            payload = json.loads(data)
-        except json.JSONDecodeError:
-            continue
-        choices = payload.get("choices")
-        if not isinstance(choices, list) or not choices:
-            continue
-        first = choices[0]
-        if not isinstance(first, dict):
-            continue
-        delta = first.get("delta")
-        if not isinstance(delta, dict):
-            continue
-        content = delta.get("content")
-        if isinstance(content, str) and content:
-            yield content
 
 
 def _infer_artifact_type(artifact: dict[str, Any]) -> str:

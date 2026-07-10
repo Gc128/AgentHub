@@ -1,6 +1,6 @@
 import re
 
-from agenthub.agents.real_agent import RealAgent
+from agenthub.agents.langchain_agent import LangChainAgent
 from agenthub.config import Settings
 from agenthub.schemas.agent import AgentRunInput, AgentRunResult
 from agenthub.schemas.custom_agent import CustomAgent
@@ -34,7 +34,7 @@ class CustomAgentAdapter:
                 next_actions=[],
             )
 
-        llm = RealAgent(
+        llm = LangChainAgent(
             agent_id=self.id,
             provider=self._settings.agent_provider,
             model=self._settings.agent_model,

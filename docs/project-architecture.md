@@ -33,7 +33,7 @@ AgentHub 是一个 IM 聊天式多 Agent 协作平台。用户像在聊天软件
 - 后端：FastAPI + Pydantic v2；
 - 数据持久化：SQLite 或内存仓库；
 - workspace 内容来源：真实文件系统，默认位于 `WORKSPACE_ROOT`；
-- Agent 调用：OpenAI-compatible LLM API，默认通过后端代理调用，前端不直接接触 API Key。
+- Agent 调用：LangChain `ChatOpenAI` + OpenAI-compatible LLM API，默认通过后端代理调用，前端不直接接触 API Key。
 
 历史 Flask JSON demo 仍可能作为旧示例或测试参考存在，但当前默认演示链路是 React 前端连接 FastAPI 后端。
 
@@ -52,8 +52,8 @@ flowchart LR
     AgentService --> Planner["Orchestrator 计划"]
     AgentService --> Harness["执行 Harness"]
     AgentService --> Registry["AgentRegistry"]
-    Registry --> RealAgent["RealAgent OpenAI-compatible"]
-    RealAgent --> LLM["外部 LLM API"]
+    Registry --> RealAgent["LangChain-backed RealAgent"]
+    RealAgent --> LLM["外部 OpenAI-compatible LLM API"]
     Services --> Workspace["WorkspaceService"]
     Workspace --> FS["WORKSPACE_ROOT 真实文件"]
     UI --> WorkspacePanel["右侧 Workspace 面板"]
@@ -84,7 +84,8 @@ agenthub/
   agents/                         Agent Adapter 和具体业务 Agent
     base.py                       AgentAdapter 协议导出
     registry.py                   AgentRegistry 和默认 Agent 注册
-    real_agent.py                 OpenAI-compatible LLM 调用适配器
+    langchain_agent.py            LangChain-backed 真实 Agent 入口
+    real_agent.py                 LangChain 调用、结构化解析和 repair
     code_agent.py                 Code Agent 业务 wrapper
     review_agent.py               Review Agent 业务 wrapper
     preview_agent.py              Preview Agent 业务 wrapper
@@ -210,11 +211,11 @@ USE_MOCK_AGENTS=false
 AGENT_ALLOW_FALLBACKS=false
 
 AGENT_PROVIDER=openai-compatible
-AGENT_MODEL=gpt-4o-mini
-AGENT_BASE_URL=https://api.openai.com/v1
+AGENT_MODEL=deepseek-v4-flash
+AGENT_BASE_URL=https://api.deepseek.com
 AGENT_REQUEST_TIMEOUT_SECONDS=60
 AGENT_RESPONSE_FORMAT=json_object
-AGENT_THINKING=auto
+AGENT_THINKING=disabled
 AGENT_MAX_TOKENS=4096
 OPENAI_API_KEY=
 ```
@@ -226,10 +227,10 @@ OPENAI_API_KEY=
 | `PERSISTENCE_BACKEND` | `sqlite` 使用 SQLite；`memory` 使用内存仓库。 |
 | `DATABASE_URL` | SQLite 数据库位置。 |
 | `WORKSPACE_ROOT` | 真实 workspace 文件根目录。 |
-| `USE_MOCK_AGENTS` | `false` 时使用真实 LLM wrapper；`true` 时使用 MockAgent。 |
-| `AGENT_ALLOW_FALLBACKS` | 默认 `false`。只在显式调试时允许 Code/Review/Preview 使用旧兜底产物。 |
+| `USE_MOCK_AGENTS` | `false` 时使用 LangChain-backed 真实 LLM wrapper；`true` 时使用 MockAgent。 |
+| `AGENT_ALLOW_FALLBACKS` | 默认 `false`。只在显式调试时允许 Orchestrator/Code/Review/Preview 使用本地兜底产物。 |
 | `AGENT_PROVIDER` | 当前支持 `openai` 或 `openai-compatible`。 |
-| `AGENT_BASE_URL` | OpenAI-compatible 服务 base URL，后端会追加 `/chat/completions`。 |
+| `AGENT_BASE_URL` | OpenAI-compatible 服务 base URL，交给 LangChain `ChatOpenAI` 使用。 |
 | `AGENT_MODEL` | 具体模型名，由供应商决定。 |
 | `OPENAI_API_KEY` | API Key，只填在 `.env`，不要写进代码。 |
 | `AGENT_REQUEST_TIMEOUT_SECONDS` | LLM 请求超时时间。 |
@@ -241,16 +242,11 @@ OPENAI_API_KEY=
 
 ```txt
 AGENT_BASE_URL=https://api.deepseek.com
-AGENT_MODEL=deepseek-chat
+AGENT_MODEL=deepseek-v4-flash
+AGENT_THINKING=disabled
 ```
 
-最终请求地址由 `RealAgent` 拼成：
-
-```txt
-{AGENT_BASE_URL}/chat/completions
-```
-
-因此不要在 `AGENT_BASE_URL` 里再手动写 `/chat/completions`。
+真实 Agent 通过 LangChain `ChatOpenAI` 调用供应商。`AGENT_BASE_URL` 仍应填写 base URL，因此不要手动写 `/chat/completions`。
 
 ## 5. 后端整体逻辑
 
@@ -788,8 +784,9 @@ Codex 或未来其他工具平台。
 - `AgentAdapter.run()`：稳定的非流式执行入口；
 - `StreamingAgentAdapter.stream()`：可选流式能力，逐块返回文本 delta。
 
-`RealAgent` 负责 OpenAI-compatible API 的鉴权、timeout、JSON 解析和 `stream: true`
-处理；`MockAgent` 提供离线、确定性的 artifact 和分块输出，保证 demo 和测试不依赖外网。
+`LangChainAgent` / `RealAgent` 负责通过 LangChain `ChatOpenAI` 调用 OpenAI-compatible
+模型，并继续承担 timeout、JSON 解析、repair 和 artifact salvage；`MockAgent` 提供离线、
+确定性的 artifact 和分块输出，保证 demo 和测试不依赖外网。
 
 ### 9.1 AgentRegistry
 
@@ -808,10 +805,10 @@ Codex 或未来其他工具平台。
 if settings is None or settings.use_mock_agents:
   注册 MockAgent
 else:
-  注册 OrchestratorAdapter(RealAgent)
-  注册 CodeAgent(RealAgent)
-  注册 ReviewAgent(RealAgent)
-  注册 PreviewAgent(RealAgent)
+  注册 OrchestratorAdapter(LangChainAgent)
+  注册 CodeAgent(LangChainAgent)
+  注册 ReviewAgent(LangChainAgent)
+  注册 PreviewAgent(LangChainAgent)
 ```
 
 因此要使用真实 LLM，必须满足：
@@ -823,29 +820,29 @@ AGENT_BASE_URL=供应商 base URL
 AGENT_MODEL=供应商模型名
 ```
 
-### 9.2 RealAgent
+### 9.2 LangChain-backed RealAgent
 
-文件：`agenthub/agents/real_agent.py`
+文件：
 
-`RealAgent` 是 OpenAI-compatible 适配器。它并不知道自己是 Code、Review 还是 Preview，具体角色由 wrapper 的 system prompt 和 context 控制。
+- `agenthub/agents/langchain_agent.py`
+- `agenthub/agents/real_agent.py`
 
-#### 请求构造
+`LangChainAgent` 是真实 LLM 入口，继承 LangChain-backed `RealAgent`。它并不知道自己是 Code、Review 还是 Preview，具体角色由 wrapper 的 system prompt 和 context 控制。
 
-`_build_payload()` 构造 chat completions 请求：
+#### 模型构造
 
-```json
-{
-  "model": "AGENT_MODEL",
-  "messages": [
-    {"role": "system", "content": "对应 Agent 的 system prompt"},
-    {"role": "assistant", "content": "历史 agent 消息"},
-    {"role": "user", "content": "{\"conversation_id\":\"...\",\"workspace_id\":\"...\"}"}
-  ],
-  "temperature": 0.2,
-  "response_format": {"type": "json_object"},
-  "thinking": {"type": "disabled"},
-  "max_tokens": 4096
-}
+`RealAgent` 使用 LangChain `ChatOpenAI` 构造模型：
+
+```txt
+ChatOpenAI(
+  model=AGENT_MODEL,
+  api_key=OPENAI_API_KEY,
+  base_url=AGENT_BASE_URL,
+  timeout=AGENT_REQUEST_TIMEOUT_SECONDS,
+  temperature=0.2,
+  max_tokens=AGENT_MAX_TOKENS,
+  model_kwargs={...}
+)
 ```
 
 实际包含哪些可选字段取决于 `.env`：
@@ -854,25 +851,11 @@ AGENT_MODEL=供应商模型名
 - `AGENT_THINKING=enabled|disabled` 时加 `thinking`；
 - `AGENT_MAX_TOKENS` 不为空时加 `max_tokens`。
 
-#### 网络调用
+#### 消息调用
 
-`RealAgent.run()` 使用：
-
-```python
-httpx.AsyncClient(timeout=self.timeout_seconds)
-```
-
-请求地址：
-
-```txt
-{base_url}/chat/completions
-```
-
-Header：
-
-```txt
-Authorization: Bearer {OPENAI_API_KEY}
-```
+`RealAgent.run()` 调用 LangChain `ainvoke()`，`RealAgent.stream()` 调用 LangChain
+`astream()`。输入消息仍由 system prompt、最近历史和 JSON 化的
+`conversation_id/workspace_id/user_message/context` 组成。
 
 错误处理：
 
@@ -882,8 +865,8 @@ Authorization: Bearer {OPENAI_API_KEY}
 | provider 不支持 | 当前 provider 不在支持列表。 |
 | 401/403 | API Key 和 base URL 可能不匹配。 |
 | Timeout | 超时，建议调大 timeout、关闭 thinking、检查供应商延迟。 |
-| 其他 HTTPError | 请求未完成。 |
-| 响应无 choices/content | LLM 响应结构不符合预期。 |
+| 其他 LangChain/provider 异常 | 请求未完成。 |
+| 响应 content 为空 | LLM 响应结构不符合预期。 |
 
 错误信息会做脱敏，不应泄露真实 key。
 
@@ -1672,9 +1655,10 @@ USE_MOCK_AGENTS=false
 
 表示：
 
-- `CodeAgent`、`ReviewAgent`、`PreviewAgent` 都包装真实 `RealAgent`；
-- `OrchestratorAdapter` 也包装真实 `RealAgent`，普通聊天和任务拆解都调用大模型；
-- `AGENT_ALLOW_FALLBACKS=false` 时，Code Agent 不会把 schema 失败静默替换成硬编码页面；
+- `CodeAgent`、`ReviewAgent`、`PreviewAgent` 都包装真实 `LangChainAgent`；
+- `OrchestratorAdapter` 也包装真实 `LangChainAgent`，普通聊天和任务拆解都调用大模型；
+- 真实 LLM 调用统一经过 LangChain `ChatOpenAI`，不保留手写 `httpx` 直连分支；
+- `AGENT_ALLOW_FALLBACKS=false` 时，Orchestrator/Code/Review/Preview 不会把 schema 失败静默替换成本地规则或硬编码产物；
 - Review/Preview 的 schema recovery 只基于前序真实 artifacts 和 workspace context 做结构化检查，不覆盖 Code Agent 产物；
 - 需要有效 API Key 和供应商配置；
 - 失败时会返回可读错误消息。
@@ -1742,7 +1726,8 @@ workspace 源文件一致。它使用临时 workspace 和内存仓库，不把�
 | 文件 | 作用 |
 | --- | --- |
 | `agenthub/agents/registry.py` | 根据配置注册真实或 mock Agent。 |
-| `agenthub/agents/real_agent.py` | OpenAI-compatible HTTP 调用和 LLM 响应解析。 |
+| `agenthub/agents/langchain_agent.py` | LangChain-backed 真实 Agent 入口。 |
+| `agenthub/agents/real_agent.py` | LangChain 调用、LLM 响应解析、repair 和 artifact salvage。 |
 | `agenthub/agents/code_agent.py` | 代码生成业务规则，补 code/diff artifact。 |
 | `agenthub/agents/review_agent.py` | 审查业务规则，要求 file artifact。 |
 | `agenthub/agents/preview_agent.py` | 预览业务规则，补 preview artifact。 |
@@ -1845,10 +1830,10 @@ AGENT_REQUEST_TIMEOUT_SECONDS=120
 AGENT_THINKING=disabled
 ```
 
-并确认 `AGENT_BASE_URL` 最终拼接后是有效的：
+并确认 `AGENT_BASE_URL` 是供应商要求的 OpenAI-compatible base URL，例如：
 
 ```txt
-{AGENT_BASE_URL}/chat/completions
+https://api.deepseek.com
 ```
 
 ### 20.4 为什么聊天里有代码，但右侧 workspace 没文件？

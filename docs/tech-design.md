@@ -2,7 +2,7 @@
 
 ## 架构概览
 
-AgentHub 当前默认链路是 React 前端 + FastAPI 后端 + SQLite/memory repository + OpenAI-compatible Agent Adapter。前端只负责 UI、输入、SSE 消费和 artifact 操作；后端负责会话、消息、Agent 调度、workspace 文件、diff 应用与 preview 路由。
+AgentHub 当前默认链路是 React 前端 + FastAPI 后端 + SQLite/memory repository + LangChain-backed Agent Adapter。前端只负责 UI、输入、SSE 消费和 artifact 操作；后端负责会话、消息、Agent 调度、workspace 文件、diff 应用与 preview 路由。
 
 核心后端模块：
 
@@ -92,9 +92,9 @@ SQLite 对自建 Agent 使用独立 `customagentrecord` 表，不改动 workspac
 
 业务层只依赖 `AgentRunInput` 和 `AgentRunResult`，不直接耦合供应商 SDK。当前 Adapter：
 
-- `RealAgent`：OpenAI-compatible HTTP 调用、timeout、stream、结构化解析和 repair。
+- `LangChainAgent` / `RealAgent`：基于 LangChain `ChatOpenAI` 的 OpenAI-compatible 调用、timeout、stream、结构化解析和 repair。
 - `MockAgent`：离线测试和 demo 的确定性输出。
-- `CodeAgent`、`ReviewAgent`、`PreviewAgent`：包装 `RealAgent` 并补充角色校验。
+- `CodeAgent`、`ReviewAgent`、`PreviewAgent`：包装 LangChain-backed `RealAgent` 并补充角色校验。
 - `OrchestratorAdapter`：调用 LLM 生成 `OrchestratorDecision`。
 - `CustomAgentAdapter`：读取自建 Agent 的 `system_prompt`；真实模式下请求文本，Mock 模式下返回可识别回复。
 
@@ -145,6 +145,9 @@ React 前端维护：
 - `OPENAI_API_KEY`
 - `AGENT_RESPONSE_FORMAT`
 - `AGENT_ALLOW_FALLBACKS`
+
+真实模式下不再保留手写 `httpx` 直连 LLM 路径；`USE_MOCK_AGENTS=false` 时内置 Agent 和自建 Agent 都通过 LangChain `ChatOpenAI` 调用供应商。
+`AGENT_ALLOW_FALLBACKS=false` 时，Orchestrator/Code/Review/Preview 不会把结构化失败静默替换成本地规则或硬编码产物。
 
 前端默认连接 `http://127.0.0.1:8000`。如果连接 Mock 后端，UI 会显示明显提醒。
 

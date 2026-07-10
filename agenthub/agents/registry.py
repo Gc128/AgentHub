@@ -3,6 +3,7 @@ import re
 
 from agenthub.agents.base import AgentAdapter
 from agenthub.agents.code_agent import CODE_AGENT_SYSTEM_PROMPT, CodeAgent
+from agenthub.agents.langchain_agent import LangChainAgent
 from agenthub.agents.mock_agent import MockAgent
 from agenthub.agents.preview_agent import PREVIEW_AGENT_SYSTEM_PROMPT, PreviewAgent
 from agenthub.agents.real_agent import RealAgent, RealAgentSchemaError
@@ -292,8 +293,8 @@ Rules:
 """.strip()
 
 
-def _real_agent(agent_id: str, system_prompt: str, settings: Settings) -> RealAgent:
-    return RealAgent(
+def _real_agent(agent_id: str, system_prompt: str, settings: Settings) -> LangChainAgent:
+    return LangChainAgent(
         agent_id=agent_id,
         provider=settings.agent_provider,
         model=settings.agent_model,

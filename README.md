@@ -17,7 +17,7 @@ AgentHub 是一个 **IM 聊天式多 Agent 协作平台**。用户像使用飞�
 
 ## 当前状态
 
-AgentHub 已从早期 Mock Demo 演进为 React + FastAPI 的可运行 MVP，包含真实 LLM 调用、流式消息、多 Agent 调度、workspace diff/preview、自建 Agent、Codex/Claude Code CLI 接入和 IM 核心操作。
+AgentHub 已从早期 Mock Demo 演进为 React + FastAPI 的可运行 MVP，包含基于 LangChain 的真实 LLM 调用、流式消息、多 Agent 调度、workspace diff/preview、自建 Agent、Codex/Claude Code CLI 接入和 IM 核心操作。
 
 ## 核心能力
 
@@ -42,14 +42,14 @@ AgentHub 已从早期 Mock Demo 演进为 React + FastAPI 的可运行 MVP，包
 
 ### Agent 后端与自建 Agent
 
-- OpenAI-compatible LLM 后端，统一由后端代理调用。
+- LangChain `ChatOpenAI` 真实 LLM 后端，支持 OpenAI-compatible base URL，统一由后端代理调用。
 - Mock 模式用于测试和离线演示，前端会显示明显提醒。
 - Codex 和 Claude Code 作为独立内置 Agent 接入。
 - 自建 Agent 支持：
   - 名称、描述、能力标签。
   - 系统提示词 `system_prompt`。
   - 启用/禁用、删除、测试。
-  - 后端选择：OpenAI-compatible、Codex、Claude Code。
+  - 后端选择：LangChain/OpenAI-compatible、Codex、Claude Code。
 
 ### Workspace、Diff 与 Preview
 
@@ -75,7 +75,7 @@ AgentHub 已从早期 Mock Demo 演进为 React + FastAPI 的可运行 MVP，包
 | 后端 | Python 3.11+、FastAPI、Pydantic v2 |
 | 配置 | pydantic-settings、`.env` |
 | 数据 | SQLite + SQLModel；测试可用 memory repository |
-| Agent 调用 | httpx AsyncClient、OpenAI-compatible Chat Completions |
+| Agent 调用 | LangChain、langchain-openai、OpenAI-compatible Chat Completions |
 | CLI Agent | Codex CLI、Claude Code CLI、`asyncio.create_subprocess_exec` |
 | Workspace | pathlib、统一路径安全校验、diff apply/revert |
 | 测试 | pytest、pytest-asyncio |
@@ -138,8 +138,9 @@ WORKSPACE_ROOT=./workspaces
 USE_MOCK_AGENTS=false
 
 AGENT_PROVIDER=openai-compatible
-AGENT_MODEL=gpt-4o-mini
-AGENT_BASE_URL=https://api.openai.com/v1
+AGENT_MODEL=deepseek-v4-flash
+AGENT_BASE_URL=https://api.deepseek.com
+AGENT_THINKING=disabled
 OPENAI_API_KEY=
 
 CODEX_CLI_PATH=codex
@@ -150,8 +151,9 @@ CODE_AGENT_BACKEND_ID=openai-compatible
 说明：
 
 - 不要提交真实 `.env`。
-- `AGENT_BASE_URL` 填 base URL，不要手动加 `/chat/completions`。
+- 真实 Agent 调用由 LangChain `ChatOpenAI` 驱动，`AGENT_BASE_URL` 填 OpenAI-compatible base URL，不要手动加 `/chat/completions`。
 - 如果没有真实 API Key，可以设置 `USE_MOCK_AGENTS=true` 做离线演示。
+- `AGENT_ALLOW_FALLBACKS=false` 时，真实模式不会用本地规则或硬编码产物替代模型失败。
 - Codex/Claude Code CLI 后端需要本机安装对应命令。
 
 ### 3. 启动后端

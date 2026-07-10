@@ -1,4 +1,5 @@
 import json
+from collections.abc import AsyncIterator
 
 import httpx
 import pytest
@@ -7,6 +8,7 @@ from agenthub.agents.code_agent import CodeAgent
 from agenthub.agents.mock_agent import MockAgent
 from agenthub.agents.real_agent import RealAgent, RealAgentSchemaError, RealAgentUnavailableError
 from agenthub.agents.registry import AgentRegistry, OrchestratorAdapter, create_default_registry
+from agenthub.config import Settings
 from agenthub.core.errors import AgentExecutionError, NotFoundError
 from agenthub.orchestrator.planner import AgentTask, OrchestratorDecision, OrchestratorPlan
 from agenthub.schemas.agent import AgentRunInput, AgentRunResult
@@ -18,6 +20,78 @@ def json_body(request: httpx.Request) -> dict[str, object]:
     payload = json.loads(request.content.decode())
     assert isinstance(payload, dict)
     return payload
+
+
+class FakeLangChainMessage:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class FakeLangChainModel:
+    def __init__(self, handler: object) -> None:
+        self._handler = handler
+
+    async def ainvoke(self, messages: list[tuple[str, str]]) -> FakeLangChainMessage:
+        request = _fake_langchain_request(messages, stream=False)
+        response = self._handler(request)
+        if not isinstance(response, httpx.Response):
+            raise TypeError("Fake handler must return httpx.Response.")
+        _raise_for_status(response, request)
+        return FakeLangChainMessage(_content_from_openai_response(response))
+
+    async def astream(self, messages: list[tuple[str, str]]) -> AsyncIterator[FakeLangChainMessage]:
+        request = _fake_langchain_request(messages, stream=True)
+        response = self._handler(request)
+        if not isinstance(response, httpx.Response):
+            raise TypeError("Fake handler must return httpx.Response.")
+        _raise_for_status(response, request)
+        for chunk in _stream_chunks_from_openai_response(response):
+            yield FakeLangChainMessage(chunk)
+
+
+def _fake_langchain_request(messages: list[tuple[str, str]], *, stream: bool) -> httpx.Request:
+    return httpx.Request(
+        "POST",
+        "https://api.openai.com/v1/chat/completions",
+        headers={"Authorization": "Bearer test-key"},
+        json={
+            "messages": [{"role": role, "content": content} for role, content in messages],
+            "stream": stream,
+        },
+    )
+
+
+def _raise_for_status(response: httpx.Response, request: httpx.Request) -> None:
+    if response.status_code >= 400:
+        raise httpx.HTTPStatusError(
+            f"Error response {response.status_code}",
+            request=request,
+            response=response,
+        )
+
+
+def _content_from_openai_response(response: httpx.Response) -> str:
+    payload = response.json()
+    choices = payload["choices"]
+    assert isinstance(choices, list)
+    message = choices[0]["message"]
+    assert isinstance(message, dict)
+    content = message["content"]
+    assert isinstance(content, str)
+    return content
+
+
+def _stream_chunks_from_openai_response(response: httpx.Response) -> list[str]:
+    chunks: list[str] = []
+    for line in response.content.splitlines():
+        if not line.startswith(b"data: "):
+            continue
+        data = line.removeprefix(b"data: ").decode()
+        if data == "[DONE]":
+            break
+        payload = json.loads(data)
+        chunks.append(payload["choices"][0]["delta"]["content"])
+    return chunks
 
 
 @pytest.mark.asyncio
@@ -129,7 +203,7 @@ async def test_real_agent_parses_structured_artifacts() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -175,7 +249,7 @@ async def test_real_agent_retries_transient_transport_error() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -207,7 +281,7 @@ async def test_real_agent_streams_openai_compatible_deltas() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     chunks = [
@@ -256,7 +330,7 @@ async def test_real_agent_repairs_structured_agent_result_once() -> None:
     agent = RealAgent(
         agent_id="review-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -282,7 +356,7 @@ async def test_real_agent_schema_failure_after_repair_is_specific() -> None:
     agent = RealAgent(
         agent_id="review-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     with pytest.raises(RealAgentSchemaError, match="AgentRunResult"):
@@ -312,7 +386,7 @@ async def test_real_agent_repairs_malformed_json_response() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -353,7 +427,7 @@ async def test_llm_orchestrator_handles_plain_chat() -> None:
         RealAgent(
             agent_id="orchestrator",
             api_key="test-key",
-            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            chat_model=FakeLangChainModel(handler),
         )
     )
     service = AgentService(registry=AgentRegistry([orchestrator]))
@@ -396,7 +470,7 @@ async def test_llm_orchestrator_accepts_markdown_plan_text() -> None:
         RealAgent(
             agent_id="orchestrator",
             api_key="test-key",
-            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            chat_model=FakeLangChainModel(handler),
         )
     )
 
@@ -440,7 +514,7 @@ async def test_llm_orchestrator_accepts_top_level_task_list_json() -> None:
         RealAgent(
             agent_id="orchestrator",
             api_key="test-key",
-            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            chat_model=FakeLangChainModel(handler),
         )
     )
 
@@ -516,7 +590,7 @@ async def test_llm_orchestrator_plan_drives_harness_without_copying_user_request
                 RealAgent(
                     agent_id="orchestrator",
                     api_key="test-key",
-                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                    chat_model=FakeLangChainModel(handler),
                 )
             ),
             MockAgent(agent_id="code-agent"),
@@ -585,7 +659,7 @@ async def test_llm_orchestrator_code_plan_is_guarded_with_review_and_preview() -
                 RealAgent(
                     agent_id="orchestrator",
                     api_key="test-key",
-                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                    chat_model=FakeLangChainModel(handler),
                 )
             ),
             MockAgent(agent_id="code-agent"),
@@ -1112,7 +1186,7 @@ async def test_review_agent_schema_failure_returns_findings_artifact() -> None:
 
 
 @pytest.mark.asyncio
-async def test_review_agent_schema_failure_recovers_by_default() -> None:
+async def test_review_agent_schema_failure_does_not_recover_by_default() -> None:
     from agenthub.agents.review_agent import ReviewAgent
 
     class SchemaFailingAdapter:
@@ -1123,19 +1197,15 @@ async def test_review_agent_schema_failure_recovers_by_default() -> None:
         async def run(self, input_data: AgentRunInput) -> AgentRunResult:
             raise RealAgentSchemaError("bad review schema")
 
-    result = await ReviewAgent(SchemaFailingAdapter()).run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="检查 Todo 页面",
-            context={"prior_artifacts": [{"type": "code"}, {"type": "diff"}]},
+    with pytest.raises(AgentExecutionError, match="could not be parsed"):
+        await ReviewAgent(SchemaFailingAdapter()).run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="检查 Todo 页面",
+                context={"prior_artifacts": [{"type": "code"}, {"type": "diff"}]},
+            )
         )
-    )
-
-    assert result.agent_id == "review-agent"
-    assert result.artifacts[0].type == "file"
-    assert result.artifacts[0].data["source"] == "schema-recovery-review"
-    assert "fallback" not in str(result.model_dump(mode="json")).lower()
 
 
 @pytest.mark.asyncio
@@ -1166,7 +1236,7 @@ async def test_preview_agent_schema_failure_returns_preview_artifact() -> None:
 
 
 @pytest.mark.asyncio
-async def test_preview_agent_schema_failure_recovers_by_default() -> None:
+async def test_preview_agent_schema_failure_does_not_recover_by_default() -> None:
     from agenthub.agents.preview_agent import PreviewAgent
 
     class SchemaFailingAdapter:
@@ -1177,19 +1247,15 @@ async def test_preview_agent_schema_failure_recovers_by_default() -> None:
         async def run(self, input_data: AgentRunInput) -> AgentRunResult:
             raise RealAgentSchemaError("bad preview schema")
 
-    result = await PreviewAgent(SchemaFailingAdapter()).run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="预览 Todo 页面",
-            context={"preview_status": "ready", "preview_url": "http://127.0.0.1:18000"},
+    with pytest.raises(AgentExecutionError, match="could not be parsed"):
+        await PreviewAgent(SchemaFailingAdapter()).run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="预览 Todo 页面",
+                context={"preview_status": "ready", "preview_url": "http://127.0.0.1:18000"},
+            )
         )
-    )
-
-    assert result.agent_id == "preview-agent"
-    assert result.artifacts[0].type == "preview"
-    assert result.artifacts[0].data["status"] == "ready"
-    assert "fallback" not in str(result.model_dump(mode="json")).lower()
 
 
 def test_orchestrator_decision_normalizes_common_llm_plan_shape() -> None:
@@ -1256,7 +1322,7 @@ def test_orchestrator_decision_accepts_top_level_tasks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_schema_failure_falls_back_to_executable_plan() -> None:
+async def test_orchestrator_schema_failure_does_not_fall_back_by_default() -> None:
     calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1273,7 +1339,7 @@ async def test_orchestrator_schema_failure_falls_back_to_executable_plan() -> No
                 RealAgent(
                     agent_id="orchestrator",
                     api_key="test-key",
-                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                    chat_model=FakeLangChainModel(handler),
                 )
             ),
             MockAgent(agent_id="code-agent"),
@@ -1292,6 +1358,51 @@ async def test_orchestrator_schema_failure_falls_back_to_executable_plan() -> No
     )
 
     assert calls == 3
+    assert [result.agent_id for result in results] == ["orchestrator"]
+    assert "不符合结构要求" in results[0].content
+    assert "继续调用后续 Agent" not in results[0].content
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_schema_failure_falls_back_when_enabled() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"mode":"plan","content":"bad"'}}]},
+        )
+
+    registry = AgentRegistry(
+        [
+            OrchestratorAdapter(
+                RealAgent(
+                    agent_id="orchestrator",
+                    api_key="test-key",
+                    chat_model=FakeLangChainModel(handler),
+                )
+            ),
+            MockAgent(agent_id="code-agent"),
+            MockAgent(agent_id="review-agent"),
+            MockAgent(agent_id="preview-agent"),
+        ]
+    )
+    service = AgentService(
+        registry=registry,
+        settings=Settings(agent_allow_fallbacks=True),
+    )
+
+    results = await service.run_for_message(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="@Orchestrator 帮我做一个简洁的 Todo List 网页",
+        )
+    )
+
+    assert calls == 3
     assert [result.agent_id for result in results] == [
         "orchestrator",
         "code-agent",
@@ -1299,14 +1410,10 @@ async def test_orchestrator_schema_failure_falls_back_to_executable_plan() -> No
         "preview-agent",
     ]
     assert "继续调用后续 Agent" in results[0].content
-    assert "context.user_request" not in results[0].content
-    assert "兜底" not in results[0].content
-    assert "fallback" not in results[0].content.lower()
-    assert "不符合结构要求" not in results[0].content
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_schema_failure_falls_back_to_chat_for_greeting() -> None:
+async def test_orchestrator_schema_failure_does_not_fall_back_to_chat_by_default() -> None:
     calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1323,7 +1430,7 @@ async def test_orchestrator_schema_failure_falls_back_to_chat_for_greeting() -> 
                 RealAgent(
                     agent_id="orchestrator",
                     api_key="test-key",
-                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                    chat_model=FakeLangChainModel(handler),
                 )
             )
         ]
@@ -1341,9 +1448,8 @@ async def test_orchestrator_schema_failure_falls_back_to_chat_for_greeting() -> 
     assert calls == 3
     assert len(results) == 1
     assert results[0].agent_id == "orchestrator"
-    assert "你好，我是 AgentHub Orchestrator" in results[0].content
-    assert "Agent orchestrator failed" not in results[0].content
-    assert "不符合结构要求" not in results[0].content
+    assert "不符合结构要求" in results[0].content
+    assert "你好，我是 AgentHub Orchestrator" not in results[0].content
 
 
 @pytest.mark.asyncio
@@ -1384,7 +1490,7 @@ async def test_orchestrator_schema_failure_recovers_with_relaxed_llm_plan() -> N
                 RealAgent(
                     agent_id="orchestrator",
                     api_key="test-key",
-                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                    chat_model=FakeLangChainModel(handler),
                 )
             ),
             MockAgent(agent_id="code-agent"),
@@ -1436,7 +1542,7 @@ async def test_real_agent_normalizes_loose_code_artifacts() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1480,7 +1586,7 @@ async def test_real_agent_normalizes_artifact_mapping_without_repair() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1516,7 +1622,7 @@ async def test_real_agent_normalizes_string_list_as_content() -> None:
     agent = RealAgent(
         agent_id="review-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1577,7 +1683,7 @@ async def test_real_agent_unwraps_nested_json_content_instead_of_showing_raw_jso
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1616,7 +1722,7 @@ async def test_real_agent_infers_type_from_nested_artifact_data() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1654,7 +1760,7 @@ async def test_real_agent_extracts_json_object_from_wrapped_response() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1692,7 +1798,7 @@ async def test_real_agent_normalizes_top_level_code_fields() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1733,7 +1839,7 @@ async def test_real_agent_keeps_markdown_with_css_braces_as_markdown() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1767,7 +1873,7 @@ async def test_real_agent_extracts_code_artifacts_from_markdown_content() -> Non
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1811,7 +1917,7 @@ async def test_real_agent_salvages_html_document_after_repair_failure() -> None:
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1849,7 +1955,7 @@ async def test_real_agent_salvages_broken_json_content_without_exposing_raw_json
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -1892,7 +1998,7 @@ async def test_real_agent_extracts_artifacts_from_json_markdown_content() -> Non
     agent = RealAgent(
         agent_id="code-agent",
         api_key="test-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     result = await agent.run(
@@ -2447,25 +2553,28 @@ async def test_code_agent_allows_non_code_greeting_without_artifacts() -> None:
 
 @pytest.mark.asyncio
 async def test_real_agent_sends_structured_generation_parameters() -> None:
-    payload = {
-        "choices": [
-            {
-                "message": {
-                    "content": (
-                        '{"agent_id":"code-agent","content":"Generated code",'
-                        '"artifacts":[],"next_actions":[]}'
-                    )
-                }
-            }
-        ]
-    }
+    captured_kwargs: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        request_payload = json_from_request(request)
-        assert request_payload["response_format"] == {"type": "json_object"}
-        assert request_payload["thinking"] == {"type": "disabled"}
-        assert request_payload["max_tokens"] == 4096
-        return httpx.Response(200, json=payload)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"agent_id":"code-agent","content":"Generated code",'
+                                '"artifacts":[],"next_actions":[]}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    def factory(**kwargs: object) -> FakeLangChainModel:
+        captured_kwargs.update(kwargs)
+        return FakeLangChainModel(handler)
 
     agent = RealAgent(
         agent_id="code-agent",
@@ -2473,7 +2582,7 @@ async def test_real_agent_sends_structured_generation_parameters() -> None:
         response_format="json_object",
         thinking="disabled",
         max_tokens=4096,
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model_factory=factory,
     )
 
     await agent.run(
@@ -2483,6 +2592,12 @@ async def test_real_agent_sends_structured_generation_parameters() -> None:
             user_message="生成页面",
         )
     )
+
+    assert captured_kwargs["max_completion_tokens"] == 4096
+    assert captured_kwargs["model_kwargs"] == {
+        "response_format": {"type": "json_object"},
+    }
+    assert captured_kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
 @pytest.mark.asyncio
@@ -2495,7 +2610,7 @@ async def test_real_agent_reports_auth_status_without_leaking_secret() -> None:
 
     agent = RealAgent(
         api_key="sk-secret",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     with pytest.raises(RealAgentUnavailableError) as exc_info:
@@ -2520,7 +2635,7 @@ async def test_real_agent_reports_timeout_with_config_hint() -> None:
     agent = RealAgent(
         api_key="test-key",
         timeout_seconds=12,
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        chat_model=FakeLangChainModel(handler),
     )
 
     with pytest.raises(RealAgentUnavailableError) as exc_info:

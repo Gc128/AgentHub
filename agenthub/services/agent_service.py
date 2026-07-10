@@ -376,7 +376,11 @@ class AgentService:
                     )
                 )
                 return _ensure_required_harness_tasks(OrchestratorDecision.model_validate(decision))
-            except (RealAgentSchemaError, ValidationError):
+            except (RealAgentSchemaError, ValidationError) as exc:
+                if not self._fallbacks_allowed(input_data):
+                    raise AgentExecutionError(
+                        "Orchestrator model output could not be parsed after repair."
+                    ) from exc
                 return self._fallback_orchestrator_decision(input_data)
             except RealAgentUnavailableError as exc:
                 raise AgentExecutionError(str(exc)) from exc
@@ -407,6 +411,13 @@ class AgentService:
         return OrchestratorDecision(
             mode="chat",
             content=self._build_chat_result(input_data).content,
+        )
+
+    def _fallbacks_allowed(self, input_data: AgentRunInput) -> bool:
+        return (
+            self._settings is not None
+            and self._settings.agent_allow_fallbacks
+            or input_data.context.get("allow_agent_fallbacks") is True
         )
 
     def _result_from_orchestrator_decision(
@@ -791,7 +802,9 @@ def _build_guarded_harness_content(plan: OrchestratorPlan) -> str:
 def _agent_error_message(agent_id: str, exc: Exception) -> str:
     cause = exc.__cause__
     text = str(exc)
-    if isinstance(cause, RealAgentSchemaError) or isinstance(exc, RealAgentSchemaError):
+    if isinstance(cause, RealAgentSchemaError | ValidationError) or isinstance(
+        exc, RealAgentSchemaError
+    ):
         return (
             f"Agent {agent_id} failed: 模型连续返回了不符合结构要求的内容。\n\n"
             "系统已静默重试输出格式，但最终仍无法解析为 AgentHub 需要的结构。"
