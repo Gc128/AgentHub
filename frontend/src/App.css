@@ -569,6 +569,10 @@
   background: #fff7dd;
 }
 
+.message-generation {
+  align-self: flex-start;
+}
+
 .message-avatar {
   position: absolute;
   top: 14px;

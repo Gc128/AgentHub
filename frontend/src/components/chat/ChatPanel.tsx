@@ -304,7 +304,7 @@ export function ChatPanel({
           })
         )}
         {generationNotice ? (
-          <article className="message-bubble message-system">
+          <article className="message-bubble message-system message-generation">
             <Avatar className="message-avatar" shape="square">
               A
             </Avatar>
