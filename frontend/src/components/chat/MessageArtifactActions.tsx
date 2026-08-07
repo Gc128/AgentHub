@@ -1,28 +1,29 @@
 import { useState } from 'react'
 import {
   CheckCircleOutlined,
-  CloudUploadOutlined,
   CopyOutlined,
   EyeOutlined,
   FileTextOutlined,
   LoadingOutlined,
 } from '@ant-design/icons'
 import { Button, Tag } from 'antd'
-import type { Artifact } from '../../types/api'
-import { getArtifactString, getArtifactStringList } from '../artifactCards/artifactData'
+import type { Artifact, ChangeSet } from '../../types/api'
+import {
+  getArtifactNumber,
+  getArtifactString,
+  getArtifactStringList,
+} from '../artifactCards/artifactData'
 import { parseDiffLines } from '../artifactCards/diffLines'
 
 type MessageArtifactActionsProps = {
   /** 当前消息携带的结构化产物。 */
   artifacts: Artifact[]
-  /** 已应用 Diff 的 artifact id 集合。 */
-  appliedDiffIds: ReadonlySet<string>
-  /** 当前正在应用的 Diff artifact id。 */
-  applyingDiffId: string | null
-  /** 当前 workspace 可用的预览 URL，用于补齐 pending preview artifact。 */
-  workspacePreviewUrl?: string | null
-  /** 点击 Apply Diff 时由父组件调用后端接口。 */
-  onApplyDiff: (artifact: Artifact, diff: string) => Promise<void>
+  /** 后端实时 Change Set 状态，不信任历史 artifact 中的状态。 */
+  changeSets: ChangeSet[]
+  promotingChangeSetId: string | null
+  getCandidatePreviewUrl: (changeSetId: string, path?: string) => string
+  getWorkspacePreviewUrl: (path?: string) => string
+  onPromoteChangeSet: (changeSetId: string) => Promise<void>
 }
 
 const getArtifactLabel = (artifact: Artifact) => {
@@ -30,11 +31,73 @@ const getArtifactLabel = (artifact: Artifact) => {
     return getArtifactString(artifact, 'filename', artifact.title)
   }
   if (artifact.type === 'preview') {
-    return getArtifactString(artifact, 'workspace_id', artifact.title)
+    return getArtifactString(artifact, 'change_set_id', artifact.title)
   }
   const summary = getArtifactString(artifact, 'summary')
   return summary || artifact.title
 }
+
+type CandidateOperation = {
+  path: string
+  operation: 'upsert' | 'delete'
+}
+
+const isCandidateManifest = (artifact: Artifact) =>
+  artifact.type === 'file' &&
+  (getArtifactString(artifact, 'kind') === 'candidate_manifest' ||
+    artifact.id === 'artifact-code-agent-candidate-manifest' ||
+    artifact.title === 'Candidate manifest')
+
+const getCandidateOperations = (artifact: Artifact): CandidateOperation[] => {
+  const operations = artifact.data.operations
+  if (!Array.isArray(operations)) {
+    return []
+  }
+  return operations.flatMap((operation) => {
+    if (
+      typeof operation !== 'object' ||
+      operation === null ||
+      !('path' in operation) ||
+      typeof operation.path !== 'string'
+    ) {
+      return []
+    }
+    return [
+      {
+        path: operation.path,
+        operation:
+          'operation' in operation && operation.operation === 'delete'
+            ? 'delete'
+            : 'upsert',
+      } satisfies CandidateOperation,
+    ]
+  })
+}
+
+const getChangeSetStatusLabel = (status: string) =>
+  ({
+    conflicted: '冲突',
+    fail: '失败',
+    failed: '审查失败',
+    generated: '已生成',
+    needs_fix: '待修复',
+    not_started: '未开始',
+    pass: '通过',
+    promoted: '已合入',
+    promoting: '合入中',
+    ready: '可合入',
+    rejected: '已拒绝',
+    staging: '隔离准备中',
+    validating: '审查中',
+  })[status] ?? status
+
+const getReviewVerdictLabel = (verdict: string) =>
+  ({ fail: '失败', pass: '通过', pass_with_warnings: '通过（有警告）' })[
+    verdict
+  ] ?? verdict
+
+const getRiskLabel = (riskLevel: string) =>
+  ({ high: '高风险', low: '低风险', medium: '中风险' })[riskLevel] ?? riskLevel
 
 /**
  * 聊天流内的轻量 artifact 操作条。
@@ -42,10 +105,11 @@ const getArtifactLabel = (artifact: Artifact) => {
  */
 export function MessageArtifactActions({
   artifacts,
-  appliedDiffIds,
-  applyingDiffId,
-  workspacePreviewUrl,
-  onApplyDiff,
+  changeSets,
+  promotingChangeSetId,
+  getCandidatePreviewUrl,
+  getWorkspacePreviewUrl,
+  onPromoteChangeSet,
 }: MessageArtifactActionsProps) {
   const [expandedArtifactIds, setExpandedArtifactIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -60,33 +124,42 @@ export function MessageArtifactActions({
       {artifacts.map((artifact) => {
         const label = getArtifactLabel(artifact)
 
+        if (isCandidateManifest(artifact)) {
+          const operations = getCandidateOperations(artifact)
+          const fileCount = getArtifactNumber(artifact, 'file_count') ?? operations.length
+          return (
+            <div className="candidate-manifest-card" key={artifact.id}>
+              <div className="message-artifact-action">
+                <Tag className="artifact-type">file</Tag>
+                <FileTextOutlined />
+                <span>候选文件清单</span>
+                <Tag>{fileCount} 个候选文件</Tag>
+              </div>
+              {operations.length > 0 ? (
+                <ul className="candidate-manifest-files">
+                  {operations.map((operation) => (
+                    <li key={`${operation.operation}-${operation.path}`}>
+                      <Tag color={operation.operation === 'delete' ? 'error' : 'processing'}>
+                        {operation.operation === 'delete' ? '删除' : '写入'}
+                      </Tag>
+                      <code>{operation.path}</code>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          )
+        }
+
         if (artifact.type === 'diff') {
           const diff = getArtifactString(artifact, 'diff')
-          const applied = appliedDiffIds.has(artifact.id)
-          const applying = applyingDiffId === artifact.id
           const diffLines = parseDiffLines(diff)
           return (
             <div className="message-artifact-diff-card" key={artifact.id}>
               <div className="message-artifact-action">
                 <Tag className="artifact-type">{artifact.type}</Tag>
                 <span>{label}</span>
-                <Button
-                  disabled={applied || applying || !diff}
-                  icon={
-                    applied ? (
-                      <CheckCircleOutlined />
-                    ) : applying ? (
-                      <LoadingOutlined />
-                    ) : (
-                      <CloudUploadOutlined />
-                    )
-                  }
-                  loading={applying}
-                  onClick={() => onApplyDiff(artifact, diff)}
-                  size="small"
-                >
-                  {applied ? '已应用' : 'Apply Diff'}
-                </Button>
+                <Tag>候选变更（只读）</Tag>
               </div>
               {diff ? (
                 <div className="diff-viewer message-diff-viewer">
@@ -123,13 +196,22 @@ export function MessageArtifactActions({
         }
 
         if (artifact.type === 'preview') {
-          const previewUrl = getArtifactString(artifact, 'preview_url') || workspacePreviewUrl || ''
-          const status = getArtifactString(artifact, 'status', 'not_started')
+          const changeSetId = getArtifactString(artifact, 'change_set_id')
+          const changeSet = changeSets.find((item) => item.id === changeSetId)
+          const scope = getArtifactString(artifact, 'scope', 'candidate')
+          const entryPath =
+            changeSet?.entry_path ?? getArtifactString(artifact, 'entry_path')
+          const previewUrl = scope === 'candidate' && changeSetId
+            ? getCandidatePreviewUrl(
+                changeSetId,
+                entryPath,
+              )
+            : getWorkspacePreviewUrl(entryPath)
           return (
             <div className="message-artifact-action" key={artifact.id}>
               <Tag className="artifact-type">{artifact.type}</Tag>
               <span>{label}</span>
-              <Tag>{status}</Tag>
+              <Tag>人工预览</Tag>
               <Button
                 disabled={!previewUrl}
                 icon={<EyeOutlined />}
@@ -138,6 +220,82 @@ export function MessageArtifactActions({
               >
                 打开预览
               </Button>
+            </div>
+          )
+        }
+
+        if (artifact.type === 'change_set') {
+          const changeSetId = getArtifactString(artifact, 'change_set_id')
+          const changeSet = changeSets.find((item) => item.id === changeSetId)
+          const status = changeSet?.status ?? getArtifactString(artifact, 'status', 'generated')
+          const promoting = promotingChangeSetId === changeSetId
+          const canPromote = status === 'ready'
+          const reviewReport = changeSet?.review_report
+          const promoteLabel =
+            status === 'ready'
+              ? '合入 Workspace'
+              : status === 'promoted'
+                ? '已合入'
+                : ['failed', 'rejected', 'conflicted'].includes(status)
+                  ? '不可合入'
+                  : '等待审查'
+          return (
+            <div className="message-artifact-file-card" key={artifact.id}>
+              <div className="message-artifact-action">
+                <Tag className="artifact-type">change set</Tag>
+                <span>{changeSetId || label}</span>
+                <Tag>{getChangeSetStatusLabel(status)}</Tag>
+                {changeSetId && changeSet?.entry_path ? (
+                  <Button
+                    icon={<EyeOutlined />}
+                    onClick={() =>
+                      window.open(
+                        getCandidatePreviewUrl(changeSetId, changeSet.entry_path ?? undefined),
+                        '_blank',
+                        'noopener,noreferrer',
+                      )
+                    }
+                    size="small"
+                  >
+                    候选预览
+                  </Button>
+                ) : null}
+                <Button
+                  disabled={!canPromote || !changeSetId || promoting}
+                  icon={promoting ? <LoadingOutlined /> : <CheckCircleOutlined />}
+                  loading={promoting}
+                  onClick={() => void onPromoteChangeSet(changeSetId)}
+                  size="small"
+                  type="primary"
+                >
+                  {promoteLabel}
+                </Button>
+              </div>
+              {reviewReport ? (
+                <div className="change-set-validation-summary">
+                  <section>
+                    <div className="change-set-validation-heading">
+                      <strong>代码审查</strong>
+                      <Tag color={reviewReport.verdict === 'fail' ? 'error' : 'success'}>
+                        {getReviewVerdictLabel(reviewReport.verdict)}
+                      </Tag>
+                      <Tag>{getRiskLabel(reviewReport.risk_level)}</Tag>
+                    </div>
+                    <p>{reviewReport.summary}</p>
+                    {reviewReport.findings.length > 0 ? (
+                      <ul>
+                        {reviewReport.findings.map((finding, index) => (
+                          <li key={`${finding.category}-${index}`}>
+                            <strong>{finding.category}：</strong>
+                            {finding.message}
+                            {finding.path ? <code> ({finding.path})</code> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </section>
+                </div>
+              ) : null}
             </div>
           )
         }

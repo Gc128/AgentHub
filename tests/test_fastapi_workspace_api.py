@@ -1,19 +1,119 @@
 import os
 
+import pytest
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
 from agenthub.api.deps import reset_dependency_caches
+from agenthub.api.workspaces import re_review_change_set, reapply_change_set
 from agenthub.config import get_settings
 from agenthub.main import app
+from agenthub.schemas.change_set import ChangeSet
 from agenthub.workspace.diff import create_unified_diff
 
 
 def client() -> TestClient:
     os.environ["PERSISTENCE_BACKEND"] = "memory"
     os.environ["USE_MOCK_AGENTS"] = "true"
+    # Legacy endpoint coverage is explicit; production defaults keep it disabled.
+    os.environ["LEGACY_APPLY_DIFF_ENABLED"] = "true"
     get_settings.cache_clear()
     reset_dependency_caches()
     return TestClient(app)
+
+
+@pytest.mark.asyncio
+async def test_reapply_returns_candidate_before_background_validation() -> None:
+    candidate = ChangeSet(
+        id="changeset-reapply-candidate",
+        conversation_id="conv-reapply",
+        workspace_id="ws-reapply",
+        parent_change_set_id="changeset-original",
+        status="validating",
+        base_snapshot_sha256="base-hash",
+    )
+
+    class ReapplyService:
+        async def prepare_reapply(self, workspace_id: str, change_set_id: str) -> ChangeSet:
+            assert workspace_id == "ws-reapply"
+            assert change_set_id == "changeset-original"
+            return candidate
+
+    class ReapplyAgentService:
+        calls = 0
+
+        async def validate_existing_change_set(
+            self,
+            input_data: object,
+            change_set_id: str,
+        ) -> list[object]:
+            del input_data
+            assert change_set_id == candidate.id
+            self.calls += 1
+            return []
+
+    background_tasks = BackgroundTasks()
+    agent_service = ReapplyAgentService()
+    response = await reapply_change_set(
+        "ws-reapply",
+        "changeset-original",
+        background_tasks,
+        ReapplyService(),  # type: ignore[arg-type]
+        agent_service,  # type: ignore[arg-type]
+    )
+
+    assert response.change_set.id == candidate.id
+    assert response.change_set.status == "validating"
+    assert agent_service.calls == 0
+    await background_tasks()
+    assert agent_service.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_re_review_returns_child_before_background_review() -> None:
+    candidate = ChangeSet(
+        id="changeset-rereview-candidate",
+        conversation_id="conv-rereview",
+        workspace_id="ws-rereview",
+        parent_change_set_id="changeset-failed",
+        status="validating",
+        base_snapshot_sha256="base-hash",
+    )
+
+    class ReReviewService:
+        async def prepare_re_review(self, workspace_id: str, change_set_id: str) -> ChangeSet:
+            assert workspace_id == "ws-rereview"
+            assert change_set_id == "changeset-failed"
+            return candidate
+
+    class ReReviewAgentService:
+        calls = 0
+
+        async def validate_existing_change_set(
+            self,
+            input_data: object,
+            change_set_id: str,
+        ) -> list[object]:
+            del input_data
+            assert change_set_id == candidate.id
+            self.calls += 1
+            return []
+
+    background_tasks = BackgroundTasks()
+    agent_service = ReReviewAgentService()
+    response = await re_review_change_set(
+        "ws-rereview",
+        "changeset-failed",
+        background_tasks,
+        ReReviewService(),  # type: ignore[arg-type]
+        agent_service,  # type: ignore[arg-type]
+    )
+
+    assert response.change_set.id == candidate.id
+    assert response.change_set.parent_change_set_id == "changeset-failed"
+    assert agent_service.calls == 0
+    await background_tasks()
+    assert agent_service.calls == 1
 
 
 def test_workspace_preview_uses_preview_url_field() -> None:
@@ -26,6 +126,25 @@ def test_workspace_preview_uses_preview_url_field() -> None:
         "preview_url": None,
         "entry_path": None,
     }
+
+
+def test_legacy_apply_diff_is_disabled_without_explicit_opt_in(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
+    test_client = client()
+    monkeypatch.setenv("LEGACY_APPLY_DIFF_ENABLED", "false")
+    get_settings.cache_clear()
+
+    response = test_client.post(
+        "/api/workspaces/ws_legacy_disabled/apply-diff",
+        json={"artifact_id": "legacy", "diff": "not used"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "legacy_apply_diff_disabled"
+    assert not (tmp_path / "ws_legacy_disabled").exists()
 
 
 def test_workspace_file_write_list_read_and_apply_diff_flow(tmp_path, monkeypatch) -> None:

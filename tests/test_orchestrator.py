@@ -303,18 +303,27 @@ class TestCreatePlan:
     def test_orchestrator_mention_creates_full_demo_plan(self) -> None:
         plan = create_plan("@Orchestrator 帮我做一个 Todo 页面")
 
-        assert plan.agent_ids == [AGENT_CODE, AGENT_REVIEW, AGENT_PREVIEW]
+        assert plan.agent_ids == [AGENT_CODE, AGENT_REVIEW]
         assert all(
             "@Orchestrator 帮我做一个 Todo 页面" not in task.instruction for task in plan.tasks
         )
         assert "context.user_request" not in plan.tasks[0].instruction
         assert "开发需求" in plan.tasks[0].instruction
         assert "审查前序代码" in plan.tasks[1].instruction
-        assert "验证预览" in plan.tasks[2].instruction
 
     def test_code_intent_creates_harness_tasks(self) -> None:
         plan = create_plan("写一段代码然后帮我 review 一下")
 
-        assert plan.agent_ids == [AGENT_CODE, AGENT_REVIEW, AGENT_PREVIEW]
+        assert plan.agent_ids == [AGENT_CODE, AGENT_REVIEW]
         assert plan.tasks[1].depends_on == ["task-code"]
-        assert plan.tasks[2].depends_on == ["task-review"]
+
+    def test_development_display_word_does_not_add_preview_agent(self) -> None:
+        plan = create_plan("@Orchestrator 创建一个展示学生成绩的页面")
+
+        assert plan.agent_ids == [AGENT_CODE, AGENT_REVIEW]
+
+    def test_explicit_preview_agent_only_adds_manual_preview_task(self) -> None:
+        plan = create_plan("@Orchestrator 创建页面，然后 @PreviewAgent 打开预览")
+
+        assert plan.agent_ids == [AGENT_CODE, AGENT_REVIEW, AGENT_PREVIEW]
+        assert "不运行浏览器检查" in plan.tasks[-1].instruction

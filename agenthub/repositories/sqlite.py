@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Literal, cast
 
@@ -10,29 +11,48 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from agenthub.core.errors import NotFoundError
+from agenthub.models.change_set import (
+    ChangeSetFileRecord,
+    ChangeSetRecord,
+    ValidationRunRecord,
+)
 from agenthub.models.conversation import ConversationRecord
 from agenthub.models.custom_agent import CustomAgentRecord
+from agenthub.models.memory import MemorySummaryRecord
 from agenthub.models.message import MessageRecord
 from agenthub.models.workspace import (
     AppliedDiffRecordRow,
     WorkspaceFileRecord,
     WorkspacePreviewRecord,
 )
+from agenthub.repositories.change_set_repo import ChangeSetRepository
 from agenthub.repositories.conversation_repo import (
     ConversationRepository,
     ConversationStatusFilter,
 )
 from agenthub.repositories.custom_agent_repo import CustomAgentRepository
+from agenthub.repositories.memory_repo import MemorySummaryRepository
 from agenthub.repositories.message_repo import MessageRepository
 from agenthub.repositories.workspace_repo import WorkspaceRepository
 from agenthub.schemas.artifact import Artifact
+from agenthub.schemas.change_set import (
+    ChangeSet,
+    ChangeSetFile,
+    ChangeSetStatus,
+    ValidationKind,
+    ValidationRun,
+    ValidationStatus,
+)
 from agenthub.schemas.conversation import Conversation
 from agenthub.schemas.custom_agent import CustomAgent
+from agenthub.schemas.memory import MemorySummaryRecordSchema
 from agenthub.schemas.message import Message
+from agenthub.schemas.run import AgentRunError
 from agenthub.schemas.workspace import (
     AppliedDiffRecord,
     WorkspaceFileContent,
     WorkspacePreviewResponse,
+    WorkspacePreviewStatus,
 )
 
 
@@ -44,6 +64,7 @@ class _SqliteRepositoryMixin:
         _ensure_message_columns(self._engine)
         _ensure_workspace_preview_columns(self._engine)
         _ensure_applied_diff_columns(self._engine)
+        _ensure_change_set_file_columns(self._engine)
 
 
 def _ensure_conversation_columns(engine: Engine) -> None:
@@ -80,6 +101,12 @@ def _ensure_message_columns(engine: Engine) -> None:
             )
         if "deleted_at" not in column_names:
             connection.execute(text("ALTER TABLE messagerecord ADD COLUMN deleted_at DATETIME"))
+        if "status" not in column_names:
+            connection.execute(
+                text("ALTER TABLE messagerecord ADD COLUMN status VARCHAR DEFAULT 'completed'")
+            )
+        if "error_json" not in column_names:
+            connection.execute(text("ALTER TABLE messagerecord ADD COLUMN error_json VARCHAR"))
 
 
 def _ensure_workspace_preview_columns(engine: Engine) -> None:
@@ -119,6 +146,22 @@ def _ensure_applied_diff_columns(engine: Engine) -> None:
         if "reverted_at" not in column_names:
             connection.execute(
                 text("ALTER TABLE applieddiffrecordrow ADD COLUMN reverted_at DATETIME")
+            )
+        if "change_set_id" not in column_names:
+            connection.execute(
+                text("ALTER TABLE applieddiffrecordrow ADD COLUMN change_set_id VARCHAR")
+            )
+
+
+def _ensure_change_set_file_columns(engine: Engine) -> None:
+    if not engine.url.get_backend_name().startswith("sqlite"):
+        return
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(changesetfilerecord)")).mappings()
+        column_names = {str(column["name"]) for column in columns}
+        if column_names and "after_sha256" not in column_names:
+            connection.execute(
+                text("ALTER TABLE changesetfilerecord ADD COLUMN after_sha256 VARCHAR DEFAULT ''")
             )
 
 
@@ -239,6 +282,82 @@ class SqliteCustomAgentRepository(_SqliteRepositoryMixin, CustomAgentRepository)
             session.commit()
 
 
+class SqliteChangeSetRepository(_SqliteRepositoryMixin, ChangeSetRepository):
+    async def save(self, change_set: ChangeSet) -> ChangeSet:
+        with Session(self._engine) as session:
+            session.merge(_change_set_to_record(change_set))
+            for file_record in change_set.files:
+                session.merge(_change_set_file_to_record(file_record))
+            for validation in change_set.validations:
+                session.merge(_validation_to_record(validation))
+            session.commit()
+        return change_set
+
+    async def get(self, workspace_id: str, change_set_id: str) -> ChangeSet:
+        with Session(self._engine) as session:
+            record = session.get(ChangeSetRecord, change_set_id)
+            if record is None or record.workspace_id != workspace_id:
+                raise NotFoundError("change_set_not_found", "Change set does not exist.")
+            files = session.exec(
+                select(ChangeSetFileRecord).where(
+                    ChangeSetFileRecord.change_set_id == change_set_id
+                )
+            ).all()
+            validations = session.exec(
+                select(ValidationRunRecord).where(
+                    ValidationRunRecord.change_set_id == change_set_id
+                )
+            ).all()
+            return _change_set_from_record(record, files, validations)
+
+    async def list_by_workspace(self, workspace_id: str) -> list[ChangeSet]:
+        with Session(self._engine) as session:
+            records = session.exec(
+                select(ChangeSetRecord).where(ChangeSetRecord.workspace_id == workspace_id)
+            ).all()
+        values = [await self.get(workspace_id, record.id) for record in records]
+        return sorted(values, key=lambda item: item.created_at, reverse=True)
+
+    async def save_files(
+        self, change_set_id: str, files: list[ChangeSetFile]
+    ) -> list[ChangeSetFile]:
+        with Session(self._engine) as session:
+            if session.get(ChangeSetRecord, change_set_id) is None:
+                raise NotFoundError("change_set_not_found", "Change set does not exist.")
+            existing = session.exec(
+                select(ChangeSetFileRecord).where(
+                    ChangeSetFileRecord.change_set_id == change_set_id
+                )
+            ).all()
+            for record in existing:
+                session.delete(record)
+            for file_record in files:
+                session.add(_change_set_file_to_record(file_record))
+            session.commit()
+        return files
+
+    async def save_validation(self, validation: ValidationRun) -> ValidationRun:
+        with Session(self._engine) as session:
+            if session.get(ChangeSetRecord, validation.change_set_id) is None:
+                raise NotFoundError("change_set_not_found", "Change set does not exist.")
+            session.merge(_validation_to_record(validation))
+            session.commit()
+        return validation
+
+
+class SqliteMemorySummaryRepository(_SqliteRepositoryMixin, MemorySummaryRepository):
+    async def get(self, conversation_id: str) -> MemorySummaryRecordSchema | None:
+        with Session(self._engine) as session:
+            record = session.get(MemorySummaryRecord, conversation_id)
+            return _memory_summary_from_record(record) if record is not None else None
+
+    async def save(self, summary: MemorySummaryRecordSchema) -> MemorySummaryRecordSchema:
+        with Session(self._engine) as session:
+            session.merge(_memory_summary_to_record(summary))
+            session.commit()
+        return summary
+
+
 class SqliteWorkspaceRepository(_SqliteRepositoryMixin, WorkspaceRepository):
     async def get_preview(self, workspace_id: str) -> WorkspacePreviewResponse:
         with Session(self._engine) as session:
@@ -247,7 +366,7 @@ class SqliteWorkspaceRepository(_SqliteRepositoryMixin, WorkspaceRepository):
                 return WorkspacePreviewResponse(workspace_id=workspace_id, status="not_started")
             return WorkspacePreviewResponse(
                 workspace_id=record.workspace_id,
-                status=record.status,
+                status=cast(WorkspacePreviewStatus, record.status),
                 preview_url=record.preview_url,
                 entry_path=record.entry_path,
             )
@@ -363,6 +482,10 @@ def _message_to_record(message: Message) -> MessageRecord:
         regenerated_from_id=message.regenerated_from_id,
         is_context_pinned=message.is_context_pinned,
         deleted_at=message.deleted_at,
+        status=message.status,
+        error_json=json.dumps(message.error.model_dump(mode="json"), ensure_ascii=False)
+        if message.error is not None
+        else None,
         created_at=message.created_at,
     )
 
@@ -374,6 +497,7 @@ def _message_from_record(record: MessageRecord) -> Message:
         if isinstance(artifacts_payload, list)
         else []
     )
+    error_payload = json.loads(record.error_json) if record.error_json else None
     return Message(
         id=record.id,
         conversation_id=record.conversation_id,
@@ -385,6 +509,8 @@ def _message_from_record(record: MessageRecord) -> Message:
         regenerated_from_id=record.regenerated_from_id,
         is_context_pinned=record.is_context_pinned,
         deleted_at=_ensure_utc(record.deleted_at) if record.deleted_at else None,
+        status=cast(Literal["streaming", "completed", "failed"], record.status or "completed"),
+        error=AgentRunError.model_validate(error_payload) if error_payload else None,
         created_at=_ensure_utc(record.created_at),
     )
 
@@ -451,6 +577,7 @@ def _applied_diff_to_record(record: AppliedDiffRecord) -> AppliedDiffRecordRow:
         before_content=record.before_content,
         after_content=record.after_content,
         before_exists=record.before_exists,
+        change_set_id=record.change_set_id,
         reverted_at=record.reverted_at,
         applied_at=record.applied_at,
     )
@@ -466,8 +593,142 @@ def _applied_diff_from_record(record: AppliedDiffRecordRow) -> AppliedDiffRecord
         before_content=record.before_content,
         after_content=record.after_content,
         before_exists=record.before_exists,
+        change_set_id=record.change_set_id,
         reverted_at=_ensure_utc(record.reverted_at) if record.reverted_at else None,
         applied_at=_ensure_utc(record.applied_at),
+    )
+
+
+def _change_set_to_record(change_set: ChangeSet) -> ChangeSetRecord:
+    return ChangeSetRecord(
+        id=change_set.id,
+        conversation_id=change_set.conversation_id,
+        workspace_id=change_set.workspace_id,
+        source_message_id=change_set.source_message_id,
+        parent_change_set_id=change_set.parent_change_set_id,
+        status=change_set.status,
+        base_snapshot_sha256=change_set.base_snapshot_sha256,
+        repair_count=change_set.repair_count,
+        entry_path=change_set.entry_path,
+        preview_checks_json=json.dumps(
+            [item.model_dump(mode="json") for item in change_set.preview_checks],
+            ensure_ascii=False,
+        ),
+        review_report_json=json.dumps(
+            change_set.review_report.model_dump(mode="json"), ensure_ascii=False
+        )
+        if change_set.review_report is not None
+        else None,
+        preview_report_json=json.dumps(
+            change_set.preview_report.model_dump(mode="json"), ensure_ascii=False
+        )
+        if change_set.preview_report is not None
+        else None,
+        created_at=change_set.created_at,
+        updated_at=change_set.updated_at,
+        promoted_at=change_set.promoted_at,
+    )
+
+
+def _change_set_from_record(
+    record: ChangeSetRecord,
+    files: Sequence[ChangeSetFileRecord],
+    validations: Sequence[ValidationRunRecord],
+) -> ChangeSet:
+    from agenthub.schemas.agent import PreviewCheck, PreviewReport, ReviewReport
+
+    checks_payload = json.loads(record.preview_checks_json)
+    review_payload = json.loads(record.review_report_json) if record.review_report_json else None
+    preview_payload = json.loads(record.preview_report_json) if record.preview_report_json else None
+    return ChangeSet(
+        id=record.id,
+        conversation_id=record.conversation_id,
+        workspace_id=record.workspace_id,
+        source_message_id=record.source_message_id,
+        parent_change_set_id=record.parent_change_set_id,
+        status=cast(ChangeSetStatus, record.status),
+        base_snapshot_sha256=record.base_snapshot_sha256,
+        repair_count=record.repair_count,
+        entry_path=record.entry_path,
+        preview_checks=[PreviewCheck.model_validate(item) for item in checks_payload],
+        review_report=ReviewReport.model_validate(review_payload) if review_payload else None,
+        preview_report=PreviewReport.model_validate(preview_payload) if preview_payload else None,
+        files=[_change_set_file_from_record(item) for item in files],
+        validations=[_validation_from_record(item) for item in validations],
+        created_at=_ensure_utc(record.created_at),
+        updated_at=_ensure_utc(record.updated_at),
+        promoted_at=_ensure_utc(record.promoted_at) if record.promoted_at else None,
+    )
+
+
+def _change_set_file_to_record(file_record: ChangeSetFile) -> ChangeSetFileRecord:
+    return ChangeSetFileRecord(**file_record.model_dump())
+
+
+def _change_set_file_from_record(record: ChangeSetFileRecord) -> ChangeSetFile:
+    return ChangeSetFile(
+        id=record.id,
+        change_set_id=record.change_set_id,
+        path=record.path,
+        operation=cast(Literal["upsert", "delete"], record.operation),
+        before_exists=record.before_exists,
+        before_sha256=record.before_sha256,
+        before_content=record.before_content,
+        after_content=record.after_content,
+        after_sha256=record.after_sha256,
+        diff=record.diff,
+    )
+
+
+def _validation_to_record(validation: ValidationRun) -> ValidationRunRecord:
+    return ValidationRunRecord(
+        id=validation.id,
+        change_set_id=validation.change_set_id,
+        kind=validation.kind,
+        attempt=validation.attempt,
+        status=validation.status,
+        report_json=json.dumps(validation.report, ensure_ascii=False),
+        error_code=validation.error_code,
+        error_message=validation.error_message,
+        started_at=validation.started_at,
+        completed_at=validation.completed_at,
+    )
+
+
+def _validation_from_record(record: ValidationRunRecord) -> ValidationRun:
+    return ValidationRun(
+        id=record.id,
+        change_set_id=record.change_set_id,
+        kind=cast(ValidationKind, record.kind),
+        attempt=record.attempt,
+        status=cast(ValidationStatus, record.status),
+        report=json.loads(record.report_json),
+        error_code=record.error_code,
+        error_message=record.error_message,
+        started_at=_ensure_utc(record.started_at),
+        completed_at=_ensure_utc(record.completed_at) if record.completed_at else None,
+    )
+
+
+def _memory_summary_to_record(summary: MemorySummaryRecordSchema) -> MemorySummaryRecord:
+    return MemorySummaryRecord(
+        conversation_id=summary.conversation_id,
+        up_to_message_id=summary.up_to_message_id,
+        summary_json=json.dumps(summary.summary.model_dump(mode="json"), ensure_ascii=False),
+        status=summary.status,
+        error_message=summary.error_message,
+        updated_at=summary.updated_at,
+    )
+
+
+def _memory_summary_from_record(record: MemorySummaryRecord) -> MemorySummaryRecordSchema:
+    return MemorySummaryRecordSchema(
+        conversation_id=record.conversation_id,
+        up_to_message_id=record.up_to_message_id,
+        summary=json.loads(record.summary_json),
+        status=cast(Literal["ready", "failed"], record.status),
+        error_message=record.error_message,
+        updated_at=_ensure_utc(record.updated_at),
     )
 
 

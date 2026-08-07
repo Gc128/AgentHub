@@ -1,79 +1,69 @@
-# AgentHub Demo Script
+# AgentHub Review-Only Demo
 
 ## 准备
 
-1. 启动 FastAPI 后端，确认前端 `VITE_API_BASE_URL` 指向 `http://127.0.0.1:8000`。
-2. 启动 React 前端。
-3. 打开页面后确认没有 Mock Agent 警告；如果是 mock 模式，说明当前是离线演示。
+```bash
+python -m pip install -e ".[dev]"
+alembic upgrade head
+python -m uvicorn agenthub.main:app --host 127.0.0.1 --port 8000
+```
 
-## 演示一：开发任务主链路
+另开终端运行 `cd frontend && npm install && npm run dev`。无需安装 Chromium。
 
-1. 新建会话：`Todo App Development`。
-2. 选择内置 Agent：Orchestrator、Code Agent、Review Agent、Preview Agent。
-3. 发送：
+## 场景一：成功链路
 
-   ```txt
-   @Orchestrator 帮我做一个简洁的 Todo List 网页，支持新增、完成、删除和筛选。
+1. 新建包含 Orchestrator、Code 和 Review 的会话。
+2. 发送：
+
+   ```text
+   @Orchestrator 创建一个静态 Todo 页面，支持新增、完成、删除、筛选和 localStorage，不引用外部资源。
    ```
 
-4. 展示用户消息立即出现，Agent 回复按 SSE 一段段流式输出。
-5. 展示 Orchestrator 的任务拆解：Code、Review、Preview 各自职责明确。
-6. 展示 Code Agent 的 Markdown 说明、code artifact 和 diff artifact。
-7. 点击 Apply Diff，说明代码被写入真实 workspace。
-8. 在右侧 Workspace 中打开 preview，确认页面来自当前 `entry_path`。
-9. 展示 Review Agent 检查结果和 Preview Agent 预览状态。
-10. 点击已应用 Diff 的 Revert，说明可以回退到应用前代码。
+3. 展示 Orchestrator 的 `Code → Review` 分工。
+4. 展示候选文件清单与后端 Diff，确认正式 Workspace 尚未变化。
+5. 展示 Review 报告和 `ready`。
+6. 在大弹窗打开人工隔离预览，操作页面确认效果。
+7. 点击“合入 Workspace”，展示正式文件和 Preview 更新。
+8. 整组 Revert，确认恢复到合入前。
 
-## 演示二：IM 核心能力
+## 场景二：有证据的 Review blocker
 
-1. 在同一个会话中回复某条 Agent 消息，展示输入框上方的引用预览。
-2. 复制一条消息，展示复制提示。
-3. Pin 一条需求消息，说明它会作为长期上下文进入后续 Agent 输入。
-4. 软删除一条消息，展示时间线位置保留，但正文和 artifacts 被隐藏。
-5. 对某条用户消息点击重新生成，展示不会重复创建用户消息，只追加新的 Agent 回复。
-6. 归档会话，再切换到 archived/all 筛选展示恢复能力。
+让首个候选明确漏掉一项需求，观察：
 
-## 演示三：自建 Agent
+```text
+Review blocker（验收项 + 文件 + 代码证据）
+→ needs_fix
+→ Code Agent 修复一次
+→ 子 Change Set
+→ 静态检查 + Review
+→ ready 或 failed
+```
 
-1. 点击左侧 Agent 区的“管理”。
-2. 新建自建 Agent：
+缺少上述证据的 high/warning 只展示，不会阻止合入。
 
-   - 名称：`需求澄清 Agent`
-   - 描述：`帮助用户把模糊需求拆成可执行问题`
-   - 能力标签：`clarify, product`
-   - 系统提示词：
+## 场景三：确定性静态失败
 
-     ```txt
-     你是 AgentHub 的需求澄清 Agent。你不直接写代码，而是把用户的模糊需求整理成 3 个关键问题，并给出建议的下一步。
-     ```
+要求页面引用 `https://example.com/app.js` 或一个不存在的本地 CSS。展示后端以具体文件和引用为证据阻止，而不是根据风格或 DOM 猜测报错。
 
-3. 点击测试 Agent，输入：`我想做一个学生成绩管理页面`。
-4. 保存并启用 Agent。
-5. 在会话成员管理中加入 `需求澄清 Agent`。
-6. 在输入框输入或从 @ 菜单选择：
+## 场景四：无伪造成功的基础设施失败
 
-   ```txt
-   @需求澄清Agent 我想做一个学生成绩管理页面
-   ```
+使模型连续返回非法 Schema，或配置不可用模型：
 
-7. 展示自建 Agent 按系统提示词回复。
-8. 禁用该 Agent，展示它不再出现在新会话成员候选和 @ 菜单中。
+- SSE 为 `agent_failed`，消息 `status=failed`；
+- 不出现假 Code/Review/Preview 产物；
+- 不触发代码修复；
+- 正式 Workspace 不变。
 
-## 演示四：继续迭代
+## 场景五：历史候选重新审查
 
-1. 回到开发会话，发送一个小改动：
+1. 选择一条历史 `failed` Change Set。
+2. 点击“重新代码审查”。
+3. 确认系统创建新子 Change Set，旧记录不变。
+4. 新候选通过后再手动 Promote。
 
-   ```txt
-   @CodeAgent 把 Todo 页面改成深浅主题切换，并保留现有交互。
-   ```
+## 面试讲解重点
 
-2. 展示 Code Agent 新 diff。
-3. Apply Diff 后刷新 preview。
-4. 说明同一个 workspace 支持多轮对话迭代和回退。
-
-## 讲解重点
-
-- 前端只负责 IM 体验、SSE 消费和 artifact 操作；后端负责真实执行闭环。
-- Orchestrator harness 让多 Agent 协作可观察、可校验、可重试。
-- Apply Diff 与 Preview 操作的是同一份真实 workspace 文件。
-- 自建 Agent 第一版配置系统提示词，复用全局 LLM 后端，不保存用户密钥。
+- LLM 是候选生成者，不是正式 Workspace 直接修改者。
+- 只有确定性静态问题和有证据 Review blocker 可阻塞。
+- 人工 Preview 与状态门禁解耦，避免自动 UI 检查误报。
+- Promote 前做候选哈希和 before hash 复核，解决“审查内容”与“合入内容”一致性。

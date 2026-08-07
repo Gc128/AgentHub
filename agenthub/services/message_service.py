@@ -7,7 +7,9 @@ from agenthub.repositories.conversation_repo import ConversationRepository
 from agenthub.repositories.message_repo import MessageRepository
 from agenthub.schemas.agent import AgentRunInput, AgentRunResult
 from agenthub.schemas.message import Message, MessageCreate, MessageSendResponse
+from agenthub.schemas.run import AgentErrorCategory, AgentRunError
 from agenthub.services.agent_service import AgentService
+from agenthub.services.memory_service import MemoryContextService
 from agenthub.utils.ids import new_id
 
 
@@ -17,10 +19,12 @@ class MessageService:
         conversation_repository: ConversationRepository,
         message_repository: MessageRepository,
         agent_service: AgentService,
+        memory_context_service: MemoryContextService | None = None,
     ) -> None:
         self._conversation_repository = conversation_repository
         self._message_repository = message_repository
         self._agent_service = agent_service
+        self._memory_context_service = memory_context_service
 
     async def list_messages(self, conversation_id: str) -> list[Message]:
         await self._conversation_repository.get(conversation_id)
@@ -64,19 +68,26 @@ class MessageService:
         agent_messages: list[Message] = []
         if request.run_agent:
             history = await self._message_repository.list_by_conversation(conversation_id)
+            prepared_history, prepared_context = await self._prepare_memory_context(
+                conversation_id=conversation_id,
+                workspace_id=conversation.workspace_id,
+                user_message=request.content,
+                history=history,
+                reply_to_id=request.reply_to_id,
+            )
             results = await self._agent_service.run_for_message(
                 AgentRunInput(
                     conversation_id=conversation_id,
                     workspace_id=conversation.workspace_id,
                     user_message=request.content,
-                    history=_active_history(history),
-                    context=await self._build_context(
-                        conversation_id,
-                        reply_to_id=request.reply_to_id,
-                    ),
+                    history=prepared_history,
+                    context={**prepared_context, "source_message_id": user_message.id},
                 )
             )
             for result in results:
+                failed = result.error is not None or (
+                    result.content.startswith("Agent ") and " failed:" in result.content
+                )
                 agent_message = Message(
                     id=new_id("msg"),
                     conversation_id=conversation_id,
@@ -84,6 +95,8 @@ class MessageService:
                     sender_id=result.agent_id,
                     content=result.content,
                     artifacts=result.artifacts,
+                    status="failed" if failed else "completed",
+                    error=_error_from_failed_result(result) if failed else None,
                     created_at=datetime.now(UTC),
                 )
                 await self._message_repository.save(agent_message)
@@ -111,21 +124,26 @@ class MessageService:
 
         history = await self._message_repository.list_by_conversation(conversation_id)
         agent_messages: list[Message] = []
+        prepared_history, prepared_context = await self._prepare_memory_context(
+            conversation_id=conversation_id,
+            workspace_id=conversation.workspace_id,
+            user_message=request.content,
+            history=history,
+            reply_to_id=request.reply_to_id,
+        )
         stream_input = AgentRunInput(
             conversation_id=conversation_id,
             workspace_id=conversation.workspace_id,
             user_message=request.content,
-            history=_active_history(history),
-            context=await self._build_context(
-                conversation_id,
-                reply_to_id=request.reply_to_id,
-            ),
+            history=prepared_history,
+            context={**prepared_context, "source_message_id": user_message.id},
         )
         async for event, data in self._agent_service.stream_for_message(stream_input):
             if event == "agent_done":
                 result_payload = data.get("result")
                 if isinstance(result_payload, dict):
                     agent_result = self._agent_result_from_payload(result_payload)
+                    error_payload = data.get("error")
                     agent_message = Message(
                         id=new_id("msg"),
                         conversation_id=conversation_id,
@@ -143,6 +161,30 @@ class MessageService:
                             "message": agent_message.model_dump(mode="json"),
                             "result": agent_result.model_dump(mode="json"),
                         },
+                    )
+                    continue
+            if event == "agent_failed":
+                result_payload = data.get("result")
+                if isinstance(result_payload, dict):
+                    agent_result = self._agent_result_from_payload(result_payload)
+                    agent_message = Message(
+                        id=new_id("msg"),
+                        conversation_id=conversation_id,
+                        role="agent",
+                        sender_id=agent_result.agent_id,
+                        content=agent_result.content,
+                        artifacts=[],
+                        status="failed",
+                        error=AgentRunError.model_validate(error_payload)
+                        if isinstance(error_payload, dict)
+                        else None,
+                        created_at=datetime.now(UTC),
+                    )
+                    await self._message_repository.save(agent_message)
+                    agent_messages.append(agent_message)
+                    yield _format_sse(
+                        "agent_failed",
+                        {**data, "message": agent_message.model_dump(mode="json")},
                     )
                     continue
             yield _format_sse(event, data)
@@ -211,13 +253,19 @@ class MessageService:
 
         history = await self._message_repository.list_by_conversation(conversation_id)
         history_before_target = _messages_before(history, message_id)
+        prepared_history, prepared_context = await self._prepare_memory_context(
+            conversation_id=conversation_id,
+            workspace_id=conversation.workspace_id,
+            user_message=target_message.content,
+            history=history_before_target,
+        )
         agent_messages: list[Message] = []
         stream_input = AgentRunInput(
             conversation_id=conversation_id,
             workspace_id=conversation.workspace_id,
             user_message=target_message.content,
-            history=_active_history(history_before_target),
-            context=await self._build_context(conversation_id),
+            history=prepared_history,
+            context={**prepared_context, "source_message_id": target_message.id},
         )
         yield _format_sse(
             "harness_step",
@@ -231,6 +279,7 @@ class MessageService:
                 result_payload = data.get("result")
                 if isinstance(result_payload, dict):
                     agent_result = self._agent_result_from_payload(result_payload)
+                    error_payload = data.get("error")
                     agent_message = Message(
                         id=new_id("msg"),
                         conversation_id=conversation_id,
@@ -249,6 +298,31 @@ class MessageService:
                             "message": agent_message.model_dump(mode="json"),
                             "result": agent_result.model_dump(mode="json"),
                         },
+                    )
+                    continue
+            if event == "agent_failed":
+                result_payload = data.get("result")
+                if isinstance(result_payload, dict):
+                    agent_result = self._agent_result_from_payload(result_payload)
+                    agent_message = Message(
+                        id=new_id("msg"),
+                        conversation_id=conversation_id,
+                        role="agent",
+                        sender_id=agent_result.agent_id,
+                        content=agent_result.content,
+                        artifacts=[],
+                        status="failed",
+                        error=AgentRunError.model_validate(error_payload)
+                        if isinstance(error_payload, dict)
+                        else None,
+                        regenerated_from_id=target_message.id,
+                        created_at=datetime.now(UTC),
+                    )
+                    await self._message_repository.save(agent_message)
+                    agent_messages.append(agent_message)
+                    yield _format_sse(
+                        "agent_failed",
+                        {**data, "message": agent_message.model_dump(mode="json")},
                     )
                     continue
             yield _format_sse(event, data)
@@ -281,6 +355,32 @@ class MessageService:
             context["reply_to_id"] = reply_to_id
         return context
 
+    async def _prepare_memory_context(
+        self,
+        *,
+        conversation_id: str,
+        workspace_id: str,
+        user_message: str,
+        history: list[Message],
+        reply_to_id: str | None = None,
+    ) -> tuple[list[Message], dict[str, object]]:
+        if self._memory_context_service is None:
+            return _active_history(history), await self._build_context(
+                conversation_id, reply_to_id=reply_to_id
+            )
+        pinned = await self._message_repository.list_pinned_by_conversation(conversation_id)
+        prepared = await self._memory_context_service.prepare(
+            conversation_id=conversation_id,
+            workspace_id=workspace_id,
+            user_message=user_message,
+            messages=history,
+            pinned_messages=pinned,
+        )
+        context = dict(prepared.context)
+        if reply_to_id is not None:
+            context["reply_to_id"] = reply_to_id
+        return prepared.history, context
+
 
 def _active_history(messages: list[Message]) -> list[Message]:
     return [message for message in messages if message.deleted_at is None]
@@ -295,3 +395,33 @@ def _messages_before(messages: list[Message], message_id: str) -> list[Message]:
 
 def _format_sse(event: str, data: object) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _error_from_failed_result(result: AgentRunResult) -> AgentRunError:
+    if result.error is not None:
+        return result.error
+    content = result.content.lower()
+    category: AgentErrorCategory = "validation"
+    code = "agent_validation_failed"
+    retryable = False
+    if "preview" in content or "workspace" in content or "change set" in content:
+        category = "workspace"
+        code = "agent_workspace_failed"
+    elif "结构" in content or "schema" in content or "parse" in content:
+        category = "schema"
+        code = "agent_schema_failed"
+    elif ".env" in content or "api_key" in content:
+        category = "configuration"
+        code = "agent_configuration_failed"
+    elif "network" in content or "timeout" in content or "429" in content:
+        category = "transport"
+        code = "agent_transport_failed"
+        retryable = True
+    return AgentRunError(
+        code=code,
+        category=category,
+        message=result.content,
+        retryable=retryable,
+        run_id=new_id("run"),
+        agent_id=result.agent_id,
+    )

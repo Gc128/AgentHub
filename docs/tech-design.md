@@ -1,162 +1,95 @@
 # AgentHub Technical Design
 
-## 架构概览
+## 1. 系统边界
 
-AgentHub 当前默认链路是 React 前端 + FastAPI 后端 + SQLite/memory repository + LangChain-backed Agent Adapter。前端只负责 UI、输入、SSE 消费和 artifact 操作；后端负责会话、消息、Agent 调度、workspace 文件、diff 应用与 preview 路由。
+AgentHub 当前支持静态 HTML/CSS/JavaScript。React 负责会话、候选状态和人工隔离预览；FastAPI 负责 Agent 调度、Change Set、静态安全检查、Review 门禁与 Promote；SQLite 保存会话、候选、Review、记忆和 Applied Diff。
 
-核心后端模块：
+系统不运行模型给出的 shell、构建命令或任意 JavaScript，不自动启动浏览器进行验收。
 
-- `agenthub/api/*`：FastAPI route，保持薄接口层。
-- `agenthub/services/*`：会话、消息、Agent、workspace 业务逻辑。
-- `agenthub/repositories/*`：memory 与 SQLite 数据访问。
-- `agenthub/agents/*`：Agent Adapter、真实 LLM、Mock、自建 Agent adapter。
-- `agenthub/orchestrator/*`：路由、决策模型、harness 校验。
-- `agenthub/workspace/*`：路径安全、diff、preview 页面和静态资源。
+## 2. Agent 契约与错误语义
 
-## API 合约
+- `OrchestratorDecision`：模式、任务依赖和稳定 ID 验收标准。
+- `CodeGenerationResult`：摘要和完整候选文件，不接受模型 Diff 或浏览器检查。
+- `ReviewReport`：verdict、风险、findings 和验收覆盖。
+- Preview artifact：只包含 `available`、`scope`、workspace/change-set ID 和入口路径。
 
-会话 API：
+外部模型 timeout/429/5xx 最多重试一次，JSON/Pydantic 错误最多请求一次格式修复。最终失败以 `AgentRunError` 和 `Message.status=failed` 返回，Mock 仅在 `USE_MOCK_AGENTS=true` 时启用。
 
-- `GET /api/conversations?status=active|archived|all`
-- `POST /api/conversations`
-- `GET /api/conversations/{id}`
-- `PATCH /api/conversations/{id}`
-- `DELETE /api/conversations/{id}`
+## 3. Change Set 状态机
 
-消息 API：
-
-- `GET /api/conversations/{conversation_id}/messages`
-- `POST /api/conversations/{conversation_id}/messages`
-- `POST /api/conversations/{conversation_id}/messages/run`
-- `POST /api/conversations/{conversation_id}/messages/stream`
-- `DELETE /api/conversations/{conversation_id}/messages/{message_id}`
-- `POST|DELETE /api/conversations/{conversation_id}/messages/{message_id}/pin-context`
-- `POST /api/conversations/{conversation_id}/messages/{message_id}/regenerate/stream`
-
-Agent API：
-
-- `GET /api/agents`：返回内置 Agent 和启用中的自建 Agent。
-- `GET /api/agents/runtime`：返回 provider/model/base_url_host/api_key_configured，不返回密钥。
-- `POST /api/agents/run`、`POST /api/agents/stream`：调试和直接运行 Agent。
-- `GET /api/agents/custom`
-- `POST /api/agents/custom`
-- `PATCH /api/agents/custom/{agent_id}`
-- `DELETE /api/agents/custom/{agent_id}`
-- `POST /api/agents/custom/{agent_id}/test`
-
-Workspace API：
-
-- `GET /api/workspaces/{workspace_id}/files`
-- `GET /api/workspaces/{workspace_id}/files/content?path=...`
-- `DELETE /api/workspaces/{workspace_id}/files?path=...`
-- `GET /api/workspaces/{workspace_id}/preview`
-- `GET /api/workspaces/{workspace_id}/preview-page?path=...`
-- `GET /api/workspaces/{workspace_id}/preview-assets/{path}`
-- `POST /api/workspaces/{workspace_id}/apply-diff`
-- `GET /api/workspaces/{workspace_id}/applied-diffs`
-- `POST /api/workspaces/{workspace_id}/applied-diffs/{record_id}/revert`
-
-## SSE 事件协议
-
-`/messages/stream` 和 regenerate stream 使用固定事件名：
-
-- `user_message`：用户消息已保存。
-- `harness_step`：Orchestrator 或单 Agent 当前阶段。
-- `agent_started`：前端创建 Agent 草稿气泡。
-- `agent_delta`：追加可见文本增量。
-- `artifact`：发送结构化 artifact。
-- `agent_done`：后端已落盘最终 Agent message，前端替换草稿。
-- `error`：可读错误。
-- `done`：本次运行结束。
-
-前端按 `conversationId` 隔离运行状态、draft、消息缓存和生成提示，避免切换会话时互相污染。
-
-## 数据模型
-
-`Conversation` 增加 `status=active|archived`，归档只影响列表可见性，不删除消息或 workspace。
-
-`Message` 支持 `reply_to_id`、`regenerated_from_id`、`is_context_pinned`、`deleted_at`。软删除消息保留时间线位置，清空 artifacts，并从 Agent history 中过滤；pinned 消息通过 `context.pinned_messages` 注入 Agent 输入。
-
-`CustomAgent` 字段：
-
-- `id`：后端生成，`custom-agent_*` 前缀。
-- `name`、`description`
-- `system_prompt`：自建 Agent 的角色提示词，必填。
-- `capabilities`
-- `is_enabled`
-- `created_at`、`updated_at`
-
-SQLite 对自建 Agent 使用独立 `customagentrecord` 表，不改动 workspace/diff/preview 既有表。
-
-## Agent Adapter
-
-业务层只依赖 `AgentRunInput` 和 `AgentRunResult`，不直接耦合供应商 SDK。当前 Adapter：
-
-- `LangChainAgent` / `RealAgent`：基于 LangChain `ChatOpenAI` 的 OpenAI-compatible 调用、timeout、stream、结构化解析和 repair。
-- `MockAgent`：离线测试和 demo 的确定性输出。
-- `CodeAgent`、`ReviewAgent`、`PreviewAgent`：包装 LangChain-backed `RealAgent` 并补充角色校验。
-- `OrchestratorAdapter`：调用 LLM 生成 `OrchestratorDecision`。
-- `CustomAgentAdapter`：读取自建 Agent 的 `system_prompt`；真实模式下请求文本，Mock 模式下返回可识别回复。
-
-内置 Orchestrator 自动开发计划仍只调度 `code-agent`、`review-agent`、`preview-agent`。自建 Agent 仅在用户显式 `@名称` 或 `context.agent_id` 指定时运行。
-
-## Orchestrator Harness
-
-开发任务执行流程：
-
-```txt
-Orchestrator decision -> plan message -> run step -> verify artifacts -> retry once -> continue/fail
+```text
+generated → staging → validating → ready → promoting → promoted
+                              ↘ needs_fix → validating
+                              ↘ failed / rejected / conflicted
 ```
 
-默认校验：
+Code Agent 返回文件后，后端：
 
-- Code Agent 必须返回 code/diff。
-- Review Agent 必须返回 review/risk 类产物或可读 findings。
-- Preview Agent 必须返回 preview artifact/status。
+1. 规范化相对路径，保存正式 Workspace before 内容与 hash。
+2. 复制正式 Workspace 到 `.agenthub/staging/{change_set_id}`。
+3. 应用 upsert/delete，保存 after 内容与 hash，由后端生成 unified diff。
+4. 对同一候选快照执行静态安全检查和 Review。
+5. Review `pass/pass_with_warnings` 置 `ready`；有证据 blocker 置 `needs_fix/failed`。
 
-Schema 失败不会直接裸露 JSON 错误。真实 Agent 会尝试 repair、归一化常见 LLM 输出形状；最终失败时返回可读错误消息。
+Promote 只接受 `ready`：重新比较 before hash 和候选 hash，写入使用同目录临时文件与 `os.replace`，多文件中途失败会按 before snapshot 回滚。
 
-## Workspace 与 Preview
+## 4. 确定性静态检查
 
-Workspace 文件操作全部限制在 `WORKSPACE_ROOT` 内。Apply Diff 写入真实文件，并记录 `AppliedDiffRecord`，包含 `artifact_id`、`path`、before/after 内容和 `reverted_at`。Revert Diff 使用记录中的 before 内容恢复。
+`StaticCandidateInspector` 只阻止能从候选快照确定的问题：
 
-Preview API 以 workspace 中的 HTML 入口为准，Apply Diff 会返回 `preview_url` 和 `entry_path`。`preview-page?path=...` 支持嵌套 HTML 文件，并按入口目录注入资源 base，保证工作区预览与代码 artifact 对应。
+- 路径必须在 Workspace 内，Staging 不允许符号链接。
+- 候选不能为空、不能包含 NUL，静态 Web 必须有 HTML 入口。
+- HTML/CSS 引用的本地资源必须存在。
+- 拒绝 `http://`、`https://`、协议相对 URL 和其他外部 scheme。
+- Review 前和 Promote 前都复核候选 hash。
 
-## 前端实现
+括号数量、DOM 选择器风格、可能的运行时行为等启发式判断不作为静态 blocker。
 
-React 前端维护：
+## 5. Review 门禁
 
-- `messagesByConversationId`
-- `agentRunningByConversationId`
-- `generationNoticeByConversationId`
-- 当前 workspace preview/files/applied diff 状态
-- 自建 Agent 管理弹窗状态
+Review blocker 必须同时包含：
 
-消息输入支持当前会话成员范围内的 `@` 菜单；自建 Agent 启用并加入会话后，会出现在成员选择和 `@` 菜单中。自建 Agent 管理弹窗支持创建、编辑、启用/禁用、删除和测试调用。
+- 当前验收标准的 `criterion_id`；
+- 候选文件 `path`；
+- 可核对的具体 `evidence`。
 
-## 配置与验证
+不完整的 blocker 降级为 high 警告，不阻止。Review 未覆盖任一验收项时返回 `review_contract_failed`，该失败不进入代码修复循环。只有有效 blocker 可触发一次 Code Agent 修复和完整重审。
 
-默认真实模型配置来自 `.env`：
+## 6. 人工隔离预览
 
-- `USE_MOCK_AGENTS`
-- `AGENT_PROVIDER`
-- `AGENT_MODEL`
-- `AGENT_BASE_URL`
-- `OPENAI_API_KEY`
-- `AGENT_RESPONSE_FORMAT`
-- `AGENT_ALLOW_FALLBACKS`
+Preview 是人工查看能力，不是状态门禁。前端 iframe 和新窗口 URL 只由 API client 使用 workspace/change-set ID 构造。显式 `@PreviewAgent` 只返回候选或正式 Workspace 的入口，无入口时返回 `preview_not_available`，不写入 Review/PreviewReport 也不改变 Change Set 状态。
 
-真实模式下不再保留手写 `httpx` 直连 LLM 路径；`USE_MOCK_AGENTS=false` 时内置 Agent 和自建 Agent 都通过 LangChain `ChatOpenAI` 调用供应商。
-`AGENT_ALLOW_FALLBACKS=false` 时，Orchestrator/Code/Review/Preview 不会把结构化失败静默替换成本地规则或硬编码产物。
+历史 `PreviewReport` 和截图字段/路由仅为旧数据读取保留，新流程不再写入。终态候选的 Staging 已清理时，人工预览从不可变 `after_content` 读取。
 
-前端默认连接 `http://127.0.0.1:8000`。如果连接 Mock 后端，UI 会显示明显提醒。
+## 7. 历史候选和重新应用
 
-常规验证命令：
+- `re-review`：仅允许 `failed` 且快照完整的候选，创建新子 Change Set，基于当前 Workspace 重算 before hash/Diff，只做静态检查与 Review。
+- `reapply`：整组 Revert 后创建新候选，也执行 Review-only 流程，不直接写回旧 Diff。
+
+两者都不修改原 Change Set 审计记录。
+
+## 8. 会话记忆、API 与 SSE
+
+`MemoryContextBuilder` 按系统提示词、当前请求、Pin、有效摘要、最近 20 条短期消息、Workspace 与活跃 Change Set 组装上下文。短期窗口由 `SHORT_TERM_CONTEXT_MESSAGES` 配置；每累计 `MEMORY_SUMMARY_TRIGGER_MESSAGES=20` 条新消息时增量更新长期摘要，但仍重叠保留最近 20 条原文。当前用户请求和 Pin 使用独立位置与预算；短期原文超出 token 预算时显式返回 `memory_context_overflow`。
+
+```text
+POST /api/workspaces/{workspace_id}/change-sets/{change_set_id}/promote
+POST /api/workspaces/{workspace_id}/change-sets/{change_set_id}/revert
+POST /api/workspaces/{workspace_id}/change-sets/{change_set_id}/reapply
+POST /api/workspaces/{workspace_id}/change-sets/{change_set_id}/re-review
+GET  /api/workspaces/{workspace_id}/change-sets/{change_set_id}/preview-page
+```
+
+`validation_started/validation_completed` 仅表示 Review，`change_set_ready` 在 Review 通过后发出。
+
+## 9. 验证
 
 ```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python -m ruff check agenthub tests scripts
-.venv/bin/python -m ruff format --check agenthub tests scripts
-.venv/bin/python -m mypy agenthub
-cd frontend && npm run build
+python -m pytest
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy agenthub
+cd frontend && npm run lint && npm run test && npm run build
 ```
+
+CI 不安装 Chromium，覆盖 Review-only 状态、静态安全、隔离候选、Promote/冲突/回滚/Revert、重新审查、记忆和前端权限。

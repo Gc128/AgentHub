@@ -1,13 +1,21 @@
+import logging
 import mimetypes
 import re
 from html import escape
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import HTMLResponse, Response
 
-from agenthub.api.deps import get_workspace_service
-from agenthub.core.errors import NotFoundError
+from agenthub.api.deps import get_agent_service, get_change_set_service, get_workspace_service
+from agenthub.config import get_settings
+from agenthub.core.errors import ConflictError, NotFoundError
+from agenthub.schemas.agent import AgentRunInput
+from agenthub.schemas.change_set import (
+    ChangeSet,
+    ChangeSetActionResponse,
+    ChangeSetRevertResponse,
+)
 from agenthub.schemas.workspace import (
     AppliedDiffRecord,
     ApplyDiffRequest,
@@ -19,9 +27,12 @@ from agenthub.schemas.workspace import (
     WorkspaceFileWriteRequest,
     WorkspacePreviewResponse,
 )
+from agenthub.services.agent_service import AgentService
+from agenthub.services.change_set_service import ChangeSetService
 from agenthub.services.workspace_service import WorkspaceService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
 
@@ -125,13 +136,22 @@ async def list_applied_diffs(
     return await service.list_applied_diffs(workspace_id)
 
 
-@router.post("/workspaces/{workspace_id}/apply-diff", response_model=ApplyDiffResponse)
+@router.post(
+    "/workspaces/{workspace_id}/apply-diff",
+    response_model=ApplyDiffResponse,
+    deprecated=True,
+)
 async def apply_diff(
     workspace_id: str,
     request_data: ApplyDiffRequest,
     request: Request,
     service: Annotated[WorkspaceService, Depends(get_workspace_service)],
 ) -> ApplyDiffResponse:
+    if not get_settings().legacy_apply_diff_enabled:
+        raise ConflictError(
+            "legacy_apply_diff_disabled",
+            "Direct Apply Diff is disabled. Validate a change set and promote it instead.",
+        )
     preview_page_url = str(request.url_for("get_workspace_preview_page", workspace_id=workspace_id))
     return await service.apply_diff(
         workspace_id,
@@ -158,6 +178,212 @@ async def revert_applied_diff(
     )
 
 
+@router.get("/workspaces/{workspace_id}/change-sets", response_model=list[ChangeSet])
+async def list_change_sets(
+    workspace_id: str,
+    service: Annotated[ChangeSetService, Depends(get_change_set_service)],
+) -> list[ChangeSet]:
+    return await service.list(workspace_id)
+
+
+@router.get(
+    "/workspaces/{workspace_id}/change-sets/{change_set_id}",
+    response_model=ChangeSet,
+)
+async def get_change_set(
+    workspace_id: str,
+    change_set_id: str,
+    service: Annotated[ChangeSetService, Depends(get_change_set_service)],
+) -> ChangeSet:
+    return await service.get(workspace_id, change_set_id)
+
+
+@router.post(
+    "/workspaces/{workspace_id}/change-sets/{change_set_id}/promote",
+    response_model=ChangeSetActionResponse,
+)
+async def promote_change_set(
+    workspace_id: str,
+    change_set_id: str,
+    request: Request,
+    service: Annotated[ChangeSetService, Depends(get_change_set_service)],
+) -> ChangeSetActionResponse:
+    preview_page_url = str(request.url_for("get_workspace_preview_page", workspace_id=workspace_id))
+    return await service.promote(
+        workspace_id,
+        change_set_id,
+        preview_page_url=preview_page_url,
+    )
+
+
+@router.post(
+    "/workspaces/{workspace_id}/change-sets/{change_set_id}/reject",
+    response_model=ChangeSetActionResponse,
+)
+async def reject_change_set(
+    workspace_id: str,
+    change_set_id: str,
+    service: Annotated[ChangeSetService, Depends(get_change_set_service)],
+) -> ChangeSetActionResponse:
+    return await service.reject(workspace_id, change_set_id)
+
+
+@router.post(
+    "/workspaces/{workspace_id}/change-sets/{change_set_id}/revert",
+    response_model=ChangeSetRevertResponse,
+)
+async def revert_change_set(
+    workspace_id: str,
+    change_set_id: str,
+    service: Annotated[ChangeSetService, Depends(get_change_set_service)],
+) -> ChangeSetRevertResponse:
+    return await service.revert(workspace_id, change_set_id)
+
+
+@router.post(
+    "/workspaces/{workspace_id}/change-sets/{change_set_id}/reapply",
+    response_model=ChangeSetActionResponse,
+)
+async def reapply_change_set(
+    workspace_id: str,
+    change_set_id: str,
+    background_tasks: BackgroundTasks,
+    service: Annotated[ChangeSetService, Depends(get_change_set_service)],
+    agent_service: Annotated[AgentService, Depends(get_agent_service)],
+) -> ChangeSetActionResponse:
+    candidate = await service.prepare_reapply(workspace_id, change_set_id)
+    background_tasks.add_task(
+        _validate_existing_candidate,
+        service,
+        agent_service,
+        AgentRunInput(
+            conversation_id=candidate.conversation_id,
+            workspace_id=workspace_id,
+            user_message=(
+                f"重新应用 Change Set {change_set_id}：创建新候选并执行静态安全检查与代码审查。"
+            ),
+        ),
+        candidate.id,
+        "reapply_validation_failed",
+    )
+    return ChangeSetActionResponse(
+        change_set=candidate,
+        message="Reapply candidate created; static inspection and Review are running.",
+    )
+
+
+@router.post(
+    "/workspaces/{workspace_id}/change-sets/{change_set_id}/re-review",
+    response_model=ChangeSetActionResponse,
+    status_code=202,
+)
+async def re_review_change_set(
+    workspace_id: str,
+    change_set_id: str,
+    background_tasks: BackgroundTasks,
+    service: Annotated[ChangeSetService, Depends(get_change_set_service)],
+    agent_service: Annotated[AgentService, Depends(get_agent_service)],
+) -> ChangeSetActionResponse:
+    candidate = await service.prepare_re_review(workspace_id, change_set_id)
+    background_tasks.add_task(
+        _validate_existing_candidate,
+        service,
+        agent_service,
+        AgentRunInput(
+            conversation_id=candidate.conversation_id,
+            workspace_id=workspace_id,
+            user_message=(
+                f"重新审查 Change Set {change_set_id}：创建新候选并执行静态检查和代码审查。"
+            ),
+        ),
+        candidate.id,
+        "rereview_validation_failed",
+    )
+    return ChangeSetActionResponse(
+        change_set=candidate,
+        message="Re-review candidate created; static inspection and Review are running.",
+    )
+
+
+async def _validate_existing_candidate(
+    service: ChangeSetService,
+    agent_service: AgentService,
+    input_data: AgentRunInput,
+    change_set_id: str,
+    error_code: str,
+) -> None:
+    try:
+        await agent_service.validate_existing_change_set(input_data, change_set_id)
+    except Exception:
+        logger.error(
+            "Unexpected review-only validation failure for change_set=%s workspace=%s",
+            change_set_id,
+            input_data.workspace_id,
+        )
+        await service.record_validation_error(
+            input_data.workspace_id,
+            change_set_id,
+            kind="review",
+            error_code=error_code,
+            error_message="Unexpected error while validating the review-only candidate.",
+        )
+
+
+@router.get(
+    "/workspaces/{workspace_id}/change-sets/{change_set_id}/preview-page",
+    response_class=HTMLResponse,
+)
+async def get_change_set_preview_page(
+    workspace_id: str,
+    change_set_id: str,
+    request: Request,
+    service: Annotated[ChangeSetService, Depends(get_change_set_service)],
+    path: str = "index.html",
+) -> HTMLResponse:
+    change_set = await service.get(workspace_id, change_set_id)
+    content = service.get_preview_file_bytes(change_set, path).decode("utf-8")
+    asset_base_url = _change_set_preview_asset_base_url(request, workspace_id, change_set_id, path)
+    return HTMLResponse(
+        _inject_preview_asset_base(content, asset_base_url),
+        headers={
+            **NO_STORE_HEADERS,
+            "Content-Security-Policy": (
+                "sandbox allow-scripts allow-forms allow-same-origin; "
+                "default-src 'self' data: blob: 'unsafe-inline'; connect-src 'none'"
+            ),
+        },
+    )
+
+
+@router.get("/workspaces/{workspace_id}/change-sets/{change_set_id}/preview-assets/{path:path}")
+async def get_change_set_preview_asset(
+    workspace_id: str,
+    change_set_id: str,
+    path: str,
+    service: Annotated[ChangeSetService, Depends(get_change_set_service)],
+) -> Response:
+    change_set = await service.get(workspace_id, change_set_id)
+    return Response(
+        content=service.get_preview_file_bytes(change_set, path),
+        media_type=_media_type_for_path(path),
+        headers=NO_STORE_HEADERS,
+    )
+
+
+@router.get("/workspaces/{workspace_id}/change-sets/{change_set_id}/screenshot")
+async def get_change_set_screenshot(
+    workspace_id: str,
+    change_set_id: str,
+    service: Annotated[ChangeSetService, Depends(get_change_set_service)],
+) -> Response:
+    await service.get(workspace_id, change_set_id)
+    return Response(
+        content=service.get_screenshot_bytes(change_set_id),
+        media_type="image/png",
+        headers=NO_STORE_HEADERS,
+    )
+
+
 def _preview_asset_base_url(request: Request, workspace_id: str, entry_path: str) -> str:
     placeholder = "__agenthub_asset__"
     entry_dir = entry_path.rsplit("/", 1)[0] if "/" in entry_path else ""
@@ -166,6 +392,26 @@ def _preview_asset_base_url(request: Request, workspace_id: str, entry_path: str
         request.url_for(
             "get_workspace_preview_asset",
             workspace_id=workspace_id,
+            path=placeholder_path,
+        )
+    )
+    return asset_url.rsplit(placeholder, 1)[0]
+
+
+def _change_set_preview_asset_base_url(
+    request: Request,
+    workspace_id: str,
+    change_set_id: str,
+    entry_path: str,
+) -> str:
+    placeholder = "__agenthub_asset__"
+    entry_dir = entry_path.rsplit("/", 1)[0] if "/" in entry_path else ""
+    placeholder_path = f"{entry_dir}/{placeholder}" if entry_dir else placeholder
+    asset_url = str(
+        request.url_for(
+            "get_change_set_preview_asset",
+            workspace_id=workspace_id,
+            change_set_id=change_set_id,
             path=placeholder_path,
         )
     )

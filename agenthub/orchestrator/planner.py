@@ -19,6 +19,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from agenthub.schemas.agent import AcceptanceCriterion
+
 # ---------------------------------------------------------------------------
 # Agent ID 常量
 # ---------------------------------------------------------------------------
@@ -185,6 +187,7 @@ class OrchestratorPlan(BaseModel):
 
     summary: str = ""
     tasks: Annotated[list[AgentTask], Field(min_length=1)]
+    acceptance_criteria: list[AcceptanceCriterion] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -408,7 +411,7 @@ def create_plan(user_message: str) -> OrchestratorPlan:
 
     这是给 FastAPI AgentService / OrchestratorExecutor 使用的结构化拆解入口；
     `route_task()` 仍保留为单 Agent 路由能力。用户显式 @Orchestrator 时，
-    默认走完整 Code -> Review -> Preview 演示链路。
+    默认走 Code -> Review 演示链路；Preview 仅在用户明确要求时提供人工入口。
     """
     message = user_message.strip()
     lowered = message.lower()
@@ -416,12 +419,11 @@ def create_plan(user_message: str) -> OrchestratorPlan:
 
     wants_code = _matches_agent(message, AGENT_CODE)
     wants_review = _matches_agent(message, AGENT_REVIEW)
-    wants_preview = _matches_agent(message, AGENT_PREVIEW)
+    wants_preview = "@previewagent" in lowered
 
     if "@orchestrator" in lowered or wants_code:
         wants_code = True
         wants_review = True
-        wants_preview = True
 
     if wants_code:
         tasks.append(
@@ -453,8 +455,8 @@ def create_plan(user_message: str) -> OrchestratorPlan:
                 task_id="task-preview",
                 agent_id=AGENT_PREVIEW,
                 instruction=(
-                    "基于 workspace 状态和前序产物验证预览是否可用；"
-                    "说明 preview_url/status、入口文件情况，以及用户应用 diff 后应如何查看效果。"
+                    "仅请求当前候选或正式 Workspace 的可信人工预览入口；"
+                    "不运行浏览器检查，不生成验证结论，不改变 Change Set 状态。"
                 ),
                 depends_on=depends_on,
             )
@@ -469,4 +471,21 @@ def create_plan(user_message: str) -> OrchestratorPlan:
             )
         )
 
-    return OrchestratorPlan(summary="AgentHub execution harness plan", tasks=tasks)
+    criteria = (
+        [
+            AcceptanceCriterion(
+                id="criterion-primary-flow",
+                description=(
+                    "The generated static page visibly implements the user's requested "
+                    "primary flow."
+                ),
+            )
+        ]
+        if wants_code
+        else []
+    )
+    return OrchestratorPlan(
+        summary="AgentHub execution harness plan",
+        tasks=tasks,
+        acceptance_criteria=criteria,
+    )

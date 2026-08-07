@@ -11,7 +11,7 @@ from agenthub.agents.registry import AgentRegistry, OrchestratorAdapter, create_
 from agenthub.config import Settings
 from agenthub.core.errors import AgentExecutionError, NotFoundError
 from agenthub.orchestrator.planner import AgentTask, OrchestratorDecision, OrchestratorPlan
-from agenthub.schemas.agent import AgentRunInput, AgentRunResult
+from agenthub.schemas.agent import AgentRunInput, AgentRunResult, CodeGenerationResult
 from agenthub.schemas.artifact import Artifact
 from agenthub.services.agent_service import AgentService
 
@@ -130,7 +130,7 @@ async def test_code_and_review_agents_return_distinct_artifacts() -> None:
 
 
 @pytest.mark.asyncio
-async def test_preview_agent_uses_preview_url_field() -> None:
+async def test_mock_preview_agent_does_not_generate_a_preview_url() -> None:
     registry = create_default_registry()
     result = await registry.get("preview-agent").run(
         AgentRunInput(
@@ -140,10 +140,8 @@ async def test_preview_agent_uses_preview_url_field() -> None:
         )
     )
 
-    assert result.artifacts[0].type == "preview"
-    assert "preview_url" in result.artifacts[0].data
-    assert "url" not in result.artifacts[0].data
-    assert "Preview 状态为 ready" in result.content
+    assert result.artifacts == []
+    assert "Manual preview links" in result.content
 
 
 @pytest.mark.asyncio
@@ -158,6 +156,124 @@ async def test_real_agent_requires_configuration() -> None:
                 user_message="hello",
             )
         )
+
+
+@pytest.mark.asyncio
+async def test_structured_code_run_ignores_legacy_preview_checks() -> None:
+    requests: list[dict[str, object]] = []
+    responses = [
+        {
+            "summary": "Generated",
+            "files": [{"path": "index.html", "operation": "upsert", "content": "<main>ok</main>"}],
+            "preview_checks": [{"type": "visibility", "description": "page is visible"}],
+        },
+        {
+            "summary": "Generated",
+            "files": [{"path": "index.html", "operation": "upsert", "content": "<main>ok</main>"}],
+            "preview_checks": [
+                {
+                    "criterion_id": "criterion-page",
+                    "name": "Page is visible",
+                    "steps": [{"action": "assert_visible", "selector": "main"}],
+                }
+            ],
+        },
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json_body(request))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps(responses[len(requests) - 1])}}]},
+        )
+
+    agent = RealAgent(
+        agent_id="code-agent",
+        api_key="test-key",
+        chat_model=FakeLangChainModel(handler),
+    )
+    result = await agent.run_structured(
+        AgentRunInput(
+            conversation_id="conv_001",
+            workspace_id="ws_001",
+            user_message="Generate a page",
+        ),
+        CodeGenerationResult,
+        schema_name="CodeGenerationResult",
+    )
+
+    assert result.files[0].path == "index.html"
+    assert len(requests) == 1
+    first_user_payload = json.loads(requests[0]["messages"][-1]["content"])
+    assert first_user_payload["context"]["required_output_schema"]["title"] == (
+        "CodeGenerationResult"
+    )
+
+
+@pytest.mark.asyncio
+async def test_code_agent_marks_candidate_manifest_with_readable_counts() -> None:
+    class StructuredCodeAdapter:
+        id = "structured-code"
+        name = "Structured Code"
+        capabilities = ["code"]
+
+        async def run_structured(
+            self,
+            input_data: AgentRunInput,
+            schema: object,
+            *,
+            schema_name: str,
+        ) -> CodeGenerationResult:
+            assert schema is CodeGenerationResult
+            assert schema_name == "CodeGenerationResult"
+            return CodeGenerationResult.model_validate(
+                {
+                    "summary": "Generated two candidate files.",
+                    "files": [
+                        {
+                            "path": "index.html",
+                            "operation": "upsert",
+                            "content": "<main data-testid='app'>Ready</main>",
+                        },
+                        {
+                            "path": "legacy.js",
+                            "operation": "delete",
+                            "content": None,
+                        },
+                    ],
+                    "preview_checks": [
+                        {
+                            "criterion_id": "criterion-page",
+                            "name": "Page is visible",
+                            "steps": [
+                                {
+                                    "action": "assert_visible",
+                                    "selector": "[data-testid='app']",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            )
+
+    result = await CodeAgent(StructuredCodeAdapter()).run(
+        AgentRunInput(
+            conversation_id="conv-manifest",
+            workspace_id="ws-manifest",
+            user_message="Generate a page",
+        )
+    )
+
+    manifest = next(
+        artifact
+        for artifact in result.artifacts
+        if artifact.id == "artifact-code-agent-candidate-manifest"
+    )
+    assert manifest.title == "候选文件清单"
+    assert manifest.data["kind"] == "candidate_manifest"
+    assert manifest.data["file_count"] == 2
+    assert "check_count" not in manifest.data
+    assert len(manifest.data["operations"]) == 2
 
 
 @pytest.mark.asyncio
@@ -446,7 +562,7 @@ async def test_llm_orchestrator_handles_plain_chat() -> None:
 
 
 @pytest.mark.asyncio
-async def test_llm_orchestrator_accepts_markdown_plan_text() -> None:
+async def test_llm_orchestrator_rejects_markdown_plan_text_after_one_repair() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -474,21 +590,18 @@ async def test_llm_orchestrator_accepts_markdown_plan_text() -> None:
         )
     )
 
-    decision = await orchestrator.decide(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="@Orchestrator 做一个页面",
+    with pytest.raises(RealAgentSchemaError, match="连续返回"):
+        await orchestrator.decide(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="@Orchestrator 做一个页面",
+            )
         )
-    )
-
-    assert decision.mode == "plan"
-    assert decision.plan is not None
-    assert decision.plan.agent_ids == ["code-agent", "review-agent", "preview-agent"]
 
 
 @pytest.mark.asyncio
-async def test_llm_orchestrator_accepts_top_level_task_list_json() -> None:
+async def test_llm_orchestrator_rejects_top_level_task_list_after_one_repair() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -518,17 +631,14 @@ async def test_llm_orchestrator_accepts_top_level_task_list_json() -> None:
         )
     )
 
-    decision = await orchestrator.decide(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="@Orchestrator 做一个页面",
+    with pytest.raises(RealAgentSchemaError, match="连续返回"):
+        await orchestrator.decide(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="@Orchestrator 做一个页面",
+            )
         )
-    )
-
-    assert decision.mode == "plan"
-    assert decision.plan is not None
-    assert decision.plan.tasks[0].agent_id == "code-agent"
 
 
 @pytest.mark.asyncio
@@ -612,14 +722,14 @@ async def test_llm_orchestrator_plan_drives_harness_without_copying_user_request
         "orchestrator",
         "code-agent",
         "review-agent",
-        "preview-agent",
     ]
     assert user_message not in results[0].content
-    assert results[0].content == "## 任务拆解\n\n由 LLM 生成的任务分工。"
+    assert "review-agent" in results[0].content
+    assert "preview-agent" not in results[0].content
 
 
 @pytest.mark.asyncio
-async def test_llm_orchestrator_code_plan_is_guarded_with_review_and_preview() -> None:
+async def test_llm_orchestrator_code_plan_is_guarded_with_review_only() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -681,10 +791,9 @@ async def test_llm_orchestrator_code_plan_is_guarded_with_review_and_preview() -
         "orchestrator",
         "code-agent",
         "review-agent",
-        "preview-agent",
     ]
     assert "review-agent" in results[0].content
-    assert "preview-agent" in results[0].content
+    assert "preview-agent" not in results[0].content
     assert "兜底" not in results[0].content
 
 
@@ -982,7 +1091,7 @@ async def test_code_agent_sanitizes_fallback_terms_in_generated_code(tmp_path) -
 
 
 @pytest.mark.asyncio
-async def test_code_agent_todo_fallback_is_request_aware(tmp_path) -> None:
+async def test_code_agent_empty_result_never_enables_a_fallback(tmp_path) -> None:
     class EmptyCodeAdapter:
         id = "real-code"
         name = "Real Code"
@@ -995,38 +1104,18 @@ async def test_code_agent_todo_fallback_is_request_aware(tmp_path) -> None:
     (tmp_path / workspace_id).mkdir()
     agent = CodeAgent(EmptyCodeAdapter(), workspace_root=tmp_path, allow_fallbacks=True)
 
-    minimal = await agent.run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id=workspace_id,
-            user_message="帮我做一个极简 Todo List 网页",
+    with pytest.raises(AgentExecutionError, match="must return code and diff"):
+        await agent.run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id=workspace_id,
+                user_message="帮我做一个极简 Todo List 网页",
+            )
         )
-    )
-    detailed = await agent.run(
-        AgentRunInput(
-            conversation_id="conv_002",
-            workspace_id=workspace_id,
-            user_message="帮我做一个带优先级、截止日期和筛选的 Todo List 网页",
-        )
-    )
-
-    minimal_code = next(artifact for artifact in minimal.artifacts if artifact.type == "code")
-    detailed_code = next(artifact for artifact in detailed.artifacts if artifact.type == "code")
-    assert minimal_code.data["content"] != detailed_code.data["content"]
-    assert detailed_code.data["features"] == {
-        "priority": True,
-        "due_date": True,
-        "filter": True,
-    }
-    assert minimal_code.data["features"] == {
-        "priority": False,
-        "due_date": False,
-        "filter": False,
-    }
 
 
 @pytest.mark.asyncio
-async def test_code_agent_grade_request_does_not_use_todo_fallback(tmp_path) -> None:
+async def test_code_agent_grade_schema_failure_does_not_use_todo_fallback(tmp_path) -> None:
     class SchemaFailingAdapter:
         id = "real-code"
         name = "Real Code"
@@ -1039,32 +1128,26 @@ async def test_code_agent_grade_request_does_not_use_todo_fallback(tmp_path) -> 
     (tmp_path / workspace_id).mkdir()
     agent = CodeAgent(SchemaFailingAdapter(), workspace_root=tmp_path, allow_fallbacks=True)
 
-    result = await agent.run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id=workspace_id,
-            user_message=(
-                "根据 context.user_request 实现代码。\n\n"
-                "用户原始需求如下：@Orchestrator 我想你重新输出 todolist 代码，"
-                "用来展示一个班各个学生的成绩，自己写模拟生成10个，"
-                "用户可以添加和删除某个数据，添加排序按钮按照成绩排序"
-            ),
-            context={
-                "user_request": (
-                    "@Orchestrator 我想你重新输出 todolist 代码，完成用来展示一个班"
-                    "各个学生的成绩，模拟生成10个，用户可以添加和删除某个数据，"
-                    "添加排序按钮按照成绩排序"
-                )
-            },
+    with pytest.raises(AgentExecutionError, match="could not be parsed"):
+        await agent.run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id=workspace_id,
+                user_message=(
+                    "根据 context.user_request 实现代码。\n\n"
+                    "用户原始需求如下：@Orchestrator 我想你重新输出 todolist 代码，"
+                    "用来展示一个班各个学生的成绩，自己写模拟生成10个，"
+                    "用户可以添加和删除某个数据，添加排序按钮按照成绩排序"
+                ),
+                context={
+                    "user_request": (
+                        "@Orchestrator 我想你重新输出 todolist 代码，完成用来展示一个班"
+                        "各个学生的成绩，模拟生成10个，用户可以添加和删除某个数据，"
+                        "添加排序按钮按照成绩排序"
+                    )
+                },
+            )
         )
-    )
-
-    code_artifact = next(artifact for artifact in result.artifacts if artifact.type == "code")
-    content = str(code_artifact.data["content"])
-    assert "学生成绩管理" in content
-    assert "学生 10" in content
-    assert "按成绩排序" in content
-    assert "todo-form" not in content
 
 
 @pytest.mark.asyncio
@@ -1154,7 +1237,7 @@ async def test_orchestrator_code_step_passes_original_request_to_code_agent() ->
 
 
 @pytest.mark.asyncio
-async def test_review_agent_schema_failure_returns_findings_artifact() -> None:
+async def test_review_agent_schema_failure_never_returns_synthetic_findings() -> None:
     from agenthub.agents.review_agent import ReviewAgent
 
     class SchemaFailingAdapter:
@@ -1165,24 +1248,23 @@ async def test_review_agent_schema_failure_returns_findings_artifact() -> None:
         async def run(self, input_data: AgentRunInput) -> AgentRunResult:
             raise RealAgentSchemaError("bad review schema")
 
-    result = await ReviewAgent(SchemaFailingAdapter(), allow_fallbacks=True).run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="检查 Todo 页面",
-            context={
-                "prior_artifacts": [
-                    {"type": "code"},
-                    {"type": "diff"},
-                ]
-            },
-        )
-    )
+        async def run_structured(self, *args: object, **kwargs: object) -> object:
+            raise RealAgentSchemaError("bad review schema")
 
-    assert result.agent_id == "review-agent"
-    assert result.artifacts[0].type == "file"
-    assert "findings" in result.artifacts[0].data
-    assert "risk_level" in result.artifacts[0].data
+    with pytest.raises(AgentExecutionError, match="could not be parsed"):
+        await ReviewAgent(SchemaFailingAdapter()).run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="检查 Todo 页面",
+                context={
+                    "prior_artifacts": [
+                        {"type": "code"},
+                        {"type": "diff"},
+                    ]
+                },
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -1197,6 +1279,9 @@ async def test_review_agent_schema_failure_does_not_recover_by_default() -> None
         async def run(self, input_data: AgentRunInput) -> AgentRunResult:
             raise RealAgentSchemaError("bad review schema")
 
+        async def run_structured(self, *args: object, **kwargs: object) -> object:
+            raise RealAgentSchemaError("bad review schema")
+
     with pytest.raises(AgentExecutionError, match="could not be parsed"):
         await ReviewAgent(SchemaFailingAdapter()).run(
             AgentRunInput(
@@ -1209,7 +1294,7 @@ async def test_review_agent_schema_failure_does_not_recover_by_default() -> None
 
 
 @pytest.mark.asyncio
-async def test_preview_agent_schema_failure_returns_preview_artifact() -> None:
+async def test_preview_agent_never_returns_model_preview_artifact() -> None:
     from agenthub.agents.preview_agent import PreviewAgent
 
     class SchemaFailingAdapter:
@@ -1220,19 +1305,18 @@ async def test_preview_agent_schema_failure_returns_preview_artifact() -> None:
         async def run(self, input_data: AgentRunInput) -> AgentRunResult:
             raise RealAgentSchemaError("bad preview schema")
 
-    result = await PreviewAgent(SchemaFailingAdapter(), allow_fallbacks=True).run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="预览 Todo 页面",
-            context={"preview_status": "ready", "preview_url": "http://127.0.0.1:18000"},
+    with pytest.raises(AgentExecutionError, match="Manual preview links"):
+        await PreviewAgent().run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="预览 Todo 页面",
+                context={
+                    "preview_status": "ready",
+                    "preview_url": "http://127.0.0.1:18000",
+                },
+            )
         )
-    )
-
-    assert result.agent_id == "preview-agent"
-    assert result.artifacts[0].type == "preview"
-    assert result.artifacts[0].data["status"] == "ready"
-    assert "Preview 状态为 ready" in result.content
 
 
 @pytest.mark.asyncio
@@ -1247,8 +1331,8 @@ async def test_preview_agent_schema_failure_does_not_recover_by_default() -> Non
         async def run(self, input_data: AgentRunInput) -> AgentRunResult:
             raise RealAgentSchemaError("bad preview schema")
 
-    with pytest.raises(AgentExecutionError, match="could not be parsed"):
-        await PreviewAgent(SchemaFailingAdapter()).run(
+    with pytest.raises(AgentExecutionError, match="Manual preview links"):
+        await PreviewAgent().run(
             AgentRunInput(
                 conversation_id="conv_001",
                 workspace_id="ws_001",
@@ -1357,14 +1441,14 @@ async def test_orchestrator_schema_failure_does_not_fall_back_by_default() -> No
         )
     )
 
-    assert calls == 3
+    assert calls == 2
     assert [result.agent_id for result in results] == ["orchestrator"]
     assert "不符合结构要求" in results[0].content
     assert "继续调用后续 Agent" not in results[0].content
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_schema_failure_falls_back_when_enabled() -> None:
+async def test_orchestrator_schema_failure_ignores_removed_fallback_setting() -> None:
     calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1402,14 +1486,9 @@ async def test_orchestrator_schema_failure_falls_back_when_enabled() -> None:
         )
     )
 
-    assert calls == 3
-    assert [result.agent_id for result in results] == [
-        "orchestrator",
-        "code-agent",
-        "review-agent",
-        "preview-agent",
-    ]
-    assert "继续调用后续 Agent" in results[0].content
+    assert calls == 2
+    assert [result.agent_id for result in results] == ["orchestrator"]
+    assert "不符合结构要求" in results[0].content
 
 
 @pytest.mark.asyncio
@@ -1445,7 +1524,7 @@ async def test_orchestrator_schema_failure_does_not_fall_back_to_chat_by_default
         )
     )
 
-    assert calls == 3
+    assert calls == 2
     assert len(results) == 1
     assert results[0].agent_id == "orchestrator"
     assert "不符合结构要求" in results[0].content
@@ -1453,7 +1532,7 @@ async def test_orchestrator_schema_failure_does_not_fall_back_to_chat_by_default
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_schema_failure_recovers_with_relaxed_llm_plan() -> None:
+async def test_orchestrator_schema_failure_does_not_use_relaxed_text_recovery() -> None:
     calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1508,16 +1587,9 @@ async def test_orchestrator_schema_failure_recovers_with_relaxed_llm_plan() -> N
         )
     )
 
-    assert calls == 3
-    assert [result.agent_id for result in results] == [
-        "orchestrator",
-        "code-agent",
-        "review-agent",
-        "preview-agent",
-    ]
-    assert "学生成绩查询页面" in results[0].content
-    assert "context.user_request" not in results[0].content
-    assert "兜底" not in results[0].content
+    assert calls == 2
+    assert [result.agent_id for result in results] == ["orchestrator"]
+    assert "不符合结构要求" in results[0].content
 
 
 @pytest.mark.asyncio
@@ -1738,7 +1810,7 @@ async def test_real_agent_infers_type_from_nested_artifact_data() -> None:
 
 
 @pytest.mark.asyncio
-async def test_real_agent_extracts_json_object_from_wrapped_response() -> None:
+async def test_real_agent_rejects_json_wrapped_in_prose() -> None:
     payload = {
         "choices": [
             {
@@ -1763,18 +1835,14 @@ async def test_real_agent_extracts_json_object_from_wrapped_response() -> None:
         chat_model=FakeLangChainModel(handler),
     )
 
-    result = await agent.run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="生成页面",
+    with pytest.raises(RealAgentSchemaError, match="连续返回"):
+        await agent.run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="生成页面",
+            )
         )
-    )
-
-    assert result.content == "Generated code"
-    assert result.artifacts[0].type == "code"
-    assert result.artifacts[0].data["filename"] == "todo.html"
-    assert result.artifacts[0].data["content"] == "<main>ok</main>"
 
 
 @pytest.mark.asyncio
@@ -1816,7 +1884,7 @@ async def test_real_agent_normalizes_top_level_code_fields() -> None:
 
 
 @pytest.mark.asyncio
-async def test_real_agent_keeps_markdown_with_css_braces_as_markdown() -> None:
+async def test_real_agent_rejects_markdown_with_css_braces() -> None:
     payload = {
         "choices": [
             {
@@ -1842,22 +1910,18 @@ async def test_real_agent_keeps_markdown_with_css_braces_as_markdown() -> None:
         chat_model=FakeLangChainModel(handler),
     )
 
-    result = await agent.run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="生成页面",
+    with pytest.raises(RealAgentSchemaError, match="连续返回"):
+        await agent.run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="生成页面",
+            )
         )
-    )
-
-    assert result.content.startswith("已生成页面")
-    assert result.artifacts[0].type == "code"
-    assert result.artifacts[0].data["filename"] == "index.html"
-    assert "body { color: red; }" in result.artifacts[0].data["content"]
 
 
 @pytest.mark.asyncio
-async def test_real_agent_extracts_code_artifacts_from_markdown_content() -> None:
+async def test_real_agent_rejects_markdown_code_artifacts() -> None:
     markdown = (
         "已生成页面代码。\n\n"
         '```tsx filename="src/App.tsx"\n'
@@ -1876,26 +1940,18 @@ async def test_real_agent_extracts_code_artifacts_from_markdown_content() -> Non
         chat_model=FakeLangChainModel(handler),
     )
 
-    result = await agent.run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="生成页面",
+    with pytest.raises(RealAgentSchemaError, match="连续返回"):
+        await agent.run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="生成页面",
+            )
         )
-    )
-
-    assert result.content == markdown
-    assert result.artifacts[0].type == "code"
-    assert result.artifacts[0].title == "src/App.tsx"
-    assert result.artifacts[0].data == {
-        "filename": "src/App.tsx",
-        "language": "tsx",
-        "content": "export default function App() { return <main>ok</main> }",
-    }
 
 
 @pytest.mark.asyncio
-async def test_real_agent_salvages_html_document_after_repair_failure() -> None:
+async def test_real_agent_rejects_html_document_after_repair_failure() -> None:
     html = "<!doctype html><html><body><main>ok</main></body></html>"
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1920,22 +1976,18 @@ async def test_real_agent_salvages_html_document_after_repair_failure() -> None:
         chat_model=FakeLangChainModel(handler),
     )
 
-    result = await agent.run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="生成页面",
+    with pytest.raises(RealAgentSchemaError, match="连续返回"):
+        await agent.run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="生成页面",
+            )
         )
-    )
-
-    assert result.agent_id == "code-agent"
-    assert result.artifacts[0].type == "code"
-    assert result.artifacts[0].data["filename"] == "index.html"
-    assert result.artifacts[0].data["content"] == html
 
 
 @pytest.mark.asyncio
-async def test_real_agent_salvages_broken_json_content_without_exposing_raw_json() -> None:
+async def test_real_agent_rejects_broken_json_after_repair_failure() -> None:
     broken_content = (
         "{\n"
         '  "agent_id": "code-agent",\n'
@@ -1958,25 +2010,18 @@ async def test_real_agent_salvages_broken_json_content_without_exposing_raw_json
         chat_model=FakeLangChainModel(handler),
     )
 
-    result = await agent.run(
-        AgentRunInput(
-            conversation_id="conv_001",
-            workspace_id="ws_001",
-            user_message="生成 BMI 页面",
+    with pytest.raises(RealAgentSchemaError, match="连续返回"):
+        await agent.run(
+            AgentRunInput(
+                conversation_id="conv_001",
+                workspace_id="ws_001",
+                user_message="生成 BMI 页面",
+            )
         )
-    )
-
-    assert not result.content.lstrip().startswith("{")
-    assert '"agent_id"' not in result.content
-    assert "## BMI 计算器" in result.content
-    assert "```html" in result.content
-    html_artifacts = [artifact for artifact in result.artifacts if artifact.type == "code"]
-    assert html_artifacts
-    assert html_artifacts[0].data["filename"] == "index.html"
 
 
 @pytest.mark.asyncio
-async def test_real_agent_extracts_artifacts_from_json_markdown_content() -> None:
+async def test_real_agent_does_not_extract_artifacts_from_markdown_content() -> None:
     markdown = "下面是页面代码。\n\n```html index.html\n<main>ok</main>\n```"
     payload = {
         "choices": [
@@ -2010,9 +2055,7 @@ async def test_real_agent_extracts_artifacts_from_json_markdown_content() -> Non
     )
 
     assert result.content == markdown
-    assert result.artifacts[0].type == "code"
-    assert result.artifacts[0].data["filename"] == "index.html"
-    assert result.artifacts[0].data["content"] == "<main>ok</main>"
+    assert result.artifacts == []
 
 
 @pytest.mark.asyncio

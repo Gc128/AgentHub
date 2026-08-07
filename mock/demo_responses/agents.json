@@ -14,7 +14,7 @@
         }
       }
     ],
-    "next_actions": ["review", "preview"]
+    "next_actions": ["review-agent"]
   },
   "code-agent": {
     "content": "Code Agent generated a stable Todo page draft for: {user_message}",
@@ -24,24 +24,14 @@
         "type": "code",
         "title": "Todo page code",
         "data": {
-          "filename": "src/App.py",
-          "language": "python",
-          "content": "from nicegui import ui\n\nui.label('AgentHub Todo Demo')\nui.run()",
-          "workspace_id": "{workspace_id}"
-        }
-      },
-      {
-        "id": "artifact-diff-todo",
-        "type": "diff",
-        "title": "Todo page diff",
-        "data": {
-          "filename": "src/App.py",
-          "diff": "--- a/src/App.py\n+++ b/src/App.py\n@@ -0,0 +1,4 @@\n+from nicegui import ui\n+\n+ui.label('AgentHub Todo Demo')\n+ui.run()\n",
+          "filename": "index.html",
+          "language": "html",
+          "content": "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>AgentHub Todo Demo</title></head><body><main><h1 data-testid=\"todo-title\">AgentHub Todo Demo</h1><p>候选页面已进入隔离审查流程。</p></main></body></html>",
           "workspace_id": "{workspace_id}"
         }
       }
     ],
-    "next_actions": ["review", "preview"]
+    "next_actions": ["review-agent"]
   },
   "review-agent": {
     "content": "Review Agent checked the generated plan and found no blocking issue for the MVP demo.",
@@ -51,33 +41,20 @@
         "type": "file",
         "title": "Review notes",
         "data": {
-          "filename": "review.md",
-          "findings": [
-            "Workspace 写入仍由 Apply Diff 触发，没有发现阻塞演示的问题。",
-            "继续保持 Pydantic API 响应和路径安全校验。"
-          ],
+          "verdict": "pass",
           "risk_level": "low",
-          "content": "- Keep workspace writes behind WorkspaceManager.\n- Keep API responses typed with Pydantic.\n- Add UI states before demo.",
+          "summary": "Explicit mock review found no blocking issue in the static candidate.",
+          "findings": [],
+          "covered_criteria": ["criterion-primary-flow"],
           "workspace_id": "{workspace_id}"
         }
       }
     ],
-    "next_actions": ["preview"]
+    "next_actions": ["promote"]
   },
   "preview-agent": {
-    "content": "Preview Agent 验证完成：Preview 状态为 ready，预览入口 /api/workspaces/{workspace_id}/preview 可用于当前 workspace。",
-    "artifacts": [
-      {
-        "id": "artifact-preview-card",
-        "type": "preview",
-        "title": "Workspace preview",
-        "data": {
-          "workspace_id": "{workspace_id}",
-          "status": "ready",
-          "preview_url": "/api/workspaces/{workspace_id}/preview"
-        }
-      }
-    ],
+    "content": "Manual preview links are produced only by AgentService from trusted workspace IDs.",
+    "artifacts": [],
     "next_actions": []
   },
   "orchestrator": {
@@ -93,6 +70,6 @@
         }
       }
     ],
-    "next_actions": ["code", "review", "preview"]
+    "next_actions": ["code-agent", "review-agent"]
   }
 }

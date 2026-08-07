@@ -33,5 +33,6 @@ class AppliedDiffRecordRow(SQLModel, table=True):
     before_content: str | None = None
     after_content: str | None = None
     before_exists: bool = True
+    change_set_id: str | None = Field(default=None, index=True)
     reverted_at: datetime | None = None
     applied_at: datetime

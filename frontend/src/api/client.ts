@@ -8,6 +8,9 @@ import type {
   ApplyDiffResult,
   Conversation,
   ConversationStatusFilter,
+  ChangeSet,
+  ChangeSetActionResult,
+  ChangeSetRevertResult,
   CreateConversationInput,
   CustomAgent,
   CustomAgentCreateInput,
@@ -438,6 +441,83 @@ export const apiClient = {
 
     const query = params.length > 0 ? `?${params.join('&')}` : ''
     return `${API_BASE_URL}/api/workspaces/${encodeURIComponent(workspaceId)}/preview-page${query}`
+  },
+
+  listChangeSets(workspaceId: string): Promise<ChangeSet[]> {
+    return requestJson<ChangeSet[]>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/change-sets`,
+    )
+  },
+
+  getChangeSet(workspaceId: string, changeSetId: string): Promise<ChangeSet> {
+    return requestJson<ChangeSet>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/change-sets/${encodeURIComponent(changeSetId)}`,
+    )
+  },
+
+  promoteChangeSet(
+    workspaceId: string,
+    changeSetId: string,
+  ): Promise<ChangeSetActionResult> {
+    return requestJson<ChangeSetActionResult>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/change-sets/${encodeURIComponent(changeSetId)}/promote`,
+      { method: 'POST' },
+    )
+  },
+
+  rejectChangeSet(
+    workspaceId: string,
+    changeSetId: string,
+  ): Promise<ChangeSetActionResult> {
+    return requestJson<ChangeSetActionResult>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/change-sets/${encodeURIComponent(changeSetId)}/reject`,
+      { method: 'POST' },
+    )
+  },
+
+  revertChangeSet(
+    workspaceId: string,
+    changeSetId: string,
+  ): Promise<ChangeSetRevertResult> {
+    return requestJson<ChangeSetRevertResult>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/change-sets/${encodeURIComponent(changeSetId)}/revert`,
+      { method: 'POST' },
+    )
+  },
+
+  reapplyChangeSet(
+    workspaceId: string,
+    changeSetId: string,
+  ): Promise<ChangeSetActionResult> {
+    return requestJson<ChangeSetActionResult>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/change-sets/${encodeURIComponent(changeSetId)}/reapply`,
+      { method: 'POST' },
+    )
+  },
+
+  reReviewChangeSet(
+    workspaceId: string,
+    changeSetId: string,
+  ): Promise<ChangeSetActionResult> {
+    return requestJson<ChangeSetActionResult>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/change-sets/${encodeURIComponent(changeSetId)}/re-review`,
+      { method: 'POST' },
+    )
+  },
+
+  getChangeSetPreviewUrl(
+    workspaceId: string,
+    changeSetId: string,
+    path?: string,
+  ): string {
+    const query = path
+      ? `?path=${path.split('/').map(encodeURIComponent).join('/')}`
+      : ''
+    return `${API_BASE_URL}/api/workspaces/${encodeURIComponent(workspaceId)}/change-sets/${encodeURIComponent(changeSetId)}/preview-page${query}`
+  },
+
+  getChangeSetScreenshotUrl(workspaceId: string, changeSetId: string): string {
+    return `${API_BASE_URL}/api/workspaces/${encodeURIComponent(workspaceId)}/change-sets/${encodeURIComponent(changeSetId)}/screenshot`
   },
 
   /**

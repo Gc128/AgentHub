@@ -20,7 +20,7 @@ class CustomAgentAdapter:
                 "user_message": _clean_custom_agent_user_message(
                     input_data.user_message, self._agent
                 ),
-                "context": {},
+                "context": input_data.context,
             }
         )
         if self._settings is None or self._settings.use_mock_agents:

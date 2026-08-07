@@ -70,13 +70,11 @@ def test_message_run_endpoint_runs_full_orchestrator_pipeline() -> None:
         "orchestrator",
         "code-agent",
         "review-agent",
-        "preview-agent",
     ]
     assert payload["agent_messages"][0]["artifacts"] == []
     assert payload["agent_messages"][1]["artifacts"][0]["type"] == "code"
     assert payload["agent_messages"][1]["artifacts"][1]["type"] == "diff"
     assert payload["agent_messages"][2]["artifacts"][0]["type"] == "file"
-    assert payload["agent_messages"][3]["artifacts"][0]["type"] == "preview"
 
     history_response = test_client.get(f"/api/conversations/{conversation['id']}/messages")
     assert history_response.status_code == 200
@@ -85,7 +83,6 @@ def test_message_run_endpoint_runs_full_orchestrator_pipeline() -> None:
         "orchestrator",
         "code-agent",
         "review-agent",
-        "preview-agent",
     ]
 
 
@@ -158,11 +155,10 @@ def test_message_without_agent_mention_can_auto_plan_development_request() -> No
 
     assert response.status_code == 201
     payload = response.json()
-    assert [message["sender_id"] for message in payload["agent_messages"][:4]] == [
+    assert [message["sender_id"] for message in payload["agent_messages"][:3]] == [
         "orchestrator",
         "code-agent",
         "review-agent",
-        "preview-agent",
     ]
 
 
@@ -206,7 +202,7 @@ def test_agent_run_orchestrator_returns_plan_without_child_artifacts() -> None:
     assert response.status_code == 200
     result = response.json()
     assert result["agent_id"] == "orchestrator"
-    assert result["next_actions"] == ["code-agent", "review-agent", "preview-agent"]
+    assert result["next_actions"] == ["code-agent", "review-agent"]
     assert result["artifacts"] == []
     assert "@Orchestrator 帮我做一个 Todo List 网页" not in result["content"]
     assert "Code Agent" not in result["content"]
@@ -508,7 +504,6 @@ def test_message_stream_persists_user_and_agent_messages() -> None:
         "orchestrator",
         "code-agent",
         "review-agent",
-        "preview-agent",
     ]
 
 
@@ -539,5 +534,9 @@ def test_regenerate_stream_reuses_user_message_without_duplication() -> None:
 
     history_response = test_client.get(f"/api/conversations/{conversation['id']}/messages")
     messages = history_response.json()
-    assert [message["sender_id"] for message in messages] == ["user", "code-agent"]
+    sender_ids = [message["sender_id"] for message in messages]
+    assert sender_ids[0] == "user"
+    assert sender_ids.count("user") == 1
+    assert sender_ids[1] == "code-agent"
+    assert "review-agent" in sender_ids
     assert messages[1]["regenerated_from_id"] == user_message["id"]

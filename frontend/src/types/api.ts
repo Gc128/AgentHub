@@ -50,7 +50,13 @@ export type AgentRuntimeInfo = {
  * 结构化产物类型，对齐后端 ArtifactType。
  * code/diff/preview 是 Demo 主链路优先展示的三类产物。
  */
-export type ArtifactType = 'code' | 'diff' | 'preview' | 'file' | 'deploy'
+export type ArtifactType =
+  | 'code'
+  | 'diff'
+  | 'preview'
+  | 'file'
+  | 'deploy'
+  | 'change_set'
 
 /**
  * 会话对象，对齐后端 schemas/conversation.py。
@@ -123,6 +129,10 @@ export type Message = {
   is_context_pinned: boolean
   /** 软删除时间；存在时前端隐藏正文和 artifact。 */
   deleted_at?: string | null
+  /** 流式生命周期状态；失败消息不会伪装成 completed。 */
+  status: 'streaming' | 'completed' | 'failed'
+  /** 失败时的结构化错误。 */
+  error?: AgentRunError | null
   /** 消息创建时间，使用 ISO 字符串。 */
   created_at: string
 }
@@ -146,6 +156,20 @@ export type MessageStreamEvent =
   | {
       event: 'agent_done'
       data: { message: Message; result?: AgentRunResult }
+    }
+  | {
+      event: 'agent_failed'
+      data: { message: Message; result?: AgentRunResult; error?: AgentRunError }
+    }
+  | {
+      event:
+        | 'change_set_created'
+        | 'validation_started'
+        | 'validation_completed'
+        | 'change_set_ready'
+        | 'change_set_promoted'
+        | 'change_set_conflicted'
+      data: Record<string, unknown>
     }
   | {
       event: 'harness_step'
@@ -239,6 +263,105 @@ export type AgentRunResult = {
   artifacts: Artifact[]
   /** 建议的后续动作，例如 review、preview。 */
   next_actions: string[]
+  /** 仅内部失败结果携带；模型角色输出不能自行声明成功/失败。 */
+  error?: AgentRunError | null
+}
+
+export type AgentRunError = {
+  code: string
+  category:
+    | 'configuration'
+    | 'transport'
+    | 'schema'
+    | 'validation'
+    | 'workspace'
+  message: string
+  retryable: boolean
+  run_id: string
+  task_id?: string | null
+  agent_id: string
+}
+
+export type ChangeSetStatus =
+  | 'generated'
+  | 'staging'
+  | 'validating'
+  | 'needs_fix'
+  | 'ready'
+  | 'promoting'
+  | 'promoted'
+  | 'failed'
+  | 'rejected'
+  | 'conflicted'
+
+export type ReviewReport = {
+  verdict: 'pass' | 'pass_with_warnings' | 'fail'
+  risk_level: 'low' | 'medium' | 'high'
+  summary: string
+  findings: Array<{
+    severity: 'info' | 'warning' | 'high' | 'blocker'
+    category: string
+    message: string
+    suggestion: string
+    criterion_id?: string | null
+    evidence?: string | null
+    path?: string | null
+    line?: number | null
+  }>
+  covered_criteria: string[]
+}
+
+export type PreviewReport = {
+  status: 'pass' | 'fail'
+  entry_path: string
+  preview_path: string
+  screenshot_path?: string | null
+  checks: Array<{
+    criterion_id: string
+    name: string
+    status: 'passed' | 'failed'
+    duration_ms: number
+    error: string
+  }>
+  console_errors: string[]
+  page_errors: string[]
+  failed_requests: string[]
+}
+
+export type ChangeSet = {
+  id: string
+  conversation_id: string
+  workspace_id: string
+  parent_change_set_id?: string | null
+  status: ChangeSetStatus
+  repair_count: number
+  entry_path?: string | null
+  review_report?: ReviewReport | null
+  preview_report?: PreviewReport | null
+  files: Array<{
+    id: string
+    path: string
+    operation: 'upsert' | 'delete'
+    before_sha256: string
+    after_content?: string | null
+    after_sha256: string
+    diff: string
+  }>
+  created_at: string
+  updated_at: string
+  promoted_at?: string | null
+}
+
+export type ChangeSetActionResult = {
+  change_set: ChangeSet
+  message: string
+}
+
+export type ChangeSetRevertResult = {
+  change_set_id: string
+  workspace_id: string
+  reverted_paths: string[]
+  reverted_at: string
 }
 
 /**
@@ -298,6 +421,8 @@ export type AppliedDiffRecord = {
   artifact_id: string
   /** 实际修改的 workspace 文件路径；历史数据可能没有该字段。 */
   path?: string
+  /** 新流程中所属的多文件 Change Set；旧记录可能为空。 */
+  change_set_id?: string | null
   /** 回退时间；为空表示仍处于已应用状态。 */
   reverted_at?: string | null
   /** 原始 unified diff 内容。 */

@@ -24,6 +24,11 @@ class BadRequestError(AgentHubError):
         super().__init__(code=code, message=message, status_code=400)
 
 
+class ConflictError(AgentHubError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(code=code, message=message, status_code=409)
+
+
 class AgentExecutionError(AgentHubError):
     def __init__(self, message: str) -> None:
         super().__init__(code="agent_execution_failed", message=message, status_code=502)

@@ -1,11 +1,14 @@
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+WorkspacePreviewStatus = Literal["not_started", "running", "ready", "error"]
 
 
 class WorkspacePreviewResponse(BaseModel):
     workspace_id: str
-    status: str
+    status: WorkspacePreviewStatus
     preview_url: str | None = None
     entry_path: str | None = None
 
@@ -41,7 +44,7 @@ class ApplyDiffRequest(BaseModel):
 
 class ApplyDiffResponse(BaseModel):
     workspace_id: str
-    status: str
+    status: WorkspacePreviewStatus
     applied_artifact_id: str
     path: str
     preview_url: str | None = None
@@ -53,7 +56,7 @@ class RevertDiffResponse(BaseModel):
     workspace_id: str
     reverted_record_id: str
     path: str
-    status: str
+    status: WorkspacePreviewStatus
     preview_url: str | None = None
     entry_path: str | None = None
     reverted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -68,5 +71,6 @@ class AppliedDiffRecord(BaseModel):
     before_content: str | None = None
     after_content: str | None = None
     before_exists: bool = True
+    change_set_id: str | None = None
     reverted_at: datetime | None = None
     applied_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

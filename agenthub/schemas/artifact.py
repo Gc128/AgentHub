@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-ArtifactType = Literal["code", "diff", "preview", "file", "deploy"]
+ArtifactType = Literal["code", "diff", "preview", "file", "deploy", "change_set"]
 
 
 class Artifact(BaseModel):

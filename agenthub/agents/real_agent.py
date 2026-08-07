@@ -84,6 +84,24 @@ def _is_timeout_error(exc: Exception) -> bool:
     return isinstance(exc, TimeoutError) or "timeout" in type(exc).__name__.lower()
 
 
+def _is_retryable_transport_error(exc: Exception) -> bool:
+    if _is_timeout_error(exc):
+        return True
+    if type(exc).__name__ in {
+        "ConnectError",
+        "RemoteProtocolError",
+        "ReadError",
+        "WriteError",
+        "PoolTimeout",
+    }:
+        return True
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    if status_code is None:
+        status_code = getattr(response, "status_code", None)
+    return status_code == 429 or isinstance(status_code, int) and status_code >= 500
+
+
 def _safe_langchain_error_message(exc: Exception) -> str:
     status_code = getattr(exc, "status_code", None)
     response = getattr(exc, "response", None)
@@ -146,15 +164,31 @@ class RealAgent:
         *,
         schema_name: str,
     ) -> StructuredModel:
-        content = await self._request_content(input_data)
+        output_schema = model.model_json_schema()
+        structured_input = input_data.model_copy(
+            update={
+                "context": {
+                    **input_data.context,
+                    "required_output_schema_name": schema_name,
+                    "required_output_schema": output_schema,
+                    "required_output_rules": [
+                        "Return exactly one JSON object.",
+                        "Do not wrap the JSON in Markdown or explanatory prose.",
+                        "Use only fields and enum values declared by the schema.",
+                    ],
+                }
+            }
+        )
+        content = await self._request_content(structured_input)
         try:
             return _parse_structured_model(content, model)
         except RealAgentSchemaError as exc:
             repaired_content = await self._request_repair(
-                input_data,
+                structured_input,
                 original_content=content,
                 validation_error=str(exc),
                 schema_name=schema_name,
+                output_schema=output_schema,
             )
             try:
                 return _parse_structured_model(repaired_content, model)
@@ -189,22 +223,23 @@ class RealAgent:
         *,
         force_text: bool = False,
     ) -> object:
-        attempts = 3
+        attempts = 2
         for attempt in range(attempts):
             try:
                 return await self._get_chat_model(force_text=force_text).ainvoke(messages)
             except Exception as exc:
                 if _is_auth_error(exc):
                     raise RealAgentConfigurationError(_safe_langchain_error_message(exc)) from exc
+                retryable = _is_retryable_transport_error(exc)
                 if _is_timeout_error(exc):
-                    if attempt < attempts - 1:
+                    if retryable and attempt < attempts - 1:
                         continue
                     raise RealAgentTransportError(
                         f"LLM request timed out after {self.timeout_seconds:g} seconds "
                         f"({type(exc).__name__}). Increase AGENT_REQUEST_TIMEOUT_SECONDS, "
                         "disable provider-side thinking, or check provider latency."
                     ) from exc
-                if attempt < attempts - 1:
+                if retryable and attempt < attempts - 1:
                     continue
                 raise RealAgentTransportError(
                     f"LLM request failed before completion ({type(exc).__name__})."
@@ -218,6 +253,7 @@ class RealAgent:
         original_content: str,
         validation_error: str,
         schema_name: str,
+        output_schema: dict[str, Any] | None = None,
     ) -> str:
         if not self.api_key:
             raise RealAgentConfigurationError("Real agent integration is not configured yet.")
@@ -235,6 +271,7 @@ class RealAgent:
                 json.dumps(
                     {
                         "schema_name": schema_name,
+                        "json_schema": output_schema,
                         "validation_error": validation_error,
                         "original_output": original_content,
                     },
@@ -258,16 +295,11 @@ class RealAgent:
                 original_content=content,
                 validation_error=str(exc),
                 schema_name="AgentRunResult",
+                output_schema=AgentRunResult.model_json_schema(),
             )
             try:
                 return self._parse_result(repaired_content)
             except RealAgentSchemaError as repaired_exc:
-                salvaged = _salvage_unstructured_agent_result(content, self.id)
-                if salvaged is not None:
-                    return salvaged
-                salvaged = _salvage_unstructured_agent_result(repaired_content, self.id)
-                if salvaged is not None:
-                    return salvaged
                 raise RealAgentSchemaError(
                     "模型连续返回了不符合 AgentRunResult 结构的内容。"
                 ) from repaired_exc
@@ -300,7 +332,7 @@ class RealAgent:
                 _message_role_for_llm(message.role),
                 f"{message.sender_id}: {message.content}",
             )
-            for message in input_data.history[-8:]
+            for message in input_data.history
         ]
         user_payload = {
             "conversation_id": input_data.conversation_id,
@@ -359,26 +391,7 @@ class RealAgent:
         try:
             payload = json.loads(payload_text)
         except json.JSONDecodeError as exc:
-            extracted_payload = _extract_json_object(payload_text)
-            if extracted_payload and not _looks_like_json(payload_text):
-                try:
-                    payload = json.loads(extracted_payload)
-                except json.JSONDecodeError:
-                    return AgentRunResult(
-                        agent_id=self.id,
-                        content=content,
-                        artifacts=_extract_markdown_code_artifacts(content, self.id),
-                        next_actions=[],
-                    )
-            elif _looks_like_json(payload_text):
-                raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
-            else:
-                return AgentRunResult(
-                    agent_id=self.id,
-                    content=content,
-                    artifacts=_extract_markdown_code_artifacts(content, self.id),
-                    next_actions=[],
-                )
+            raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
 
         if isinstance(payload, list):
             payload = _payload_from_json_list(payload, self.id)
@@ -395,12 +408,6 @@ class RealAgent:
             self._normalize_artifact(artifact, index)
             for index, artifact in enumerate(payload["artifacts"])
         ]
-        content_value = payload.get("content")
-        if isinstance(content_value, str):
-            payload["artifacts"] = _merge_artifacts(
-                payload["artifacts"],
-                _extract_markdown_code_artifacts(content_value, self.id),
-            )
         try:
             return AgentRunResult.model_validate(payload)
         except ValidationError as exc:
@@ -451,58 +458,22 @@ def _strip_json_fence(content: str) -> str:
 
 
 def _parse_structured_model(content: str, model: type[StructuredModel]) -> StructuredModel:
-    payload_text = _strip_json_fence(content)
+    payload_text = content.strip()
     try:
         payload = json.loads(payload_text)
     except json.JSONDecodeError as exc:
-        extracted_payload = _extract_json_object(payload_text)
-        if not extracted_payload:
-            if _looks_like_json(payload_text):
-                salvaged = _salvage_structured_model_payload(
-                    content,
-                    None,
-                    model,
-                    chat_if_no_tasks=False,
-                )
-                if salvaged is not None:
-                    return model.model_validate(salvaged)
-                raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
-            salvaged = _salvage_structured_model_payload(
-                content,
-                None,
-                model,
-                chat_if_no_tasks=False,
-            )
-            if salvaged is not None:
-                return model.model_validate(salvaged)
-            raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
-        if _looks_like_json(payload_text):
-            salvaged = _salvage_structured_model_payload(content, None, model)
-            if salvaged is not None:
-                return model.model_validate(salvaged)
-            raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
-        try:
-            payload = json.loads(extracted_payload)
-        except json.JSONDecodeError as extracted_exc:
-            salvaged = _salvage_structured_model_payload(content, None, model)
-            if salvaged is not None:
-                return model.model_validate(salvaged)
-            raise RealAgentSchemaError(
-                "Structured LLM response was not valid JSON."
-            ) from extracted_exc
+        raise RealAgentSchemaError("Structured LLM response was not valid JSON.") from exc
     if not isinstance(payload, dict):
-        salvaged = _salvage_structured_model_payload(content, payload, model)
-        if salvaged is not None:
-            return model.model_validate(salvaged)
         raise RealAgentSchemaError("Structured LLM response must be a JSON object.")
     try:
         return model.model_validate(payload)
     except ValidationError as exc:
-        salvaged = _salvage_structured_model_payload(content, payload, model)
-        if salvaged is not None:
-            return model.model_validate(salvaged)
         raise RealAgentSchemaError(
-            f"Structured LLM response did not match {model.__name__} schema."
+            f"Structured LLM response did not match {model.__name__} schema: "
+            + json.dumps(
+                exc.errors(include_url=False, include_input=False),
+                ensure_ascii=False,
+            )
         ) from exc
 
 

@@ -9,7 +9,7 @@ import {
   TeamOutlined,
 } from '@ant-design/icons'
 import { Avatar, Button, Empty, Popconfirm, Spin, Tag, Tooltip } from 'antd'
-import type { Agent, Artifact, Conversation, Message } from '../../types/api'
+import type { Agent, ChangeSet, Conversation, Message } from '../../types/api'
 import { MarkdownMessage } from './MarkdownMessage'
 import { MessageArtifactActions } from './MessageArtifactActions'
 import { MessageComposer } from './MessageComposer'
@@ -32,14 +32,12 @@ type ChatPanelProps = {
   agentRunning: boolean
   /** 当前生成提示；只控制底部黄色状态卡片展示。 */
   generationNotice: string | null
-  /** 当前 workspace 的可打开 preview URL。 */
-  workspacePreviewUrl?: string | null
-  /** 已经成功应用的 diff artifact ID 集合。 */
-  appliedDiffIds: ReadonlySet<string>
-  /** 当前正在应用的 diff artifact ID。 */
-  applyingDiffId: string | null
-  /** 点击 Apply Diff 时调用，父组件负责请求 API 和刷新 Preview。 */
-  onApplyDiff: (artifact: Artifact, diff: string) => Promise<void>
+  /** 后端 Change Set 状态，候选预览与正式 Workspace 完全分离。 */
+  changeSets: ChangeSet[]
+  promotingChangeSetId: string | null
+  getCandidatePreviewUrl: (changeSetId: string, path?: string) => string
+  getWorkspacePreviewUrl: (path?: string) => string
+  onPromoteChangeSet: (changeSetId: string) => Promise<void>
   /** 用户发送消息时调用，父组件负责创建 Message 并刷新状态。 */
   onSendMessage: (content: string, replyToId?: string | null) => Promise<void>
   /** 引用某条消息。 */
@@ -93,10 +91,11 @@ export function ChatPanel({
   loading,
   agentRunning,
   generationNotice,
-  workspacePreviewUrl,
-  appliedDiffIds,
-  applyingDiffId,
-  onApplyDiff,
+  changeSets,
+  promotingChangeSetId,
+  getCandidatePreviewUrl,
+  getWorkspacePreviewUrl,
+  onPromoteChangeSet,
   onSendMessage,
   onReplyToMessage,
   onCancelReply,
@@ -186,6 +185,7 @@ export function ChatPanel({
                 </Avatar>
                 <div className="message-meta">
                   <span>{getSenderName(message.sender_id, agents)}</span>
+                  {message.status === 'failed' ? <Tag color="error">失败</Tag> : null}
                   <time dateTime={message.created_at}>
                     {formatTime(message.created_at)}
                   </time>
@@ -290,12 +290,20 @@ export function ChatPanel({
                 ) : (
                   <>
                     <MarkdownMessage content={message.content} />
+                    {message.status === 'failed' && message.error ? (
+                      <div className="message-error-detail" role="alert">
+                        <Tag color="error">{message.error.category}</Tag>
+                        <code>{message.error.code}</code>
+                        <span>{message.error.message}</span>
+                      </div>
+                    ) : null}
                     <MessageArtifactActions
-                      appliedDiffIds={appliedDiffIds}
-                      applyingDiffId={applyingDiffId}
                       artifacts={message.artifacts}
-                      workspacePreviewUrl={workspacePreviewUrl}
-                      onApplyDiff={onApplyDiff}
+                      changeSets={changeSets}
+                      getCandidatePreviewUrl={getCandidatePreviewUrl}
+                      getWorkspacePreviewUrl={getWorkspacePreviewUrl}
+                      onPromoteChangeSet={onPromoteChangeSet}
+                      promotingChangeSetId={promotingChangeSetId}
                     />
                   </>
                 )}

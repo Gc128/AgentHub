@@ -13,7 +13,7 @@ import type {
   Agent,
   AgentRuntimeInfo,
   AppliedDiffRecord,
-  Artifact,
+  ChangeSet,
   Conversation,
   CreateConversationInput,
   Message,
@@ -50,14 +50,6 @@ const hasPreviewArtifact = (items: Message[]) =>
     message.artifacts.some((artifact) => artifact.type === 'preview'),
   )
 
-/** 从 workspace 变更历史恢复已应用 diff id 集合，保证切换会话后按钮状态不丢。 */
-const getAppliedDiffIds = (records: AppliedDiffRecord[]) =>
-  new Set(
-    records
-      .filter((record) => !record.reverted_at)
-      .map((record) => record.artifact_id),
-  )
-
 /** 会话模式由成员数量推导，避免 UI 手动选择后和 agent_ids 语义不一致。 */
 const inferConversationMode = (agentIds: string[]): ConversationMode =>
   agentIds.length > 1 ? 'group' : 'single'
@@ -77,6 +69,8 @@ const createDraftMessage = (
   regenerated_from_id: null,
   is_context_pinned: false,
   deleted_at: null,
+  status: 'streaming',
+  error: null,
   created_at: new Date().toISOString(),
 })
 
@@ -126,6 +120,10 @@ function App() {
   const [appliedDiffRecords, setAppliedDiffRecords] = useState<
     AppliedDiffRecord[]
   >([])
+  const [changeSets, setChangeSets] = useState<ChangeSet[]>([])
+  const [promotingChangeSetId, setPromotingChangeSetId] = useState<
+    string | null
+  >(null)
   // 消息区 loading 状态，只作用于当前会话消息和 preview 加载。
   const [loadingMessages, setLoadingMessages] = useState(false)
   // 会话搜索关键词；搜索接口文档未明确，第二天先做前端本地过滤。
@@ -146,13 +144,13 @@ function App() {
     useState<Record<string, string | null>>({})
   const [replyTargetsByConversationId, setReplyTargetsByConversationId] =
     useState<Record<string, Message | null>>({})
-  // 已成功应用的 diff artifact ID；聊天流和右侧产物栏共享这份状态。
-  const [appliedDiffIds, setAppliedDiffIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  )
-  // 当前正在应用的 diff artifact ID；用于让同一张卡片展示“应用中”。
-  const [applyingDiffId, setApplyingDiffId] = useState<string | null>(null)
   const [revertingDiffRecordId, setRevertingDiffRecordId] = useState<
+    string | null
+  >(null)
+  const [reapplyingChangeSetId, setReapplyingChangeSetId] = useState<
+    string | null
+  >(null)
+  const [reReviewingChangeSetId, setReReviewingChangeSetId] = useState<
     string | null
   >(null)
   // 当前正在删除的 workspace 文件路径，用于文件行按钮 loading。
@@ -229,6 +227,8 @@ function App() {
       ) ?? null,
     [conversations, selectedConversationId],
   )
+  const activeConversationId = selectedConversation?.id
+  const activeWorkspaceId = selectedConversation?.workspace_id
 
   const selectedMessages = selectedConversationId
     ? messagesByConversationId[selectedConversationId] ?? []
@@ -364,11 +364,11 @@ function App() {
 
   useEffect(() => {
     // 没有选中会话时清空中间消息区和右侧预览，避免展示上一个会话的数据。
-    if (!selectedConversation) {
+    if (!activeConversationId || !activeWorkspaceId) {
       setPreview(null)
       setWorkspaceFiles([])
       setAppliedDiffRecords([])
-      setAppliedDiffIds(new Set())
+      setChangeSets([])
       bumpWorkspaceRefreshToken()
       return
     }
@@ -387,21 +387,23 @@ function App() {
           nextPreview,
           nextWorkspaceFiles,
           nextAppliedDiffRecords,
+          nextChangeSets,
         ] = await Promise.all([
-          apiClient.listMessages(selectedConversation.id),
-          apiClient.getWorkspacePreview(selectedConversation.workspace_id),
-          apiClient.listWorkspaceFiles(selectedConversation.workspace_id),
-          apiClient.listAppliedDiffs(selectedConversation.workspace_id),
+          apiClient.listMessages(activeConversationId),
+          apiClient.getWorkspacePreview(activeWorkspaceId),
+          apiClient.listWorkspaceFiles(activeWorkspaceId),
+          apiClient.listAppliedDiffs(activeWorkspaceId),
+          apiClient.listChangeSets(activeWorkspaceId),
         ])
         if (ignore) {
           return
         }
 
-        setConversationMessages(selectedConversation.id, () => nextMessages)
+        setConversationMessages(activeConversationId, () => nextMessages)
         setPreview(nextPreview)
         setWorkspaceFiles(nextWorkspaceFiles)
         setAppliedDiffRecords(nextAppliedDiffRecords)
-        setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+        setChangeSets(nextChangeSets)
         bumpWorkspaceRefreshToken()
         setError(null)
       } catch (caughtError) {
@@ -424,7 +426,7 @@ function App() {
     return () => {
       ignore = true
     }
-  }, [selectedConversation?.id, selectedConversation?.workspace_id])
+  }, [activeConversationId, activeWorkspaceId])
 
   /**
    * 按搜索关键词过滤会话列表。
@@ -617,50 +619,40 @@ function App() {
     }
   }
 
-  /**
-   * 应用某个 Diff Artifact。
-   * 这是核心闭环：Diff 卡片按钮 → 后端 apply-diff → workspace preview 刷新。
-   */
-  const handleApplyDiff = async (artifact: Artifact, diff: string) => {
+  const handlePromoteChangeSet = async (changeSetId: string) => {
     if (!selectedConversation) {
       throw new Error('请先选择一个会话')
     }
-
-    setApplyingDiffId(artifact.id)
-
+    setPromotingChangeSetId(changeSetId)
     try {
-      const result = await apiClient.applyDiff(selectedConversation.workspace_id, {
-        artifact_id: artifact.id,
-        diff,
-      })
-      setAppliedDiffIds((currentDiffIds) => {
-        const nextDiffIds = new Set(currentDiffIds)
-        nextDiffIds.add(result.applied_artifact_id)
-        return nextDiffIds
-      })
-
-      const [nextWorkspaceFiles, nextAppliedDiffRecords] = await Promise.all([
+      await apiClient.promoteChangeSet(
+        selectedConversation.workspace_id,
+        changeSetId,
+      )
+      const [
+        nextPreview,
+        nextWorkspaceFiles,
+        nextAppliedDiffRecords,
+        nextChangeSets,
+      ] = await Promise.all([
+        apiClient.getWorkspacePreview(selectedConversation.workspace_id),
         apiClient.listWorkspaceFiles(selectedConversation.workspace_id),
         apiClient.listAppliedDiffs(selectedConversation.workspace_id),
+        apiClient.listChangeSets(selectedConversation.workspace_id),
       ])
-      setPreview({
-        workspace_id: result.workspace_id,
-        status: result.status,
-        preview_url: result.preview_url ?? null,
-        entry_path: result.entry_path ?? null,
-      })
+      setPreview(nextPreview)
       setWorkspaceFiles(nextWorkspaceFiles)
       setAppliedDiffRecords(nextAppliedDiffRecords)
-      setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
+      setChangeSets(nextChangeSets)
       bumpWorkspaceRefreshToken()
       setError(null)
     } catch (caughtError) {
       const message =
-        caughtError instanceof Error ? caughtError.message : '应用 Diff 失败'
+        caughtError instanceof Error ? caughtError.message : '合入 Change Set 失败'
       setError(message)
       throw new Error(message)
     } finally {
-      setApplyingDiffId(null)
+      setPromotingChangeSetId(null)
     }
   }
 
@@ -688,7 +680,6 @@ function App() {
       })
       setWorkspaceFiles(nextWorkspaceFiles)
       setAppliedDiffRecords(nextAppliedDiffRecords)
-      setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
       bumpWorkspaceRefreshToken()
       setError(null)
     } catch (caughtError) {
@@ -698,6 +689,187 @@ function App() {
       throw new Error(message)
     } finally {
       setRevertingDiffRecordId(null)
+    }
+  }
+
+  const handleRevertChangeSet = async (changeSetId: string) => {
+    if (!selectedConversation) {
+      throw new Error('请先选择一个会话')
+    }
+
+    setRevertingDiffRecordId(changeSetId)
+    try {
+      await apiClient.revertChangeSet(
+        selectedConversation.workspace_id,
+        changeSetId,
+      )
+      const [nextPreview, nextWorkspaceFiles, nextAppliedDiffRecords, nextChangeSets] =
+        await Promise.all([
+          apiClient.getWorkspacePreview(selectedConversation.workspace_id),
+          apiClient.listWorkspaceFiles(selectedConversation.workspace_id),
+          apiClient.listAppliedDiffs(selectedConversation.workspace_id),
+          apiClient.listChangeSets(selectedConversation.workspace_id),
+        ])
+      setPreview(nextPreview)
+      setWorkspaceFiles(nextWorkspaceFiles)
+      setAppliedDiffRecords(nextAppliedDiffRecords)
+      setChangeSets(nextChangeSets)
+      bumpWorkspaceRefreshToken()
+      setError(null)
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : '整组回退失败'
+      setError(message)
+      throw new Error(message)
+    } finally {
+      setRevertingDiffRecordId(null)
+    }
+  }
+
+  const handleReapplyChangeSet = async (changeSetId: string) => {
+    if (!selectedConversation) {
+      throw new Error('请先选择一个会话')
+    }
+
+    setReapplyingChangeSetId(changeSetId)
+    try {
+      const workspaceId = selectedConversation.workspace_id
+      const conversationId = selectedConversation.id
+      const result = await apiClient.reapplyChangeSet(
+        workspaceId,
+        changeSetId,
+      )
+      setChangeSets((current) => [
+        result.change_set,
+        ...current.filter((item) => item.id !== result.change_set.id),
+      ])
+      setError(null)
+
+      void (async () => {
+        const terminalStatuses: ReadonlySet<ChangeSet['status']> = new Set([
+          'ready',
+          'needs_fix',
+          'failed',
+          'conflicted',
+          'rejected',
+        ])
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          await sleep(1000)
+          if (selectedConversationIdRef.current !== conversationId) {
+            return
+          }
+          try {
+            const nextChangeSet = await apiClient.getChangeSet(
+              workspaceId,
+              result.change_set.id,
+            )
+            setChangeSets((current) => [
+              nextChangeSet,
+              ...current.filter((item) => item.id !== nextChangeSet.id),
+            ])
+            if (terminalStatuses.has(nextChangeSet.status)) {
+              const [nextPreview, nextWorkspaceFiles, nextAppliedDiffRecords] =
+                await Promise.all([
+                  apiClient.getWorkspacePreview(workspaceId),
+                  apiClient.listWorkspaceFiles(workspaceId),
+                  apiClient.listAppliedDiffs(workspaceId),
+                ])
+              if (selectedConversationIdRef.current === conversationId) {
+                setPreview(nextPreview)
+                setWorkspaceFiles(nextWorkspaceFiles)
+                setAppliedDiffRecords(nextAppliedDiffRecords)
+                bumpWorkspaceRefreshToken()
+              }
+              return
+            }
+          } catch (caughtError) {
+            if (selectedConversationIdRef.current === conversationId) {
+              setError(
+                caughtError instanceof Error
+                  ? caughtError.message
+                  : '获取重新应用审查状态失败',
+              )
+            }
+            return
+          }
+        }
+        if (selectedConversationIdRef.current === conversationId) {
+          setError('重新应用审查超时，候选仍保留，刷新后可继续查看。')
+        }
+      })()
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : '重新应用失败'
+      setError(message)
+      throw new Error(message)
+    } finally {
+      setReapplyingChangeSetId(null)
+    }
+  }
+
+  const handleReReviewChangeSet = async (changeSetId: string) => {
+    if (!selectedConversation) {
+      throw new Error('请先选择一个会话')
+    }
+
+    setReReviewingChangeSetId(changeSetId)
+    try {
+      const workspaceId = selectedConversation.workspace_id
+      const conversationId = selectedConversation.id
+      const result = await apiClient.reReviewChangeSet(workspaceId, changeSetId)
+      setChangeSets((current) => [
+        result.change_set,
+        ...current.filter((item) => item.id !== result.change_set.id),
+      ])
+      setError(null)
+
+      void (async () => {
+        const terminalStatuses: ReadonlySet<ChangeSet['status']> = new Set([
+          'ready',
+          'needs_fix',
+          'failed',
+          'conflicted',
+          'rejected',
+        ])
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          await sleep(1000)
+          if (selectedConversationIdRef.current !== conversationId) {
+            return
+          }
+          try {
+            const nextChangeSet = await apiClient.getChangeSet(
+              workspaceId,
+              result.change_set.id,
+            )
+            setChangeSets((current) => [
+              nextChangeSet,
+              ...current.filter((item) => item.id !== nextChangeSet.id),
+            ])
+            if (terminalStatuses.has(nextChangeSet.status)) {
+              return
+            }
+          } catch (caughtError) {
+            if (selectedConversationIdRef.current === conversationId) {
+              setError(
+                caughtError instanceof Error
+                  ? caughtError.message
+                  : '获取重新审查状态失败',
+              )
+            }
+            return
+          }
+        }
+        if (selectedConversationIdRef.current === conversationId) {
+          setError('重新代码审查超时，候选仍保留，刷新后可继续查看。')
+        }
+      })()
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : '重新代码审查失败'
+      setError(message)
+      throw new Error(message)
+    } finally {
+      setReReviewingChangeSetId(null)
     }
   }
 
@@ -752,7 +924,6 @@ function App() {
       setPreview(nextPreview)
       setWorkspaceFiles(nextWorkspaceFiles)
       setAppliedDiffRecords(nextAppliedDiffRecords)
-      setAppliedDiffIds(getAppliedDiffIds(nextAppliedDiffRecords))
       bumpWorkspaceRefreshToken()
       setError(null)
     } catch (caughtError) {
@@ -784,6 +955,7 @@ function App() {
       const closedDraftIds = new Set<string>()
       let draftCounter = 0
       let shouldRefreshPreview = false
+      let shouldRefreshChangeSets = false
 
       const ensureDraft = (agentId: string) => {
         const existingId = draftIds.get(agentId)
@@ -917,6 +1089,27 @@ function App() {
           return
         }
 
+        if (event.event === 'agent_failed') {
+          finalizeAgentMessage(event.data.message)
+          setError(event.data.error?.message ?? event.data.message.content)
+          setConversationGenerationNotice(conversationId, null)
+          return
+        }
+
+        if (
+          [
+            'change_set_created',
+            'validation_started',
+            'validation_completed',
+            'change_set_ready',
+            'change_set_promoted',
+            'change_set_conflicted',
+          ].includes(event.event)
+        ) {
+          shouldRefreshChangeSets = true
+          return
+        }
+
         if (event.event === 'error') {
           setError(event.data.message)
           setConversationGenerationNotice(conversationId, null)
@@ -940,6 +1133,12 @@ function App() {
         if (selectedConversationIdRef.current === conversationId) {
           setPreview(nextPreview)
           bumpWorkspaceRefreshToken()
+        }
+      }
+      if (shouldRefreshChangeSets) {
+        const nextChangeSets = await apiClient.listChangeSets(workspaceId)
+        if (selectedConversationIdRef.current === conversationId) {
+          setChangeSets(nextChangeSets)
         }
       }
 
@@ -1142,16 +1341,33 @@ function App() {
             <ChatPanel
               agents={agents}
               availableAgents={selectedConversationAgents}
+              changeSets={changeSets}
               conversation={selectedConversation}
               agentRunning={selectedAgentRunning}
-              appliedDiffIds={appliedDiffIds}
-              applyingDiffId={applyingDiffId}
               generationNotice={selectedGenerationNotice}
               loading={loadingMessages && selectedMessages.length === 0}
               messages={selectedMessages}
               replyTarget={selectedReplyTarget}
-              workspacePreviewUrl={preview?.preview_url ?? null}
-              onApplyDiff={handleApplyDiff}
+              promotingChangeSetId={promotingChangeSetId}
+              getCandidatePreviewUrl={(changeSetId, path) =>
+                selectedConversation
+                  ? apiClient.getChangeSetPreviewUrl(
+                      selectedConversation.workspace_id,
+                      changeSetId,
+                      path,
+                    )
+                  : ''
+              }
+              getWorkspacePreviewUrl={(path) =>
+                selectedConversation
+                  ? apiClient.getWorkspacePreviewPageUrl(
+                      selectedConversation.workspace_id,
+                      path,
+                      workspaceRefreshToken,
+                    )
+                  : ''
+              }
+              onPromoteChangeSet={handlePromoteChangeSet}
               onCancelReply={handleCancelReply}
               onCopyMessage={handleCopyMessage}
               onDeleteMessage={handleDeleteMessage}
@@ -1167,11 +1383,15 @@ function App() {
           /* 右侧 Workspace 区：展示预览、文件和已应用 Diff 历史。 */
           <WorkspacePanel
             appliedDiffs={appliedDiffRecords}
+            changeSets={changeSets}
             conversation={selectedConversation}
             deletingFilePath={deletingWorkspaceFilePath}
             files={workspaceFiles}
             key={selectedConversation?.workspace_id ?? 'no-workspace'}
             preview={preview}
+            promotingChangeSetId={promotingChangeSetId}
+            reapplyingChangeSetId={reapplyingChangeSetId}
+            reReviewingChangeSetId={reReviewingChangeSetId}
             revertingDiffRecordId={revertingDiffRecordId}
             workspaceRefreshToken={workspaceRefreshToken}
             getFilePreviewUrl={(path) =>
@@ -1183,9 +1403,22 @@ function App() {
                   )
                 : ''
             }
+            getCandidatePreviewUrl={(changeSetId, path) =>
+              selectedConversation
+                ? apiClient.getChangeSetPreviewUrl(
+                    selectedConversation.workspace_id,
+                    changeSetId,
+                    path,
+                  )
+                : ''
+            }
             onDeleteFile={handleDeleteWorkspaceFile}
             onPreviewFile={handlePreviewWorkspaceFile}
+            onPromoteChangeSet={handlePromoteChangeSet}
+            onReapplyChangeSet={handleReapplyChangeSet}
+            onReReviewChangeSet={handleReReviewChangeSet}
             onRevertAppliedDiff={handleRevertAppliedDiff}
+            onRevertChangeSet={handleRevertChangeSet}
           />
         }
       />

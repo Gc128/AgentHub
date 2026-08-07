@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agenthub.schemas.artifact import Artifact
+from agenthub.schemas.run import AgentRunError
 
 
 class Message(BaseModel):
@@ -17,6 +18,8 @@ class Message(BaseModel):
     regenerated_from_id: str | None = None
     is_context_pinned: bool = False
     deleted_at: datetime | None = None
+    status: Literal["streaming", "completed", "failed"] = "completed"
+    error: AgentRunError | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = ConfigDict(from_attributes=True)

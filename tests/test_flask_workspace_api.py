@@ -250,7 +250,7 @@ def test_orchestrator_result_contains_structured_plan_artifact(
     assert response.status_code == 200
     result = envelope(response.get_json())
     assert result["agent_id"] == "orchestrator"
-    assert result["next_actions"] == ["code-agent", "review-agent", "preview-agent"]
+    assert result["next_actions"] == ["code-agent", "review-agent"]
 
     artifact = result["artifacts"][0]
     assert artifact["type"] == "file"
@@ -258,10 +258,8 @@ def test_orchestrator_result_contains_structured_plan_artifact(
     assert artifact["data"]["steps"] == [
         "Code Agent 生成页面代码",
         "Review Agent 检查实现风险",
-        "Preview Agent 准备预览状态",
     ]
     assert [task["agent_id"] for task in artifact["data"]["tasks"]] == [
         "code-agent",
         "review-agent",
-        "preview-agent",
     ]

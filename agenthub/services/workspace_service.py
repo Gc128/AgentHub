@@ -15,6 +15,7 @@ from agenthub.schemas.workspace import (
     WorkspaceFileDeleteResponse,
     WorkspaceFileWriteRequest,
     WorkspacePreviewResponse,
+    WorkspacePreviewStatus,
 )
 from agenthub.utils.ids import new_id
 from agenthub.workspace.diff import DiffApplyError
@@ -41,7 +42,7 @@ class WorkspaceService:
     async def set_preview(
         self,
         workspace_id: str,
-        status: str,
+        status: WorkspacePreviewStatus,
         preview_url: str | None = None,
         entry_path: str | None = None,
         preserve_entry_path: bool = True,
@@ -263,7 +264,7 @@ class WorkspaceService:
         await self._repository.save_applied_diff(reverted_record)
 
         entry_path = await self._select_preview_entry_path_after_revert(workspace_id, path)
-        preview_status = "ready" if entry_path else "not_started"
+        preview_status: WorkspacePreviewStatus = "ready" if entry_path else "not_started"
         preview_url = _build_preview_url(preview_page_url, entry_path) if entry_path else None
         await self.set_preview(
             workspace_id,

@@ -5,7 +5,7 @@ from pathlib import Path
 from agenthub.agents.base import AgentAdapter
 from agenthub.agents.real_agent import RealAgentSchemaError
 from agenthub.core.errors import AgentExecutionError
-from agenthub.schemas.agent import AgentRunInput, AgentRunResult
+from agenthub.schemas.agent import AgentRunInput, AgentRunResult, CodeGenerationResult
 from agenthub.schemas.artifact import Artifact
 from agenthub.workspace.diff import create_unified_diff
 from agenthub.workspace.manager import WorkspacePathError, resolve_workspace_path
@@ -29,31 +29,29 @@ class CodeAgent:
 
     async def run(self, input_data: AgentRunInput) -> AgentRunResult:
         try:
-            result = await self._llm.run(
-                input_data.model_copy(
-                    update={
-                        "context": {
-                            **input_data.context,
-                            "agent_id": self.id,
-                            "agent_role": "code",
-                        }
+            llm_input = input_data.model_copy(
+                update={
+                    "context": {
+                        **input_data.context,
+                        "agent_id": self.id,
+                        "agent_role": "code",
                     }
+                }
+            )
+            run_structured = getattr(self._llm, "run_structured", None)
+            if callable(run_structured):
+                generated = await run_structured(
+                    llm_input,
+                    CodeGenerationResult,
+                    schema_name="CodeGenerationResult",
                 )
-            )
+                return _agent_result_from_generated_files(generated)
+            else:
+                result = await self._llm.run(llm_input)
         except RealAgentSchemaError as exc:
-            if not self._fallbacks_allowed(input_data):
-                raise AgentExecutionError(
-                    "Code Agent model output could not be parsed after repair."
-                ) from exc
-            fallback = _build_code_fallback_result(
-                input_data,
-                reason="未能从模型结果中提取可应用代码，已生成最小兜底版本。",
-            )
-            if fallback is None:
-                raise AgentExecutionError(
-                    "Code Agent structured output could not be parsed."
-                ) from exc
-            result = fallback
+            raise AgentExecutionError(
+                "Code Agent model output could not be parsed after one format repair."
+            ) from exc
         result = result.model_copy(update={"agent_id": self.id})
         result = await self._ensure_todo_artifact_is_interactive(result, input_data)
         artifact_types = {artifact.type for artifact in result.artifacts}
@@ -165,18 +163,7 @@ class CodeAgent:
                 }
             )
 
-        fallback = _build_code_fallback_result(
-            input_data,
-            reason="模型没有返回可应用的代码产物，已生成最小兜底版本。",
-        )
-        if not self._fallbacks_allowed(input_data):
-            return result
-        if fallback is None:
-            return result
-        return fallback
-
-    def _fallbacks_allowed(self, input_data: AgentRunInput) -> bool:
-        return self._allow_fallbacks or input_data.context.get("allow_agent_fallbacks") is True
+        return result
 
     async def _repair_todo_interaction(
         self,
@@ -630,7 +617,7 @@ def _build_grade_table_fallback_result(
                 },
             )
         ],
-        next_actions=["review-agent", "preview-agent"],
+        next_actions=["review-agent"],
     )
 
 
@@ -664,7 +651,7 @@ def _build_todo_fallback_result(
                 },
             )
         ],
-        next_actions=["review-agent", "preview-agent"],
+        next_actions=["review-agent"],
     )
 
 
@@ -1362,10 +1349,75 @@ def _normalize_generated_file_content(content: str) -> str:
     return content.rstrip("\n") + "\n"
 
 
+def _language_from_filename(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    return {
+        ".html": "html",
+        ".htm": "html",
+        ".css": "css",
+        ".js": "javascript",
+        ".mjs": "javascript",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".jsx": "jsx",
+        ".json": "json",
+    }.get(suffix, suffix.lstrip(".") or "text")
+
+
+def _agent_result_from_generated_files(generated: CodeGenerationResult) -> AgentRunResult:
+    artifacts: list[Artifact] = []
+    code_blocks: list[str] = []
+    operations: list[dict[str, object]] = []
+    for index, generated_file in enumerate(generated.files, start=1):
+        operations.append(generated_file.model_dump(mode="json"))
+        if generated_file.operation != "upsert" or generated_file.content is None:
+            continue
+        content = _normalize_generated_file_content(generated_file.content)
+        language = _language_from_filename(generated_file.path)
+        artifacts.append(
+            Artifact(
+                id=f"artifact-code-agent-file-{index}",
+                type="code",
+                title=generated_file.path,
+                data={
+                    "filename": generated_file.path,
+                    "language": language,
+                    "content": content,
+                },
+            )
+        )
+        code_blocks.append(
+            f'```{language} filename="{generated_file.path}"\n{content.rstrip()}\n```'
+        )
+    artifacts.append(
+        Artifact(
+            id="artifact-code-agent-candidate-manifest",
+            type="file",
+            title="候选文件清单",
+            data={
+                "kind": "candidate_manifest",
+                "file_count": len(operations),
+                "operations": operations,
+            },
+        )
+    )
+    content = generated.summary.strip()
+    if code_blocks:
+        content += "\n\n" + "\n\n".join(code_blocks)
+    return AgentRunResult(
+        agent_id="code-agent",
+        content=content,
+        artifacts=artifacts,
+        next_actions=["review-agent"],
+    )
+
+
 CODE_AGENT_SYSTEM_PROMPT = """
 You are AgentHub Code Agent.
-Return one JSON object matching AgentRunResult exactly:
-{"agent_id":"code-agent","content":"Markdown summary","artifacts":[],"next_actions":[]}
+Return one JSON object matching CodeGenerationResult exactly:
+{"summary":"Markdown summary","files":[
+  {"path":"index.html","operation":"upsert","content":"..."}
+]}
 
 Rules:
 - Generate runnable, concrete code for the user's requested UI or feature.
@@ -1373,13 +1425,12 @@ Rules:
   required fields, interactions, mock data, sorting rules, and labels.
 - If the request lists exact data-testid values, include every one of them
   exactly in the generated HTML/JSX. Do not rename, abbreviate, or omit them.
-- Put the full user-facing answer in content as Markdown.
-- Include generated code in content as fenced code blocks.
-- Add filename metadata to each code fence, e.g. ```tsx filename="src/App.tsx".
-- When the user asks for separate HTML, CSS, and JS files, output each file as
-  its own fenced code block or code artifact with its own filename.
-- You may also include code artifacts with data.filename, data.language, data.content.
-- If you omit artifacts, AgentHub will extract code artifacts from Markdown fences.
-- Diff paths must stay inside the workspace and use a/ and b/ headers.
+- Return complete candidate file contents; never return diffs. AgentHub creates diffs.
+- Use operation=delete with content=null only when the user explicitly requests removal.
+- Add stable data-testid attributes for interactive elements.
+- Follow context.required_output_schema exactly. Do not return browser checks,
+  screenshots, preview URLs, or claims that the page has already been executed.
+- Prefer browser-native form validation when it satisfies the user requirement; do not
+  add custom error DOM solely to satisfy a testing implementation preference.
 - Do not include secrets or local absolute paths.
 """.strip()

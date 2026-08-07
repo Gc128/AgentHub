@@ -25,7 +25,6 @@ from flask import Flask, Response, jsonify, request
 
 from agenthub.orchestrator.planner import (
     AGENT_CODE,
-    AGENT_PREVIEW,
     AGENT_REVIEW,
     AgentTask,
     OrchestratorPlan,
@@ -388,8 +387,7 @@ DEFAULT_MESSAGES: list[dict[str, Any]] = [
             "## 任务拆解\n\n"
             "我会按比赛 Demo 主线推进：\n\n"
             "1. **Code Agent** 生成 Todo 页面和可应用 Diff。\n"
-            "2. **Review Agent** 检查交互、空状态和移动端风险。\n"
-            "3. **Preview Agent** 刷新 workspace 预览，并把结果放到右侧面板。\n\n"
+            "2. **Review Agent** 检查交互、空状态和移动端风险。\n\n"
             "> 目标不是堆卡片，而是让聊天记录本身完整记录协作过程。"
         ),
         "artifacts": [
@@ -399,7 +397,7 @@ DEFAULT_MESSAGES: list[dict[str, Any]] = [
                 "title": "Task Breakdown",
                 "data": {
                     "summary": "Rule-based MVP plan",
-                    "steps": ["生成 Todo 页面", "检查代码质量", "准备页面预览"],
+                    "steps": ["生成 Todo 页面", "检查代码质量"],
                 },
                 "created_at": "2026-06-03T09:02:00Z",
             }
@@ -1324,7 +1322,7 @@ def build_code_agent_result(input_data: dict[str, Any]) -> dict[str, Any]:
                 {"filename": filename, "diff": diff},
             ),
         ],
-        "next_actions": [AGENT_REVIEW, AGENT_PREVIEW],
+        "next_actions": [AGENT_REVIEW],
     }
 
 
@@ -1364,33 +1362,22 @@ def build_review_agent_result() -> dict[str, Any]:
                 {"findings": findings, "risk_level": random.choice(["low", "medium"])},
             )
         ],
-        "next_actions": [AGENT_PREVIEW],
+        "next_actions": ["promote"],
     }
 
 
 def build_preview_agent_result(input_data: dict[str, Any]) -> dict[str, Any]:
-    """构造 Preview Agent 的返回结果。
-
-    Preview Agent 会更新 preview 表，所以它不只是返回消息，还会改变右侧预览面板
-    读取到的 workspace 状态。
-    """
+    """返回可信的人工 Preview 入口，不修改任何状态。"""
 
     workspace_id = str(input_data.get("workspace_id", "ws_unknown"))
 
-    # ready 权重更高，保证 Demo 大多数情况下可以展示“预览已就绪”。
-    status: PreviewStatus = random.choice(["ready", "ready", "running"])
     preview_url = preview_page_url(workspace_id)
-    upsert_preview(workspace_id, status, preview_url)
     markdown_content = (
-        "## Workspace Preview\n\n"
+        "## 人工 Workspace Preview\n\n"
         f"- Workspace: `{workspace_id}`\n"
-        f"- Status: `{status}`\n"
+        "- Status: `available`\n"
         f"- Preview URL: `{preview_url}`\n\n"
-        + (
-            "预览环境已就绪，右侧 Workspace 面板会显示 iframe、文件列表和变更历史。"
-            if status == "ready"
-            else "预览服务正在启动，右侧状态会显示为 running。"
-        )
+        "该链接仅供人工查看，不产生自动验收结论。"
     )
     return {
         "agent_id": "preview-agent",
@@ -1400,10 +1387,11 @@ def build_preview_agent_result(input_data: dict[str, Any]) -> dict[str, Any]:
                 "preview",
                 "Workspace Preview",
                 {
+                    "preview_status": "available",
+                    "scope": "workspace",
                     "workspace_id": workspace_id,
-                    "status": status,
+                    "entry_path": "index.html",
                     "checked_at": now_iso(),
-                    "preview_url": preview_url,
                 },
             )
         ],
@@ -1415,12 +1403,12 @@ def build_orchestrator_result(input_data: dict[str, Any]) -> dict[str, Any]:
     """构造 Orchestrator 的任务拆解结果。
 
     Orchestrator 负责把用户需求拆成多个 Agent 步骤。当前实现是规则版：
-    固定输出 Code -> Review -> Preview 的协作流程，满足比赛 Demo 主线。
+    固定输出 Code -> Review 的默认协作流程。
     """
 
     task_title = get_task_title(str(input_data.get("user_message", "")))
 
-    steps = ["Code Agent 生成页面代码", "Review Agent 检查实现风险", "Preview Agent 准备预览状态"]
+    steps = ["Code Agent 生成页面代码", "Review Agent 检查实现风险"]
     code_task = AgentTask(
         task_id="plan-code",
         agent_id=AGENT_CODE,
@@ -1432,15 +1420,9 @@ def build_orchestrator_result(input_data: dict[str, Any]) -> dict[str, Any]:
         instruction="检查 Code Agent 产物的交互、稳定性和移动端风险",
         depends_on=[code_task.task_id],
     )
-    preview_task = AgentTask(
-        task_id="plan-preview",
-        agent_id=AGENT_PREVIEW,
-        instruction="刷新 workspace 预览状态并反馈右侧面板结果",
-        depends_on=[review_task.task_id],
-    )
     plan = OrchestratorPlan(
         summary="Rule-based MVP plan",
-        tasks=[code_task, review_task, preview_task],
+        tasks=[code_task, review_task],
     )
 
     markdown_content = (

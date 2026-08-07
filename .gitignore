@@ -70,3 +70,4 @@ workspace_samples/*/.agenthub-cache/
 workspaces/
 previews/
 artifacts/
+.agenthub/

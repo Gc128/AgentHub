@@ -613,6 +613,105 @@
   color: #64716a;
 }
 
+.message-error-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid #f0b8b3;
+  border-radius: 8px;
+  background: #fff5f4;
+  padding: 10px;
+  color: #8f2f28;
+  font-size: 12px;
+}
+
+.candidate-preview-card {
+  display: grid;
+  gap: 8px;
+}
+
+.candidate-preview-list {
+  display: grid;
+  max-height: min(30vh, 260px);
+  gap: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.candidate-preview-card .workspace-preview-action {
+  flex-wrap: wrap;
+  background: #ffffff;
+}
+
+.candidate-preview-card .workspace-preview-action > span:not(.ant-tag) {
+  flex: 1 1 150px;
+}
+
+.candidate-preview-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.workspace-preview-modal {
+  width: calc(100vw - 32px) !important;
+  max-width: 1440px;
+  padding-bottom: 0;
+}
+
+.workspace-preview-modal .ant-modal-content {
+  display: flex;
+  max-height: calc(100vh - 32px);
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  .workspace-preview-modal .ant-modal-content {
+    max-height: calc(100dvh - 32px);
+  }
+}
+
+.workspace-preview-modal .ant-modal-header,
+.workspace-preview-modal .ant-modal-footer {
+  flex: 0 0 auto;
+}
+
+.workspace-preview-modal .ant-modal-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.candidate-preview-modal .ant-modal-body {
+  display: flex;
+  height: calc(100vh - 168px);
+  min-height: 420px;
+  overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  .candidate-preview-modal .ant-modal-body {
+    height: calc(100dvh - 168px);
+  }
+}
+
+.candidate-live-preview-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid #ddd8cd;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.workspace-file-preview-modal .ant-tabs-content-holder {
+  min-height: 0;
+}
+
 .message-reply-preview,
 .composer-reply-preview {
   border-left: 3px solid #b8cbc5;
@@ -862,6 +961,114 @@
   word-break: break-word;
 }
 
+.candidate-manifest-card,
+.change-set-validation-summary {
+  border: 1px solid #e2ddd3;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.candidate-manifest-card > .message-artifact-action {
+  border: 0;
+  border-bottom: 1px solid #e2ddd3;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.candidate-manifest-files {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 10px 12px;
+  list-style: none;
+}
+
+.candidate-manifest-files li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.candidate-manifest-files code {
+  overflow: hidden;
+  color: #2f3b36;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-set-validation-summary {
+  display: grid;
+  gap: 12px;
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  padding: 12px;
+}
+
+.change-set-validation-summary section {
+  display: grid;
+  gap: 8px;
+}
+
+.change-set-validation-summary section + section {
+  border-top: 1px solid #ebe6dd;
+  padding-top: 12px;
+}
+
+.change-set-validation-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.change-set-validation-summary p,
+.change-set-validation-summary ul {
+  margin: 0;
+  color: #4f574f;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.change-set-validation-summary ul {
+  padding-left: 18px;
+}
+
+.preview-failure-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #efc1bc;
+  border-radius: 8px;
+  background: #fff7f6;
+  padding: 10px;
+  color: #7e312b;
+  font-size: 12px;
+}
+
+.preview-failure-item details summary {
+  cursor: pointer;
+  color: #696f68;
+}
+
+.preview-failure-item pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 8px 0 0;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 8px;
+  color: #4a504b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.preview-runtime-error {
+  border-left: 3px solid #df8f87;
+  padding-left: 8px;
+  color: #8f2f28 !important;
+}
+
 .message-diff-viewer {
   max-height: 180px;
   margin-top: 0;
@@ -1107,8 +1314,26 @@
   overflow: hidden;
 }
 
+.workspace-panel {
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+  overscroll-behavior: contain;
+}
+
 .panel-header {
   padding-bottom: 4px;
+}
+
+/*
+ * Workspace 右栏的顶部概览区必须保持内容高度。
+ * 文件和变更历史增多时由 workspace-panel 统一滚动，
+ * 不应让 Flex 容器压缩标题、状态卡或预览操作栏。
+ */
+.workspace-panel > .panel-header,
+.workspace-panel > .workspace-status-card,
+.workspace-panel > .workspace-preview-action {
+  flex: 0 0 auto;
 }
 
 .preview-card,
@@ -1132,6 +1357,7 @@
 
 .workspace-status-card {
   min-width: 0;
+  min-height: 68px;
   overflow: hidden;
 }
 
@@ -1155,6 +1381,7 @@
   color: #71766d;
   font-size: 12px;
   font-weight: 700;
+  line-height: 1.4;
 }
 
 .status-pill {
@@ -1415,7 +1642,7 @@
   font-size: 13px;
 }
 
-.workspace-preview-action > span {
+.workspace-preview-action > span:not(.ant-tag) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1433,13 +1660,14 @@
   flex-direction: column;
 }
 
+.workspace-candidate-section,
 .workspace-files-section {
   flex: 0 0 auto;
 }
 
 .workspace-change-section {
-  flex: 1 1 auto;
-  overflow: hidden;
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
 .workspace-section > .empty-artifacts {
@@ -1466,11 +1694,11 @@
   grid-auto-rows: max-content;
   gap: 8px;
   min-height: 0;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .workspace-change-list {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
 }
 
 .workspace-file-row,
@@ -1539,6 +1767,30 @@
   background: #ffffff;
 }
 
+.workspace-file-preview-modal .workspace-file-preview-frame {
+  display: block;
+  height: min(72vh, 720px);
+  min-height: 520px;
+}
+
+@supports (height: 100dvh) {
+  .workspace-file-preview-modal .workspace-file-preview-frame {
+    height: min(72dvh, 720px);
+  }
+}
+
+@media (max-height: 720px) {
+  .workspace-preview-modal {
+    width: calc(100vw - 24px) !important;
+  }
+
+  .candidate-preview-modal .ant-modal-body,
+  .workspace-file-preview-modal .workspace-file-preview-frame {
+    height: calc(100dvh - 190px);
+    min-height: 360px;
+  }
+}
+
 .workspace-modal-preview-frame {
   min-height: min(72vh, 720px);
 }
@@ -1559,9 +1811,46 @@
 
 .workspace-change-summary {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.workspace-change-summary > div:first-child {
+  min-width: 120px;
+  flex: 1 1 120px;
+}
+
+.workspace-change-actions {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.workspace-change-file {
+  min-width: 0;
+}
+
+.workspace-change-file > summary {
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: 6px;
+  background: #f7f5f0;
+  padding: 7px 8px;
+  color: #3f4843;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workspace-change-file > summary::marker {
+  color: #64716a;
 }
 
 .workspace-diff-viewer {
