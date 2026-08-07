@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
 from agenthub.config import get_settings
-from alembic import command
-from alembic.config import Config
 
 
 def test_fresh_database_upgrade_creates_current_schema(tmp_path, monkeypatch, request) -> None:

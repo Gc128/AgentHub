@@ -1,7 +1,6 @@
 """Create the trusted AgentHub schema from a clean database."""
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "20260806_0001"
