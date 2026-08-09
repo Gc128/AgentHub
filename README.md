@@ -41,7 +41,7 @@ AgentHub 是一个 React + FastAPI 的 IM 式多 Agent 开发协作平台。它�
 - SQLite/SQLModel 持久化、Alembic 基线，以及 React 的候选/正式 Workspace 分区 UI。
 - Mock Agent 只在 `USE_MOCK_AGENTS=true` 时启用，真实 Agent 失败不会自动切换。
 
-当前未实现 Codex CLI、Claude Code CLI、npm 动态构建或公开部署平台，简历不应声明这些能力。
+<!-- 当前未实现 Codex CLI、Claude Code CLI、npm 动态构建或公开部署平台，简历不应声明这些能力。 -->
 
 ## 技术栈
 
@@ -143,4 +143,4 @@ tests/                    pytest 测试
 .agenthub/preview-artifacts/  历史 Preview 产物（git ignored）
 ```
 
-详见 [技术设计](docs/tech-design.md)、[Demo 脚本](docs/demo-script.md)、[手工测试提示词](docs/manual-test-prompts.md) 和 [简历表述](docs/resume-notes.md)。
+<!-- 详见 [技术设计](docs/tech-design.md)、[Demo 脚本](docs/demo-script.md)、[手工测试提示词](docs/manual-test-prompts.md) 和 [简历表述](docs/resume-notes.md)。 -->
